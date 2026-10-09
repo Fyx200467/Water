@@ -1,0 +1,212 @@
+// PRD §3 后台管理 + §1.3 服务层数据模型
+// M5 起接入；本期先 schema 落地
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- PRD §3.1 用户 ----------
+
+model User {
+  id           String   @id @default(cuid())
+  openId       String?  @unique // 微信 / Apple 等
+  email        String?  @unique
+  phone        String?  @unique
+  passwordHash String?
+  nickname     String?
+  gender       String?  // male / female / other
+  weightKg     Float?
+  heightCm     Float?
+  age          Int?
+  activityLevel String? // low / medium / high
+  dailyGoalMl  Int      @default(2000)
+  avatarUrl    String?
+  pushToken    String?
+  osPlatform   String?  // ios / android
+  appVersion   String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  lastLoginAt  DateTime?
+
+  drinkRecords DrinkRecord[]
+  orders       Order[]
+  aiUsageLogs  AiUsageLog[]
+
+  @@index([openId])
+  @@index([phone])
+}
+
+// ---------- PRD §3.2 饮品库（后端动态下发）----------
+
+model Beverage {
+  id              String   @id @default(cuid())
+  category        String   // water / tea / coffee / milk / soup / alcohol
+  name            String
+  defaultMl       Int      @default(250)
+  hydrationRatio  Float    @default(1.0) // 有效水分折算比例
+  iconUrl         String?
+  memberOnly      Boolean  @default(false)
+  sort            Int      @default(0)
+  isPublished     Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  drinkRecords DrinkRecord[]
+
+  @@index([category, isPublished])
+}
+
+// ---------- PRD §2.3 饮水记录（同步队列）----------
+
+model DrinkRecord {
+  id           String   @id @default(cuid())
+  clientId     String   @unique // 客户端 UUID，去重
+  userId       String
+  beverageId   String?
+  beverageCategory String // 冗余，便于历史查询
+  beverageName String
+  volumeMl     Int
+  effectiveMl  Int
+  drankAt      DateTime
+  deleted      Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  beverage Beverage? @relation(fields: [beverageId], references: [id])
+
+  @@index([userId, drankAt])
+  @@index([deleted])
+}
+
+// ---------- PRD §3.3 角色素材 ----------
+
+model CharacterAsset {
+  id           String   @id @default(cuid())
+  code         String   @unique // llama / panda / fox ...
+  name         String
+  memberOnly   Boolean  @default(false)
+  assetUrl     String
+  thumbnailUrl String?
+  sort         Int      @default(0)
+  isPublished  Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([isPublished, sort])
+}
+
+// 每日可选角色池配置（PRD §2.2 每日随机可选动物列表）
+model DailyCharacterPool {
+  id           String   @id @default(cuid())
+  characterId  String
+  activeDate   DateTime
+  createdAt    DateTime @default(now())
+
+  @@unique([characterId, activeDate])
+}
+
+// ---------- PRD §3.4 会员套餐 / 订单 ----------
+
+model MembershipPlan {
+  id           String   @id @default(cuid())
+  code         String   @unique // monthly / yearly / lifetime
+  name         String
+  priceCents   Int
+  durationDays Int     // 0 表示终身
+  benefits     Json     // MemberBenefits 配置
+  isPublished  Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  orders Order[]
+}
+
+model Order {
+  id           String   @id @default(cuid())
+  userId       String
+  planId       String
+  amountCents  Int
+  currency     String   @default("CNY")
+  status       String   @default("pending") // pending / paid / cancelled / refunded
+  paidAt       DateTime?
+  expireAt     DateTime?
+  externalTxId String?  // Apple IAP / Google Play order id
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan MembershipPlan @relation(fields: [planId], references: [id])
+
+  @@index([userId, status])
+  @@index([status, createdAt])
+}
+
+// ---------- PRD §3.5 数据运营 ----------
+
+model DailyUserStat {
+  id              String  @id @default(cuid())
+  userId          String
+  date            DateTime
+  totalEffectiveMl Int
+  totalVolumeMl   Int
+  goalMl          Int
+  punchCount      Int
+  isComplete      Boolean
+  createdAt       DateTime @default(now())
+
+  @@unique([userId, date])
+  @@index([date, isComplete])
+}
+
+// ---------- PRD §3.6 AI 后台 ----------
+
+model AiConfig {
+  id            String   @id @default(cuid())
+  provider      String   // openai / doubao / qwen / deepseek
+  apiKey        String
+  baseUrl       String?
+  model         String
+  rateLimitPerMin Int   @default(60)
+  styleTemplate String?  // 治愈风 / 极简风
+  isEnabled     Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model AiUsageLog {
+  id           String   @id @default(cuid())
+  userId       String
+  feature      String   // daily_report / personalized_advice / recognize_beverage / quote / weekly_diagnosis
+  promptTokens Int      @default(0)
+  completionTokens Int  @default(0)
+  latencyMs    Int
+  costCents    Int      @default(0)
+  isSuccess    Boolean
+  error        String?
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, feature, createdAt])
+  @@index([createdAt])
+}
+
+// ---------- 通知推送 token ----------
+
+model PushToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String
+  platform  String   // apns / fcm / huawei / xiaomi ...
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, platform, token])
+}

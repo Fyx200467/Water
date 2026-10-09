@@ -1,0 +1,58 @@
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Flutter / Dart
+app/.dart_tool/
+app/.packages
+app/.flutter_plugins
+app/.flutter_plugins-dependencies
+app/build/
+**/.dart_tool/
+**/build/
+**/.fvm/
+
+# iOS
+app/ios/Pods/
+app/ios/.symlinks/
+app/ios/Flutter/ephemeral/
+app/ios/Flutter/flutter_export_environment.sh
+app/ios/Flutter/Generated.xcconfig
+app/ios/Flutter/Flutter.podspec
+app/ios/**/*.xcuserstate
+app/ios/**/*.xcworkspace/xcuserdata/
+
+# Android
+app/android/.gradle/
+app/android/local.properties
+app/android/captures/
+app/android/key.properties
+app/android/app/release/
+*.keystore
+
+# Node
+server/node_modules/
+server/dist/
+server/.env
+server/.env.local
+admin/node_modules/
+admin/dist/
+admin/.env
+
+# Prisma
+server/prisma/migrations/dev/
+
+# Docker
+*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Plans / internal docs (already in repo, but .trae cache)
+.trae/cache/
