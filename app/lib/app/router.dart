@@ -1,22 +1,43 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../features/home/home_screen.dart';
 import '../features/home/providers/home_providers.dart';
 import '../features/onboarding/onboarding_screen.dart';
+import '../features/onboarding/welcome_screen.dart';
+import '../features/settings/settings_screen.dart';
+import '../features/stats/stats_screen.dart';
+
+/// 将 Riverpod 状态变化桥接到 GoRouter 的 refreshListenable
+class _RouterRefreshNotifier extends ChangeNotifier {
+  void fire() => notifyListeners();
+}
 
 final routerProvider = Provider<GoRouter>((ref) {
+  final refresh = _RouterRefreshNotifier();
+  ref.listen(profileProvider, (_, __) => refresh.fire());
+  ref.onDispose(refresh.dispose);
+
   return GoRouter(
     initialLocation: '/',
-    redirect: (context, state) async {
+    refreshListenable: refresh,
+    redirect: (context, state) {
       final profile = ref.read(profileProvider);
-      if (profile == null && state.matchedLocation != '/onboarding') {
-        return '/onboarding';
+      final loc = state.matchedLocation;
+      // print('REDIRECT: loc=$loc profile=$profile');
+      if (profile != null) {
+        if (loc == '/welcome' || loc == '/onboarding') return '/';
+        return null;
       }
-      return null;
+      if (loc == '/welcome' || loc == '/onboarding') return null;
+      return '/welcome';
     },
     routes: [
+      GoRoute(
+        path: '/welcome',
+        builder: (context, state) => const WelcomeScreen(),
+      ),
       GoRoute(
         path: '/onboarding',
         builder: (context, state) => const OnboardingScreen(),
@@ -25,37 +46,14 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/',
         builder: (context, state) => const HomeScreen(),
       ),
-      // M3 起接通以下路由
       GoRoute(
         path: '/stats',
-        builder: (context, state) => const _ComingSoonScreen(title: '数据统计'),
+        builder: (context, state) => const StatsScreen(),
       ),
       GoRoute(
         path: '/settings',
-        builder: (context, state) => const _ComingSoonScreen(title: '设置'),
+        builder: (context, state) => const SettingsScreen(),
       ),
     ],
   );
 });
-
-class _ComingSoonScreen extends StatelessWidget {
-  const _ComingSoonScreen({required this.title});
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(title)),
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.construction, size: 80),
-            const SizedBox(height: 12),
-            Text('$title · M3 起接入', style: Theme.of(context).textTheme.titleLarge),
-          ],
-        ),
-      ),
-    );
-  }
-}

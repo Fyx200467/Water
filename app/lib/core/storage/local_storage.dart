@@ -19,16 +19,13 @@ class LocalStorage {
   LocalStorage._({
     required this.prefs,
     Database? db,
-    bool memoryMode = false,
-  })  : _db = db,
-        _memoryMode = memoryMode;
+  }) : _db = db;
 
   static const String _dbName = 'water_llama.db';
   static const int _dbVersion = 1;
 
   late final SharedPreferences prefs;
   final Database? _db;
-  final bool _memoryMode;
 
   bool get _hasDb => _db != null;
 
@@ -37,13 +34,15 @@ class LocalStorage {
   static const String _kDailyAnimalKey = 'daily_animal_id_';
   static const String _kLastResetDayKey = 'last_reset_day';
   static const String _kEntriesPrefix = 'entries_';
+  static const String _kPreferredUnitKey = 'preferred_unit';
+  static const String _kWelcomeSeenKey = 'welcome_seen';
 
   static Future<LocalStorage> init() async {
     final prefs = await SharedPreferences.getInstance();
     try {
       if (kIsWeb) {
         // Web 端无法开 SQLite，降级到 prefs-only
-        return LocalStorage._(prefs: prefs, memoryMode: true);
+        return LocalStorage._(prefs: prefs);
       }
       // Desktop / Mobile 走正规 sqflite
       // ignore: deprecated_member_use
@@ -58,7 +57,7 @@ class LocalStorage {
     } catch (e) {
       // ignore: avoid_print
       print('[LocalStorage] SQLite unavailable, falling back to prefs-only: $e');
-      return LocalStorage._(prefs: prefs, memoryMode: true);
+      return LocalStorage._(prefs: prefs);
     }
   }
 
@@ -109,6 +108,25 @@ class LocalStorage {
 
   Future<void> saveMember(MemberState state) async {
     await prefs.setString(_kMemberKey, _encodeMap(state.toMap()));
+  }
+
+  // ---------- 单位偏好（首次启动选择） ----------
+
+  /// 返回 'ml' 或 'oz'，未设置返回 null（首次启动）
+  String? loadPreferredUnit() {
+    return prefs.getString(_kPreferredUnitKey);
+  }
+
+  Future<void> savePreferredUnit(String unit) async {
+    await prefs.setString(_kPreferredUnitKey, unit);
+  }
+
+  // ---------- 欢迎页已看标记（首次启动控制） ----------
+
+  bool hasSeenWelcome() => prefs.getBool(_kWelcomeSeenKey) ?? false;
+
+  Future<void> markWelcomeSeen() async {
+    await prefs.setBool(_kWelcomeSeenKey, true);
   }
 
   // ---------- 每日动物选择 ----------
@@ -274,6 +292,17 @@ class LocalStorage {
       await prefs.setString('$_kEntriesPrefix$_storeKey',
           jsonEncode(all.map((e) => e.toMap()).toList()));
     }
+  }
+
+  // ---------- 清除数据 ----------
+
+  /// PRD §2.8 清除全部本地数据（设置页入口）
+  /// 饮水记录 + 档案 + 会员 + 提醒/音效/主题等全部偏好
+  Future<void> clearAllData() async {
+    if (_hasDb) {
+      await _db!.delete('drink_entries');
+    }
+    await prefs.clear();
   }
 
   // ---------- 内部工具 ----------

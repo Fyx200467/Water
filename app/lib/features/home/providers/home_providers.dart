@@ -4,6 +4,7 @@ import '../../../core/storage/providers.dart';
 import '../../../shared/models/animal_character.dart';
 import '../../../shared/models/drink_entry.dart';
 import '../../../shared/models/member_state.dart';
+import '../../../shared/models/preferred_unit.dart';
 import '../../../shared/models/user_profile.dart';
 import '../../drink/services/hydration_calculator.dart';
 
@@ -13,8 +14,9 @@ final profileProvider = StateNotifierProvider<ProfileNotifier, UserProfile?>((re
 });
 
 class ProfileNotifier extends StateNotifier<UserProfile?> {
-  ProfileNotifier(this.ref) : super(null) {
-    _load();
+  ProfileNotifier(this.ref, {UserProfile? initial}) : super(initial) {
+    // 仅当未预加载时才异步读取（避免覆盖 main.dart 预加载的初始值）
+    if (initial == null) _load();
   }
   final Ref ref;
 
@@ -63,6 +65,31 @@ class MemberNotifier extends StateNotifier<MemberState> {
     final storage = await ref.read(localStorageProvider.future);
     await storage.saveMember(next);
     state = next;
+  }
+}
+
+/// 单位偏好（首次启动在欢迎页选择）
+final preferredUnitProvider =
+    StateNotifierProvider<PreferredUnitNotifier, PreferredUnit>((ref) {
+  return PreferredUnitNotifier(ref);
+});
+
+class PreferredUnitNotifier extends StateNotifier<PreferredUnit> {
+  PreferredUnitNotifier(this.ref) : super(PreferredUnit.ml) {
+    _load();
+  }
+  final Ref ref;
+
+  Future<void> _load() async {
+    final storage = await ref.read(localStorageProvider.future);
+    final raw = storage.loadPreferredUnit();
+    state = raw == 'oz' ? PreferredUnit.oz : PreferredUnit.ml;
+  }
+
+  Future<void> select(PreferredUnit unit) async {
+    final storage = await ref.read(localStorageProvider.future);
+    await storage.savePreferredUnit(unit.name);
+    state = unit;
   }
 }
 
