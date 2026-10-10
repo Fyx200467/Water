@@ -104,6 +104,33 @@ final streakProvider = FutureProvider<StreakInfo>((ref) async {
   return StreakCalculator.compute(byDay, _goalOf(ref), today);
 });
 
+/// 近 365 天每日聚合（key = 当日零点），供历史页周/月图表本地聚合
+final yearDailyProvider = FutureProvider<Map<DateTime, DayTotal>>((ref) async {
+  final storage = await ref.read(localStorageProvider.future);
+  final today = DateTime.now();
+  final start = DateTime(today.year, today.month, today.day).subtract(364.days);
+  final entries = await storage.loadEntriesForRange(
+    start,
+    DateTime(today.year, today.month, today.day + 1),
+  );
+  final goalMl = _goalOf(ref);
+  final byDay = <DateTime, DayTotal>{};
+  for (final e in entries) {
+    final d = DateTime(e.drankAt.year, e.drankAt.month, e.drankAt.day);
+    final prev = byDay[d];
+    final eff = (prev?.effectiveMl ?? 0) + e.effectiveMl;
+    final vol = (prev?.volumeMl ?? 0) + e.volumeMl;
+    byDay[d] = DayTotal(
+      day: d,
+      effectiveMl: eff,
+      volumeMl: vol,
+      count: (prev?.count ?? 0) + 1,
+      complete: eff >= goalMl,
+    );
+  }
+  return byDay;
+});
+
 /// 供 stats 模块使用的日期便捷扩展（命名导出，跨库可见）
 extension StatsDayX on int {
   Duration get days => Duration(days: this);

@@ -33,7 +33,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen>
 
   static const _accent = Color(0xFF4DB8D8);
 
-  static const _animals = <String>['llama', 'panda', 'tiger'];
+  static const _animals = <String>['octopus', 'panda', 'llama'];
 
   static const _tInitialEnd = 16.0; // 初始轮换结束（每只 5s）
   static const _tCarouselEnd = 25.0; // 轮播结束 → 礼炮
