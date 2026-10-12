@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <g transform="translate(17.5 17.5) scale(0.65)">
+  <g transform="translate(18.75 24.375) scale(0.625)">
   <defs>
     <clipPath id="bgc">
       <path d="M24 5 L76 5 Q82 5 82 11 C82 38 75.3 55 75.3 78 C75.3 85 78 83 78 88 Q78 93 73 93 L27 93 Q22 93 22 88 C22 83 24.7 85 24.7 78 C24.7 55 18.5 38 18 11 Q18 5 24 5 Z"/>

@@ -131,6 +131,55 @@ final yearDailyProvider = FutureProvider<Map<DateTime, DayTotal>>((ref) async {
   return byDay;
 });
 
+/// 近 7 天（含今天），按饮品名筛选（'全部'=不过滤）
+/// 用于历史页天 Tab 柱形图筛选
+final filteredLast7DaysProvider =
+    FutureProvider.family<List<DayTotal>, String>((ref, beverageFilter) async {
+  final storage = await ref.read(localStorageProvider.future);
+  final today = DateTime.now();
+  final start = DateTime(today.year, today.month, today.day).subtract(6.days);
+  final entries = await storage.loadEntriesForRange(
+    start,
+    DateTime(today.year, today.month, today.day + 1),
+  );
+  final filtered = beverageFilter == '全部'
+      ? entries
+      : entries.where((e) => e.beverageName == beverageFilter).toList();
+  final map = _aggregate(filtered, start, 7, _goalOf(ref));
+  return [for (var i = 0; i < 7; i++) map[i]!];
+});
+
+/// 近 365 天每日聚合（按饮品名筛选），供历史页周/月柱形图筛选
+final filteredYearDailyProvider =
+    FutureProvider.family<Map<DateTime, DayTotal>, String>((ref, beverageFilter) async {
+  final storage = await ref.read(localStorageProvider.future);
+  final today = DateTime.now();
+  final start = DateTime(today.year, today.month, today.day).subtract(364.days);
+  final entries = await storage.loadEntriesForRange(
+    start,
+    DateTime(today.year, today.month, today.day + 1),
+  );
+  final filtered = beverageFilter == '全部'
+      ? entries
+      : entries.where((e) => e.beverageName == beverageFilter).toList();
+  final goalMl = _goalOf(ref);
+  final byDay = <DateTime, DayTotal>{};
+  for (final e in filtered) {
+    final d = DateTime(e.drankAt.year, e.drankAt.month, e.drankAt.day);
+    final prev = byDay[d];
+    final eff = (prev?.effectiveMl ?? 0) + e.effectiveMl;
+    final vol = (prev?.volumeMl ?? 0) + e.volumeMl;
+    byDay[d] = DayTotal(
+      day: d,
+      effectiveMl: eff,
+      volumeMl: vol,
+      count: (prev?.count ?? 0) + 1,
+      complete: eff >= goalMl,
+    );
+  }
+  return byDay;
+});
+
 /// 供 stats 模块使用的日期便捷扩展（命名导出，跨库可见）
 extension StatsDayX on int {
   Duration get days => Duration(days: this);

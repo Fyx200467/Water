@@ -1,9 +1,8 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../home/confetti_rain.dart';
 import '../home/providers/home_providers.dart';
 import 'unit_selection_sheet.dart';
 import 'widgets/animal_silhouette.dart';
@@ -27,7 +26,6 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen>
     with TickerProviderStateMixin {
   late final AnimationController _master;
   late final AnimationController _carousel; // 横向轮播
-  late final AnimationController _confettiForever;
   bool _confettiStarted = false;
   bool _carouselActive = false;
 
@@ -50,10 +48,6 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen>
       vsync: this,
       duration: const Duration(seconds: 2), // 每只 2s
     );
-    _confettiForever = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 4),
-    );
 
     _master.addListener(_onMasterTick);
   }
@@ -67,7 +61,8 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen>
     if (t >= _tCarouselEnd && !_confettiStarted) {
       _confettiStarted = true;
       _carousel.stop();
-      _confettiForever.repeat();
+      // ConfettiRain widget 内部自带 controller，只需 setState 让 active=true
+      setState(() {});
     }
   }
 
@@ -76,7 +71,6 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen>
     _master.removeListener(_onMasterTick);
     _master.dispose();
     _carousel.dispose();
-    _confettiForever.dispose();
     super.dispose();
   }
 
@@ -90,17 +84,9 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen>
       backgroundColor: Colors.white,
       body: Stack(
         children: [
-          // 1. 持续全屏礼炮雨
+          // 1. 持续全屏礼炮雨（复用 confetti_rain.dart 的 ConfettiRain widget）
           Positioned.fill(
-            child: AnimatedBuilder(
-              animation: _confettiForever,
-              builder: (ctx, _) => CustomPaint(
-                painter: _ConfettiRainPainter(
-                  t: _confettiForever.value,
-                  active: _confettiStarted,
-                ),
-              ),
-            ),
+            child: ConfettiRain(active: _confettiStarted),
           ),
 
           // 2. 主内容层
@@ -346,84 +332,4 @@ class _LangChip extends StatelessWidget {
       ],
     );
   }
-}
-
-// ============== 持续礼炮雨（缓慢下落） ==============
-
-class _ConfettiRainPainter extends CustomPainter {
-  _ConfettiRainPainter({required this.t, required this.active});
-
-  final double t;
-  final bool active;
-
-  static final _rng = math.Random(42);
-  static final _particles = List.generate(55, (_) => _RainParticle(_rng));
-
-  static const _colors = [
-    Color(0xFFFF6B6B),
-    Color(0xFFFFA94D),
-    Color(0xFFFFD93D),
-    Color(0xFF6BCB77),
-    Color(0xFF4D96FF),
-    Color(0xFF9B5DE5),
-    Color(0xFFF15BB5),
-    Color(0xFF00BBF9),
-  ];
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (!active) return;
-
-    final h = size.height;
-    final w = size.width;
-
-    for (final p in _particles) {
-      final localT = ((t + p.phase) % 1.0);
-      final y = localT * (h + 60) - 20;
-      final drift = math.sin(localT * math.pi * 3 + p.driftPhase) * p.driftAmp;
-      final x = (p.baseX * w) + drift;
-      final rot = p.spin * (localT * math.pi * 2 + p.spinOffset);
-      final color = _colors[p.colorIdx];
-      final alpha = localT < 0.05
-          ? localT / 0.05
-          : (localT > 0.95 ? (1 - localT) / 0.05 : 1.0);
-
-      canvas.save();
-      canvas.translate(x, y);
-      canvas.rotate(rot);
-      final paint = Paint()..color = color.withValues(alpha: alpha.clamp(0.0, 1.0));
-      final rect = Rect.fromCenter(
-        center: Offset.zero,
-        width: p.size,
-        height: p.size * 0.5,
-      );
-      canvas.drawRect(rect, paint);
-      canvas.restore();
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _ConfettiRainPainter old) =>
-      old.t != t || old.active != active;
-}
-
-class _RainParticle {
-  _RainParticle(math.Random r)
-      : phase = r.nextDouble(),
-        baseX = r.nextDouble(),
-        driftAmp = 8 + r.nextDouble() * 22,
-        driftPhase = r.nextDouble() * math.pi * 2,
-        spin = (r.nextDouble() - 0.5) * 3,
-        spinOffset = r.nextDouble() * math.pi * 2,
-        size = 6 + r.nextDouble() * 10,
-        colorIdx = r.nextInt(8);
-
-  final double phase;
-  final double baseX;
-  final double driftAmp;
-  final double driftPhase;
-  final double spin;
-  final double spinOffset;
-  final double size;
-  final int colorIdx;
 }

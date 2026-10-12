@@ -175,3 +175,225 @@ class ThemeModeNotifier extends StateNotifier<ThemeMode> {
     state = mode;
   }
 }
+
+// ============================================================
+// 其他通知开关（饮水回顾 / 节假日 / 限时挑战 / 饮水提示 / 特别优惠）
+// 持久化到 SharedPreferences，参考 soundEnabledProvider 写法
+// ============================================================
+
+/// 你的进度回顾通知
+final progressReviewEnabledProvider =
+    StateNotifierProvider<NotificationToggleNotifier, bool>((ref) {
+  return NotificationToggleNotifier(ref, 'notif_progress_review', true);
+});
+
+/// 节假日通知
+final holidayEnabledProvider =
+    StateNotifierProvider<NotificationToggleNotifier, bool>((ref) {
+  return NotificationToggleNotifier(ref, 'notif_holiday', true);
+});
+
+/// 限时挑战通知
+final challengeEnabledProvider =
+    StateNotifierProvider<NotificationToggleNotifier, bool>((ref) {
+  return NotificationToggleNotifier(ref, 'notif_challenge', true);
+});
+
+/// 饮水提示通知
+final drinkTipEnabledProvider =
+    StateNotifierProvider<NotificationToggleNotifier, bool>((ref) {
+  return NotificationToggleNotifier(ref, 'notif_drink_tip', true);
+});
+
+/// 特别优惠通知
+final specialOfferEnabledProvider =
+    StateNotifierProvider<NotificationToggleNotifier, bool>((ref) {
+  return NotificationToggleNotifier(ref, 'notif_special_offer', true);
+});
+
+/// 通用通知开关 Notifier（持久化到 SharedPreferences）
+class NotificationToggleNotifier extends StateNotifier<bool> {
+  NotificationToggleNotifier(this.ref, this._key, this._defaultValue)
+      : super(_defaultValue) {
+    _load();
+  }
+  final Ref ref;
+  final String _key;
+  final bool _defaultValue;
+
+  Future<void> _load() async {
+    final storage = await ref.read(localStorageProvider.future);
+    state = storage.prefs.getBool(_key) ?? _defaultValue;
+  }
+
+  Future<void> set(bool v) async {
+    final storage = await ref.read(localStorageProvider.future);
+    await storage.prefs.setBool(_key, v);
+    state = v;
+  }
+}
+
+// ============================================================
+// 提醒模式与高级设置（智能/自定义 Tab、间隔、杯子、声音、星期）
+// ============================================================
+
+/// 提醒模式：'smart' 智能提醒 / 'custom' 自定义提醒
+final reminderModeProvider =
+    StateNotifierProvider<ReminderModeNotifier, String>((ref) {
+  return ReminderModeNotifier(ref);
+});
+
+class ReminderModeNotifier extends StateNotifier<String> {
+  ReminderModeNotifier(this.ref) : super('smart') {
+    _load();
+  }
+  final Ref ref;
+  static const _k = 'reminder_mode';
+
+  Future<void> _load() async {
+    final storage = await ref.read(localStorageProvider.future);
+    state = storage.prefs.getString(_k) ?? 'smart';
+  }
+
+  Future<void> set(String v) async {
+    final storage = await ref.read(localStorageProvider.future);
+    await storage.prefs.setString(_k, v);
+    state = v;
+  }
+}
+
+/// 高级设置开关：达到目标停止
+final stopAtGoalEnabledProvider =
+    StateNotifierProvider<NotificationToggleNotifier, bool>((ref) {
+  return NotificationToggleNotifier(ref, 'notif_stop_at_goal', true);
+});
+
+/// 高级设置开关：饮水进度标题
+final progressTitleEnabledProvider =
+    StateNotifierProvider<NotificationToggleNotifier, bool>((ref) {
+  return NotificationToggleNotifier(ref, 'notif_progress_title', true);
+});
+
+/// 高级设置开关：激励性标题
+final motivationalTitleEnabledProvider =
+    StateNotifierProvider<NotificationToggleNotifier, bool>((ref) {
+  return NotificationToggleNotifier(ref, 'notif_motivational_title', false);
+});
+
+/// 高级设置开关：饮水事实
+final waterFactsEnabledProvider =
+    StateNotifierProvider<NotificationToggleNotifier, bool>((ref) {
+  return NotificationToggleNotifier(ref, 'notif_water_facts', true);
+});
+
+/// 高级设置开关：快速添加
+final quickAddEnabledProvider =
+    StateNotifierProvider<NotificationToggleNotifier, bool>((ref) {
+  return NotificationToggleNotifier(ref, 'notif_quick_add', true);
+});
+
+/// 高级设置开关：贴纸
+final stickersEnabledProvider =
+    StateNotifierProvider<NotificationToggleNotifier, bool>((ref) {
+  return NotificationToggleNotifier(ref, 'notif_stickers', true);
+});
+
+/// 智能提醒间隔（分钟），默认 120
+final notificationIntervalMinutesProvider =
+    StateNotifierProvider<IntSettingNotifier, int>((ref) {
+  return IntSettingNotifier(ref, 'notif_interval_min', 120);
+});
+
+/// 快速添加默认杯子容量（ml），默认 250
+final quickAddCupMlProvider =
+    StateNotifierProvider<IntSettingNotifier, int>((ref) {
+  return IntSettingNotifier(ref, 'quick_add_cup_ml', 250);
+});
+
+/// 提醒音效 id，默认 'bamboo'
+final reminderSoundProvider =
+    StateNotifierProvider<StringSettingNotifier, String>((ref) {
+  return StringSettingNotifier(ref, 'reminder_sound', 'bamboo');
+});
+
+/// 提醒生效的星期（7 位 `List<bool>`，索引 0=周日）
+final reminderWeekdaysProvider =
+    StateNotifierProvider<WeekdaysNotifier, List<bool>>((ref) {
+  return WeekdaysNotifier(ref);
+});
+
+/// 通用 int 设置 Notifier（持久化）
+class IntSettingNotifier extends StateNotifier<int> {
+  IntSettingNotifier(this.ref, this._key, this._defaultValue)
+      : super(_defaultValue) {
+    _load();
+  }
+  final Ref ref;
+  final String _key;
+  final int _defaultValue;
+
+  Future<void> _load() async {
+    final storage = await ref.read(localStorageProvider.future);
+    state = storage.prefs.getInt(_key) ?? _defaultValue;
+  }
+
+  Future<void> set(int v) async {
+    final storage = await ref.read(localStorageProvider.future);
+    await storage.prefs.setInt(_key, v);
+    state = v;
+  }
+}
+
+/// 通用 String 设置 Notifier（持久化）
+class StringSettingNotifier extends StateNotifier<String> {
+  StringSettingNotifier(this.ref, this._key, this._defaultValue)
+      : super(_defaultValue) {
+    _load();
+  }
+  final Ref ref;
+  final String _key;
+  final String _defaultValue;
+
+  Future<void> _load() async {
+    final storage = await ref.read(localStorageProvider.future);
+    state = storage.prefs.getString(_key) ?? _defaultValue;
+  }
+
+  Future<void> set(String v) async {
+    final storage = await ref.read(localStorageProvider.future);
+    await storage.prefs.setString(_key, v);
+    state = v;
+  }
+}
+
+/// 星期几选择 Notifier（7 位 `List<bool>`，序列化为 "1,1,1,1,1,0,0"）
+class WeekdaysNotifier extends StateNotifier<List<bool>> {
+  WeekdaysNotifier(this.ref) : super(List.filled(7, true)) {
+    _load();
+  }
+  final Ref ref;
+  static const _k = 'reminder_weekdays';
+
+  Future<void> _load() async {
+    final storage = await ref.read(localStorageProvider.future);
+    final raw = storage.prefs.getString(_k);
+    if (raw == null || raw.isEmpty) {
+      state = List.filled(7, true);
+      return;
+    }
+    final parts = raw.split(',');
+    state = List<bool>.generate(
+      7,
+      (i) => i < parts.length && parts[i] == '1',
+      growable: false,
+    );
+  }
+
+  Future<void> toggle(int dayIndex) async {
+    final next = List<bool>.from(state);
+    next[dayIndex] = !next[dayIndex];
+    state = next;
+    final storage = await ref.read(localStorageProvider.future);
+    await storage.prefs.setString(_k, next.map((b) => b ? '1' : '0').join(','));
+  }
+}

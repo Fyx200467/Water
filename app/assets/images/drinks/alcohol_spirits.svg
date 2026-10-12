@@ -1,4 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <g transform="translate(11.54 6.93) scale(0.7692)">
   <defs>
     <linearGradient id="glassS" x1="0" y1="0" x2="1" y2="0">
       <stop offset="0%" stop-color="#F5F5F5" stop-opacity="0.85"/>
@@ -22,4 +23,5 @@
   <rect x="52" y="58" width="9" height="9" rx="2" fill="#FFFFFF" opacity="0.6" transform="rotate(-20 56 62)"/>
   <!-- 高光 -->
   <path d="M30 44 L32 44 L31 80 L29 80 Z" fill="#FFFFFF" opacity="0.5"/>
+  </g>
 </svg>

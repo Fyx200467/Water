@@ -1,13 +1,18 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../shared/models/beverage.dart';
 import '../../shared/widgets/drink_illustration.dart';
+import '../characters/character_screen.dart';
+import '../characters/current_character_provider.dart';
 import '../drink/screens/add_drink_screen.dart';
 import '../onboarding/widgets/animal_silhouette.dart';
 import '../stats/history_screen.dart';
 import '../stats/providers/stats_providers.dart';
+import 'confetti_rain.dart';
 import 'providers/home_providers.dart';
 
 /// PRD §2.2 首页（对标原版 WaterLlama 主页）
@@ -29,6 +34,34 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   // 品牌色规范
   static const _brandCyan = Color(0xFF4DB8D8);
   static const _hintGray = Color(0xFF8E8E93);
+
+  /// 角色是否处于"点亮态"：完成当日目标时自动触发，持续 2 秒后自动恢复
+  /// 用户点击角色（已完成目标的前提下）可再次触发点亮 2 秒
+  bool _isLit = false;
+  Timer? _litTimer;
+
+  @override
+  void dispose() {
+    _litTimer?.cancel();
+    super.dispose();
+  }
+
+  /// 触发角色点亮：取消上一次计时器，进入点亮态，2 秒后自动恢复
+  void _triggerLit() {
+    _litTimer?.cancel();
+    setState(() => _isLit = true);
+    _litTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _isLit = false);
+    });
+  }
+
+  /// 根据当前时间返回"星期一"~"星期日"（用于完成态文案"完美星期X！"）
+  String _weekdayName() {
+    const names = [
+      '星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日',
+    ];
+    return names[DateTime.now().weekday - 1];
+  }
 
   /// 底部水平滚动饮品快捷栏：水 / +98物品胶囊 / 羊驼卢娜 / 各类饮品（锁定的带锁）
   Widget _buildDrinkBar() {
@@ -62,7 +95,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           color: const Color(0xFF8B6F47),
           bg: const Color(0xFFF5E6D3),
           badgeIcon: Icons.refresh,
-          onTap: () {},
+          onTap: () => Navigator.push(
+            context,
+            PageRouteBuilder(
+              pageBuilder: (_, __, ___) => CharacterScreen(),
+              // 从底部滑入的转场动画（不可拖拽关闭，只能点 X 按钮返回）
+              transitionsBuilder: (_, animation, __, child) {
+                final offset = Tween<Offset>(
+                  begin: const Offset(0, 1),
+                  end: Offset.zero,
+                ).animate(CurvedAnimation(
+                  parent: animation,
+                  curve: Curves.easeOutCubic,
+                ));
+                return SlideTransition(position: offset, child: child);
+              },
+              transitionDuration: const Duration(milliseconds: 350),
+            ),
+          ),
         ),
         // 4. 各类饮品
         for (final b in drinks)
@@ -85,6 +135,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Widget build(BuildContext context) {
     final progress = ref.watch(dailyProgressProvider);
     final streak = ref.watch(streakProvider);
+    final currentChar = ref.watch(currentCharacterProvider);
+
+    // 监听 dailyProgress：从未完成→完成时自动触发点亮 + 礼炮
+    ref.listen(dailyProgressProvider, (prev, next) {
+      if (prev?.isComplete == false && next.isComplete) {
+        _triggerLit();
+      }
+    });
+
+    // 仅当已完成目标且处于点亮态时显示彩色插画
+    final isLit = _isLit && progress.isComplete;
+    final percent = (progress.progress * 100).round();
+    final done = progress.isComplete;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -104,40 +167,65 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         children: [
                           // 给悬浮按钮留出空间
                           const SizedBox(height: 64),
-                          // 1. 核心数据：大字饮水量 + 进度百分比
+                          // 1. 核心数据：完成时显示"完美星期X！"+ml·%目标；未完成时显示原数字
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 24),
                             child: Column(
                               children: [
-                                Text(
-                                  '${progress.totalEffectiveMl}ml',
-                                  style: const TextStyle(
-                                    color: _brandCyan,
-                                    fontSize: 56,
-                                    fontWeight: FontWeight.w800,
-                                    height: 1.1,
+                                if (done) ...[
+                                  // 完成态：庆祝文案（星期X 取自系统时间）
+                                  Text(
+                                    '完美${_weekdayName()}！',
+                                    style: const TextStyle(
+                                      color: _brandCyan,
+                                      fontSize: 40,
+                                      fontWeight: FontWeight.w800,
+                                      height: 1.1,
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  '进水量 · ${(progress.progress * 100).round()}% 的目标',
-                                  style: const TextStyle(color: _hintGray, fontSize: 14),
-                                ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '${progress.totalEffectiveMl}ml 进水量 · $percent% 的目标',
+                                    style: const TextStyle(
+                                        color: _hintGray, fontSize: 14),
+                                  ),
+                                ] else ...[
+                                  // 未完成态：原版数据文案
+                                  Text(
+                                    '${progress.totalEffectiveMl}ml',
+                                    style: const TextStyle(
+                                      color: _brandCyan,
+                                      fontSize: 56,
+                                      fontWeight: FontWeight.w800,
+                                      height: 1.1,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '进水量 · $percent% 的目标',
+                                    style: const TextStyle(
+                                        color: _hintGray, fontSize: 14),
+                                  ),
+                                ],
                               ],
                             ),
                           ),
                           const SizedBox(height: 12),
                           // 2. 中央：大羊驼剪影（弹性区域撑开）
+                          // 已完成目标时可点击重新点亮 2 秒
                           Expanded(
                             child: Center(
-                              child: AnimalSilhouette(
-                                animalId: 'llama',
-                                fillRatio: progress.progress.clamp(0.0, 1.0),
-                                accentColor: _brandCyan,
-                                solidFillColor: _brandCyan,
-                                size: 280,
-                                // 目标未完成时只显示轮廓剪影，完成后点亮全彩插画
-                                fullArt: progress.isComplete,
+                              child: GestureDetector(
+                                onTap: done ? _triggerLit : null,
+                                child: AnimalSilhouette(
+                                  animalId: currentChar,
+                                  fillRatio: progress.progress.clamp(0.0, 1.0),
+                                  accentColor: _brandCyan,
+                                  solidFillColor: _brandCyan,
+                                  size: 280,
+                                  // 点亮态显示全彩插画，否则剪影+液体填充
+                                  fullArt: isLit,
+                                ),
                               ),
                             ),
                           ),
@@ -170,10 +258,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  // 左上角：连续签到徽章 → 打开历史记录页
+                  // 左上角：圆形天数徽章 → 打开历史记录页
+                  // 完成态时在「天数」和「✓」之间循环切换（持续，不是只点亮时）
                   streak.maybeWhen(
                     data: (s) => _DayBadge(
                       days: s.current,
+                      showCycle: done,
                       onTap: () => Navigator.push(
                         context,
                         MaterialPageRoute(builder: (_) => const HistoryScreen()),
@@ -189,6 +279,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ],
               ),
             ),
+            // 礼炮彩带层：完成态时持续从屏幕上方飘落（不阻挡点击）
+            Positioned.fill(
+              child: IgnorePointer(
+                child: ConfettiRain(active: done),
+              ),
+            ),
           ],
         ),
       ),
@@ -196,41 +292,93 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 }
 
-/// 左上角"N 天"青色圆形徽章（点击打开历史记录页）
-class _DayBadge extends StatelessWidget {
-  const _DayBadge({required this.days, this.onTap});
+/// 左上角青色圆形天数徽章（点击打开历史记录页）
+/// showCycle=true（完成当日目标）时在「天数」和「✓」之间循环显示（每 500ms 切换）
+/// 圆形容器，只显示数字（去除"天"字）
+class _DayBadge extends StatefulWidget {
+  const _DayBadge({required this.days, this.showCycle = false, this.onTap});
   final int days;
+  final bool showCycle;
   final VoidCallback? onTap;
 
   @override
+  State<_DayBadge> createState() => _DayBadgeState();
+}
+
+class _DayBadgeState extends State<_DayBadge> {
+  bool _showCheck = false;
+  Timer? _toggleTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.showCycle) _startToggle();
+  }
+
+  @override
+  void didUpdateWidget(covariant _DayBadge old) {
+    super.didUpdateWidget(old);
+    if (widget.showCycle && !old.showCycle) {
+      _startToggle();
+    } else if (!widget.showCycle && old.showCycle) {
+      _stopToggle();
+      if (_showCheck) setState(() => _showCheck = false);
+    }
+  }
+
+  void _startToggle() {
+    _toggleTimer?.cancel();
+    _toggleTimer = Timer.periodic(
+      const Duration(seconds: 2),
+      (_) {
+        if (!mounted) return;
+        setState(() => _showCheck = !_showCheck);
+      },
+    );
+  }
+
+  void _stopToggle() {
+    _toggleTimer?.cancel();
+    _toggleTimer = null;
+  }
+
+  @override
+  void dispose() {
+    _stopToggle();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final showCheck = widget.showCycle && _showCheck;
     return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
+      onTap: widget.onTap,
+      borderRadius: BorderRadius.circular(22),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: const Color(0xFF4DB8D8),
-          borderRadius: BorderRadius.circular(20),
+        width: 44,
+        height: 44,
+        alignment: Alignment.center,
+        decoration: const BoxDecoration(
+          color: Color(0xFF4DB8D8),
+          shape: BoxShape.circle,
         ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            '$days',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(width: 2),
-          const Text(
-            '天',
-            style: TextStyle(color: Colors.white, fontSize: 13),
-          ),
-        ],
-      ),
+        child: showCheck
+            ? const Text(
+                '✓',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                ),
+              )
+            : Text(
+                '${widget.days}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
       ),
     );
   }

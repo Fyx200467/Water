@@ -1,4 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <g transform="translate(20.59 21.48) scale(0.5882)">
   <defs>
     <linearGradient id="bowlC" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="#FFFFFF"/>
@@ -26,4 +27,5 @@
   <!-- 热气 -->
   <path d="M42 42 Q40 38 42 34 Q44 30 42 26" stroke="#D8D8D8" stroke-width="1.5" fill="none" opacity="0.6"/>
   <path d="M58 42 Q60 38 58 34 Q56 30 58 26" stroke="#D8D8D8" stroke-width="1.5" fill="none" opacity="0.6"/>
+  </g>
 </svg>

@@ -6,6 +6,7 @@ import '../features/home/home_screen.dart';
 import '../features/home/providers/home_providers.dart';
 import '../features/onboarding/onboarding_screen.dart';
 import '../features/onboarding/welcome_screen.dart';
+import '../features/reminder/reminder_settings_screen.dart';
 import '../features/settings/settings_screen.dart';
 import '../features/stats/stats_screen.dart';
 
@@ -53,6 +54,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/settings',
         builder: (context, state) => const SettingsScreen(),
+      ),
+      GoRoute(
+        path: '/settings/reminder',
+        builder: (context, state) => const ReminderSettingsScreen(),
       ),
     ],
   );
