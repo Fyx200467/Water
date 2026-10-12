@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 
 /// PRD §2.3 饮品分类 + 水分折算比例
 enum BeverageCategory {
-  water('纯水 / 矿泉水', 1.00, Color(0xFF6AD7E0), Icons.water_drop),
+  water('纯水', 1.00, Color(0xFF6AD7E0), Icons.water_drop),
   tea('茶水类', 0.90, Color(0xFF8BC34A), Icons.emoji_food_beverage),
   coffee('咖啡类', 0.70, Color(0xFF795548), Icons.coffee),
   milk('奶茶 / 果汁 / 牛奶', 0.80, Color(0xFFFFC107), Icons.local_drink),
+  soda('碳酸饮料', 0.90, Color(0xFFC9364F), Icons.local_drink),
   soup('汤粥类', 0.85, Color(0xFFFF8A65), Icons.soup_kitchen),
   alcohol('酒类', 0.00, Color(0xFFE57373), Icons.wine_bar);
 
@@ -47,20 +48,17 @@ class Beverage {
 
   static const List<Beverage> presets = [
     Beverage(id: 'water_pure', category: BeverageCategory.water, name: '纯净水', defaultMl: 250),
-    Beverage(id: 'water_mineral', category: BeverageCategory.water, name: '矿泉水', defaultMl: 330),
-    Beverage(id: 'water_cold', category: BeverageCategory.water, name: '凉白开', defaultMl: 250),
-    Beverage(id: 'tea_green', category: BeverageCategory.tea, name: '绿茶', defaultMl: 250),
-    Beverage(id: 'tea_black', category: BeverageCategory.tea, name: '红茶', defaultMl: 250, liquidColor: Color(0xFF8B4513)),
-    Beverage(id: 'tea_herbal', category: BeverageCategory.tea, name: '花茶', defaultMl: 250, liquidColor: Color(0xFFE91E63)),
-    Beverage(id: 'coffee_americano', category: BeverageCategory.coffee, name: '美式', defaultMl: 250, liquidColor: Color(0xFF6B3E2E)),
-    Beverage(id: 'coffee_latte', category: BeverageCategory.coffee, name: '拿铁', defaultMl: 350, liquidColor: Color(0xFF8B5A3C)),
+    Beverage(id: 'tea', category: BeverageCategory.tea, name: '茶', defaultMl: 250),
+    Beverage(id: 'coffee', category: BeverageCategory.coffee, name: '咖啡', defaultMl: 250, liquidColor: Color(0xFF6B3E2E)),
     Beverage(id: 'milk_milk', category: BeverageCategory.milk, name: '牛奶', defaultMl: 250, liquidColor: Color(0xFFC8CDD0)),
     Beverage(id: 'milk_tea', category: BeverageCategory.milk, name: '奶茶', defaultMl: 500, memberOnly: true, liquidColor: Color(0xFFA8723C)),
     Beverage(id: 'milk_juice', category: BeverageCategory.milk, name: '果汁', defaultMl: 300, liquidColor: Color(0xFFFFB300)),
+    Beverage(id: 'soda', category: BeverageCategory.soda, name: '碳酸饮料', defaultMl: 330, liquidColor: Color(0xFFC9364F)),
     Beverage(id: 'soup_porridge', category: BeverageCategory.soup, name: '白粥', defaultMl: 300, liquidColor: Color(0xFFF0D9A8)),
     Beverage(id: 'soup_chicken', category: BeverageCategory.soup, name: '鸡汤', defaultMl: 250, liquidColor: Color(0xFFFFB300)),
     Beverage(id: 'alcohol_beer', category: BeverageCategory.alcohol, name: '啤酒', defaultMl: 500, memberOnly: true, liquidColor: Color(0xFFFFC107)),
-    Beverage(id: 'alcohol_wine', category: BeverageCategory.alcohol, name: '红酒', defaultMl: 150, memberOnly: true, liquidColor: Color(0xFF8B0000)),
+    Beverage(id: 'alcohol_wine', category: BeverageCategory.alcohol, name: '红酒', defaultMl: 150, memberOnly: true, liquidColor: Color(0xFFA62034)),
+    Beverage(id: 'alcohol_spirits', category: BeverageCategory.alcohol, name: '白酒', defaultMl: 100, memberOnly: true, liquidColor: Color(0xFFE3E8EC)),
   ];
 
   /// PRD §2.3 内置预设容量

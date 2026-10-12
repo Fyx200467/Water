@@ -1,26 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <g transform="translate(17.5 17.5) scale(0.65)">
   <defs>
-    <linearGradient id="glassWine" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#F5F5F5" stop-opacity="0.85"/>
-      <stop offset="50%" stop-color="#FFFFFF" stop-opacity="0.4"/>
-      <stop offset="100%" stop-color="#E0E0E0" stop-opacity="0.85"/>
-    </linearGradient>
-    <linearGradient id="wine" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#B71C1C"/>
-      <stop offset="100%" stop-color="#7F0000"/>
-    </linearGradient>
+    <clipPath id="wbc">
+      <path d="M26.8 6 L73.2 6 Q78.2 6 78.2 11 C78.2 20 84 24 84 40 C84 56 54.9 58 54.9 65 L45.1 65 C45.1 58 16 56 16 40 C16 24 21.8 20 21.8 11 Q21.8 6 26.8 6 Z"/>
+    </clipPath>
   </defs>
-  <!-- 杯柄 -->
-  <rect x="48" y="58" width="4" height="28" fill="#E0E0E0"/>
-  <!-- 杯底 -->
-  <ellipse cx="50" cy="88" rx="14" ry="2.5" fill="#D8D8D8"/>
-  <!-- 杯身（高脚杯上半部分）-->
-  <path d="M30 18 Q30 14 50 14 Q70 14 70 18 Q70 20 68 36 Q66 56 50 58 Q34 56 32 36 Q30 20 30 18 Z" fill="url(#glassWine)" stroke="#B0B0B0" stroke-width="1.5"/>
-  <!-- 红酒液体 -->
-  <path d="M32 26 Q32 22 50 22 Q68 22 68 26 Q68 28 66 40 Q64 54 50 56 Q36 54 34 40 Q32 28 32 26 Z" fill="url(#wine)"/>
-  <!-- 水面 -->
-  <ellipse cx="50" cy="24" rx="18" ry="2.5" fill="#8B0000"/>
-  <ellipse cx="50" cy="23" rx="17" ry="1.5" fill="#A02020" opacity="0.7"/>
-  <!-- 高光 -->
-  <path d="M36 28 Q36 34 35 42" stroke="#FFFFFF" stroke-width="1.5" fill="none" opacity="0.6"/>
+  <!-- 杯梗 + 底座（酒红色，底座圆润）-->
+  <path d="M45.1 62 L54.9 62 L54.9 84 C54.9 88 70 86 66 92 Q63 93 60 93 L40 93 Q37 93 34 92 C30 86 45.1 88 45.1 84 Z" fill="#A62034"/>
+  <!-- 碗（空碗灰色）-->
+  <path d="M26.8 6 L73.2 6 Q78.2 6 78.2 11 C78.2 20 84 24 84 40 C84 56 54.9 58 54.9 65 L45.1 65 C45.1 58 16 56 16 40 C16 24 21.8 20 21.8 11 Q21.8 6 26.8 6 Z" fill="#ECECEC"/>
+  <!-- 红酒（波浪液面，裁剪到碗内）-->
+  <path d="M0 42 Q25 38 50 42 Q75 46 100 42 L100 100 L0 100 Z" fill="#A62034" clip-path="url(#wbc)"/>
+  </g>
 </svg>

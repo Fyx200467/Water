@@ -1,32 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <g transform="translate(17.5 17.5) scale(0.65)">
   <defs>
-    <linearGradient id="glassB" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#F5F5F5" stop-opacity="0.85"/>
-      <stop offset="50%" stop-color="#FFFFFF" stop-opacity="0.4"/>
-      <stop offset="100%" stop-color="#E0E0E0" stop-opacity="0.85"/>
-    </linearGradient>
-    <linearGradient id="beerB" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#FFD54F"/>
-      <stop offset="100%" stop-color="#FF8F00"/>
-    </linearGradient>
+    <clipPath id="bgc">
+      <path d="M24 5 L76 5 Q82 5 82 11 C82 38 75.3 55 75.3 78 C75.3 85 78 83 78 88 Q78 93 73 93 L27 93 Q22 93 22 88 C22 83 24.7 85 24.7 78 C24.7 55 18.5 38 18 11 Q18 5 24 5 Z"/>
+    </clipPath>
   </defs>
-  <!-- 杯把手 -->
-  <path d="M72 46 Q88 46 88 60 Q88 76 72 76 L72 70 Q82 70 82 60 Q82 52 72 52 Z" fill="url(#glassB)" stroke="#B0B0B0" stroke-width="1.5"/>
-  <!-- 啤酒杯身 -->
-  <path d="M22 20 L70 20 L66 84 Q66 90 60 90 L32 90 Q26 90 26 84 Z" fill="url(#glassB)" stroke="#B0B0B0" stroke-width="1.5"/>
-  <!-- 啤酒液体 -->
-  <path d="M26 36 L66 36 L63 84 Q63 88 59 88 L33 88 Q29 88 29 84 Z" fill="url(#beerB)"/>
-  <!-- 泡沫 -->
-  <ellipse cx="46" cy="32" rx="20" ry="4" fill="#FFFFFF"/>
-  <circle cx="32" cy="30" r="4" fill="#FFFFFF"/>
-  <circle cx="42" cy="28" r="5" fill="#FFFFFF"/>
-  <circle cx="54" cy="29" r="4.5" fill="#FFFFFF"/>
-  <circle cx="62" cy="31" r="3.5" fill="#FFFFFF"/>
+  <!-- 杯身 -->
+  <path d="M24 5 L76 5 Q82 5 82 11 C82 38 75.3 55 75.3 78 C75.3 85 78 83 78 88 Q78 93 73 93 L27 93 Q22 93 22 88 C22 83 24.7 85 24.7 78 C24.7 55 18.5 38 18 11 Q18 5 24 5 Z" fill="#ECECEC"/>
+  <!-- 啤酒（金色，波浪液面）-->
+  <path d="M0 46 Q25 42 50 46 Q75 50 100 46 L100 100 L0 100 Z" fill="#FFC107" clip-path="url(#bgc)"/>
   <!-- 气泡 -->
-  <circle cx="40" cy="50" r="1.5" fill="#FFFFFF" opacity="0.7"/>
-  <circle cx="55" cy="60" r="1.5" fill="#FFFFFF" opacity="0.7"/>
-  <circle cx="48" cy="70" r="1" fill="#FFFFFF" opacity="0.6"/>
-  <circle cx="38" cy="80" r="1.2" fill="#FFFFFF" opacity="0.6"/>
-  <!-- 高光 -->
-  <path d="M30 24 L32 24 L31 80 L29 80 Z" fill="#FFFFFF" opacity="0.5"/>
+  <g clip-path="url(#bgc)">
+    <circle cx="38" cy="58" r="2" fill="#FFFFFF" opacity="0.7"/>
+    <circle cx="58" cy="70" r="1.7" fill="#FFFFFF" opacity="0.65"/>
+    <circle cx="44" cy="80" r="1.4" fill="#FFFFFF" opacity="0.6"/>
+    <circle cx="62" cy="86" r="1.2" fill="#FFFFFF" opacity="0.55"/>
+  </g>
+  </g>
 </svg>

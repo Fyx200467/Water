@@ -78,9 +78,9 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
     super.dispose();
   }
 
-  /// 液面高度比例 = 当前水量 / 杯子最大容量，上限 0.88 留出杯口距离
-  double get _fillRatio =>
-      (_selected / _cupMax).clamp(0.02, 0.88);
+  /// 液面比例 = 当前水量 / 杯子最大容量（0~1）
+  /// 拖动范围已限制最少 10ml；满杯时由 Painter 保证液面与杯口保留安全距离
+  double get _fillRatio => (_selected / _cupMax).clamp(0.0, 1.0);
 
   void _onVerticalDragUpdate(DragUpdateDetails d, double cupH) {
     setState(() {
@@ -409,14 +409,26 @@ class _DrinkContainerPainter extends CustomPainter {
     // 根据饮品类型获取容器路径
     final container = _containerPath(w, h);
 
-    // 1. 空容器底色（浅灰）
+    // 1. 茶杯把手先画（垫在杯体下层，不参与液体裁剪与填充）
+    if (beverageId == 'tea') _drawHandle(canvas, w, h);
+
+    // 1.5 红酒杯梗与底座（始终酒红色，垫在杯碗下层）
+    if (beverageId == 'alcohol_wine') {
+      canvas.drawPath(_wineStemFootPath(w, h), Paint()..color = color);
+    }
+
+    // 2. 空容器底色（浅灰）
     canvas.drawPath(container, Paint()..color = const Color(0xFFECECEC));
 
-    // 2. 液体（裁剪到容器内）
+    // 3. 液体（裁剪到容器内）
     canvas.save();
     canvas.clipPath(container);
 
-    final surfaceY = h - h * fillRatio;
+    // 液面最高点与杯口保留安全距离（满杯也不触口），
+    // 最低保留 10ml 的浅浅一层（拖动下限已限制 10ml）
+    final fillTop = _fillTopFraction * h;
+    final surfaceY =
+        fillTop + (1 - fillRatio) * (_containerBottomFraction * h - fillTop);
 
     // 液体填充（带轻微波浪）
     const samples = 30;
@@ -454,10 +466,10 @@ class _DrinkContainerPainter extends CustomPainter {
     // 3. 装饰元素（绘制在液体之上）
     _drawDecorations(canvas, w, h, surfaceY);
 
-    // 4. 气泡（有水时）
+    // 4. 气泡（有水时；碳酸饮料气泡更多更密集）
     if (fillRatio > 0.04) {
       final rng = math.Random(42);
-      const bubbleCount = 6;
+      final bubbleCount = beverageId == 'soda' ? 12 : 6;
       for (var i = 0; i < bubbleCount; i++) {
         final cycleOffset = i * 0.14;
         final t = (bubbleSeed + cycleOffset) % 1.0;
@@ -489,14 +501,16 @@ class _DrinkContainerPainter extends CustomPainter {
 
   /// 根据饮品类型返回容器主体路径
   Path _containerPath(double w, double h) {
-    if (beverageId.startsWith('tea_')) {
+    if (beverageId == 'tea') {
       return _teacupPath(w, h);
-    } else if (beverageId.startsWith('coffee_')) {
+    } else if (beverageId == 'coffee' ||
+        beverageId == 'milk_tea' ||
+        beverageId == 'milk_juice') {
       return _takeawayCupPath(w, h);
+    } else if (beverageId == 'soda') {
+      return _sodaCanPath(w, h);
     } else if (beverageId == 'milk_milk') {
       return _milkBottlePath(w, h);
-    } else if (beverageId == 'milk_tea' || beverageId == 'milk_juice') {
-      return _takeawayCupPath(w, h);
     } else if (beverageId.startsWith('soup_')) {
       return _bowlPath(w, h);
     } else if (beverageId == 'alcohol_beer') {
@@ -523,14 +537,15 @@ class _DrinkContainerPainter extends CustomPainter {
     return Path()
       ..moveTo(tl.dx, tl.dy)
       ..lineTo(tr.dx, tr.dy)
-      ..lineTo(br.dx - r, br.dy)
-      ..quadraticBezierTo(br.dx, br.dy, br.dx, br.dy - r)
+      // 右侧斜边下行至圆角起点，以 br 为控制点弯到杯底（避免底边斜切缺口）
+      ..lineTo(br.dx, br.dy - r)
+      ..quadraticBezierTo(br.dx, br.dy, br.dx - r, br.dy)
       ..lineTo(bl.dx + r, bl.dy)
       ..quadraticBezierTo(bl.dx, bl.dy, bl.dx, bl.dy - r)
       ..close();
   }
 
-  /// 茶杯（带把手）
+  /// 茶杯（杯体；把手由 _drawHandle 描边绘制，不参与液体填充）
   Path _teacupPath(double w, double h) {
     final bodyTop = h * 0.28;
     final bodyBottom = h * 0.82;
@@ -538,7 +553,7 @@ class _DrinkContainerPainter extends CustomPainter {
     final bodyRight = w * 0.72;
     final r = w * 0.15;
 
-    final path = Path()
+    return Path()
       ..moveTo(bodyLeft, bodyTop)
       ..lineTo(bodyRight, bodyTop)
       ..quadraticBezierTo(bodyRight + r * 0.3, bodyTop, bodyRight + r * 0.3, bodyTop + r * 0.3)
@@ -548,15 +563,64 @@ class _DrinkContainerPainter extends CustomPainter {
       ..quadraticBezierTo(bodyLeft, bodyBottom, bodyLeft, bodyBottom - r * 0.5)
       ..lineTo(bodyLeft, bodyTop)
       ..close();
+  }
 
-    // 把手（右侧 C 形）
-    final handlePath = Path()
+  /// 各容器的杯口/口沿位置（占高度比例），与容器路径定义保持一致
+  double get _rimYFraction {
+    if (beverageId == 'tea') return 0.28;
+    if (beverageId == 'soda') return 0.06; // 易拉罐口
+    if (beverageId == 'coffee' ||
+        beverageId == 'milk_tea' ||
+        beverageId == 'milk_juice') {
+      return 0.18;
+    }
+    if (beverageId == 'milk_milk') return 0.12;
+    if (beverageId.startsWith('soup_')) return 0.40;
+    if (beverageId == 'alcohol_beer') return 0.05; // 啤酒杯口
+    if (beverageId == 'alcohol_wine') return 0.06; // 红酒碗口
+    if (beverageId == 'alcohol_spirits') return 0.35;
+    return 0.05; // 水杯
+  }
+
+  /// 满杯时液面最高点 = 杯口 + 5% 高度的自然间距（所有容器统一）
+  double get _fillTopFraction => _rimYFraction + 0.05;
+
+  /// 容器内部底面位置（占高度比例），液面映射的底部参考
+  double get _containerBottomFraction {
+    if (beverageId == 'soda') return 0.94; // 易拉罐底
+    if (beverageId == 'alcohol_beer') return 0.93; // 啤酒杯底
+    if (beverageId == 'alcohol_wine') return 0.65; // 红酒碗底
+    return 0.985;
+  }
+
+  /// 茶杯把手（C 形双层描边，垫在杯体下层）
+  void _drawHandle(Canvas canvas, double w, double h) {
+    final bodyTop = h * 0.28;
+    final bodyBottom = h * 0.82;
+    final bodyRight = w * 0.72;
+    final r = w * 0.15;
+    final handle = Path()
       ..moveTo(bodyRight, bodyTop + r * 0.5)
-      ..quadraticBezierTo(w * 0.95, bodyTop + r * 0.5, w * 0.95, (bodyTop + bodyBottom) / 2)
-      ..quadraticBezierTo(w * 0.95, bodyBottom - r * 0.5, bodyRight, bodyBottom - r * 0.5);
-
-    path.addPath(handlePath, Offset.zero);
-    return path;
+      ..quadraticBezierTo(
+          w * 0.95, bodyTop + r * 0.5, w * 0.95, (bodyTop + bodyBottom) / 2)
+      ..quadraticBezierTo(
+          w * 0.95, bodyBottom - r * 0.5, bodyRight, bodyBottom - r * 0.5);
+    // 外描边（略宽一圈，形成带轮廓的把手）
+    canvas.drawPath(
+      handle,
+      Paint()
+        ..color = color.withValues(alpha: 0.3)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = w * 0.07 + 3,
+    );
+    // 把手主体（与空杯底色一致）
+    canvas.drawPath(
+      handle,
+      Paint()
+        ..color = const Color(0xFFECECEC)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = w * 0.07,
+    );
   }
 
   /// 外带咖啡杯
@@ -575,10 +639,57 @@ class _DrinkContainerPainter extends CustomPainter {
     return Path()
       ..moveTo(tl.dx, tl.dy)
       ..lineTo(tr.dx, tr.dy)
-      ..lineTo(br.dx - r, br.dy)
-      ..quadraticBezierTo(br.dx, br.dy, br.dx, br.dy - r)
+      // 右侧斜边下行至圆角起点，以 br 为控制点弯到杯底（避免底边斜切缺口）
+      ..lineTo(br.dx, br.dy - r)
+      ..quadraticBezierTo(br.dx, br.dy, br.dx - r, br.dy)
       ..lineTo(bl.dx + r, bl.dy)
       ..quadraticBezierTo(bl.dx, bl.dy, bl.dx, bl.dy - r)
+      ..close();
+  }
+
+  /// 易拉罐（碳酸饮料）：矮胖罐体 + 宽罐口 + 快速圆肩，底部与顶部镜像对称（对标原版）
+  Path _sodaCanPath(double w, double h) {
+    const lidL = 0.17; // 罐口/罐底左
+    const lidR = 0.83; // 罐口/罐底右
+    const bodyL = 0.07; // 罐身左
+    const bodyR = 0.93; // 罐身右
+    const rimY = 0.06; // 罐顶
+    const stepY = 0.145; // 罐口下沿（肩部过渡起点）
+    const shoulderY = 0.19; // 罐肩（外翻完成处）
+    // 底部与顶部镜像：bodyEnd = 1 - shoulder, stepBot = 1 - step, bottom = 1 - rim
+    const bodyEndY = 0.81; // 罐身直段结束
+    const stepBotY = 0.855; // 罐底过渡起点
+    const bottomY = 0.94; // 罐底
+    final midTop = (stepY + shoulderY) / 2;
+    final midBot = (bodyEndY + stepBotY) / 2;
+    final r = w * 0.04; // 罐口/罐底圆角
+
+    return Path()
+      ..moveTo(w * lidL + r, h * rimY)
+      ..lineTo(w * lidR - r, h * rimY)
+      ..quadraticBezierTo(w * lidR, h * rimY, w * lidR, h * rimY + r)
+      ..lineTo(w * lidR, h * stepY)
+      // 右肩：快速 S 形外翻至罐身
+      ..cubicTo(
+          w * lidR, h * midTop, w * bodyR, h * midTop, w * bodyR, h * shoulderY)
+      ..lineTo(w * bodyR, h * bodyEndY)
+      // 右下：S 形内收至罐底（与右肩镜像）
+      ..cubicTo(w * bodyR, h * midBot, w * lidR, h * midBot, w * lidR,
+          h * stepBotY)
+      ..lineTo(w * lidR, h * bottomY - r)
+      ..quadraticBezierTo(w * lidR, h * bottomY, w * lidR - r, h * bottomY)
+      ..lineTo(w * lidL + r, h * bottomY)
+      ..quadraticBezierTo(w * lidL, h * bottomY, w * lidL, h * bottomY - r)
+      ..lineTo(w * lidL, h * stepBotY)
+      // 左下：S 形外翻回罐身（与左肩镜像）
+      ..cubicTo(w * lidL, h * midBot, w * bodyL, h * midBot, w * bodyL,
+          h * bodyEndY)
+      ..lineTo(w * bodyL, h * shoulderY)
+      // 左肩：快速 S 形内收到罐口
+      ..cubicTo(w * bodyL, h * midTop, w * lidL, h * midTop, w * lidL,
+          h * stepY)
+      ..lineTo(w * lidL, h * rimY + r)
+      ..quadraticBezierTo(w * lidL, h * rimY, w * lidL + r, h * rimY)
       ..close();
   }
 
@@ -621,74 +732,103 @@ class _DrinkContainerPainter extends CustomPainter {
       ..addOval(Rect.fromLTWH(w * 0.08, topY - r * 0.3, w * 0.84, r * 0.6));
   }
 
-  /// 啤酒杯（郁金香形）
+  /// 啤酒杯（直身微收腰 + 底部小外翻脚，对标原版）
   Path _beerGlassPath(double w, double h) {
-    final topY = h * 0.12;
-    final midY = h * 0.55;
-    final bottomY = h * 0.9;
-    final topInset = w * 0.12;
-    final midInset = w * 0.32;
-    final bottomInset = w * 0.2;
-    final r = w * 0.08;
-
-    final tl = Offset(topInset, topY);
-    final tr = Offset(w - topInset, topY);
-    final ml = Offset(midInset, midY);
-    final mr = Offset(w - midInset, midY);
-    final bl = Offset(bottomInset, bottomY);
-    final br = Offset(w - bottomInset, bottomY);
+    const rimL = 0.18; // 杯口左
+    const rimR = 0.82; // 杯口右
+    const waistL = 0.247; // 下腰最窄左
+    const waistR = 0.753; // 下腰最窄右
+    const footL = 0.22; // 底部外翻左
+    const footR = 0.78; // 底部外翻右
+    const rimY = 0.05;
+    const waistY = 0.78;
+    const bottomY = 0.93;
+    final r = w * 0.06; // 杯口圆角
+    final rc = w * 0.05; // 杯底圆角
 
     return Path()
-      ..moveTo(tl.dx, tl.dy)
-      ..lineTo(tr.dx, tr.dy)
-      ..quadraticBezierTo(mr.dx + r, (tr.dy + mr.dy) / 2, mr.dx, mr.dy)
-      ..quadraticBezierTo(br.dx - r, (mr.dy + br.dy) / 2, br.dx, br.dy)
-      ..lineTo(bl.dx + r, bl.dy)
-      ..quadraticBezierTo(bl.dx, bl.dy, bl.dx, bl.dy - r)
-      ..lineTo(ml.dx, ml.dy)
-      ..quadraticBezierTo(tl.dx - r, (tl.dy + ml.dy) / 2, tl.dx, tl.dy)
+      ..moveTo(w * rimL + r, h * rimY)
+      ..lineTo(w * rimR - r, h * rimY)
+      ..quadraticBezierTo(w * rimR, h * rimY, w * rimR, h * rimY + r)
+      // 右侧：竖直切线缓收至下腰
+      ..cubicTo(
+          w * 0.815, h * 0.38, w * waistR, h * 0.55, w * waistR, h * waistY)
+      // 右下：竖直切线外翻至底脚
+      ..cubicTo(w * waistR, h * waistY + 0.07 * h, w * footR, h * bottomY - rc * 2,
+          w * footR, h * bottomY - rc)
+      ..quadraticBezierTo(w * footR, h * bottomY, w * footR - rc, h * bottomY)
+      ..lineTo(w * footL + rc, h * bottomY)
+      ..quadraticBezierTo(w * footL, h * bottomY, w * footL, h * bottomY - rc)
+      // 左下：外翻回腰
+      ..cubicTo(w * footL, h * bottomY - rc * 2, w * waistL,
+          h * waistY + 0.07 * h, w * waistL, h * waistY)
+      // 左侧：缓收回杯口
+      ..cubicTo(
+          w * waistL, h * 0.55, w * 0.185, h * 0.38, w * rimL, h * rimY + r)
+      ..quadraticBezierTo(w * rimL, h * rimY, w * rimL + r, h * rimY)
       ..close();
   }
 
-  /// 红酒杯
+  /// 红酒杯杯碗（深 U 型；液体仅填充碗内）
   Path _wineGlassPath(double w, double h) {
-    final bowlTop = h * 0.15;
-    final bowlBottom = h * 0.58;
-    final stemTop = bowlBottom;
-    final stemBottom = h * 0.82;
-    final baseY = h * 0.88;
-    final bowlCx = w * 0.5;
-    final bowlRx = w * 0.38;
-    final bowlRy = (bowlBottom - bowlTop) * 0.5;
-    final stemW = w * 0.06;
-    final baseRx = w * 0.22;
-    final baseRy = h * 0.04;
+    const rimL = 0.218; // 碗口左
+    const rimR = 0.782; // 碗口右
+    const bellyL = 0.16; // 碗腹最宽左
+    const bellyR = 0.84; // 碗腹最宽右
+    const stemL = 0.451; // 杯梗左
+    const stemR = 0.549; // 杯梗右
+    const rimY = 0.06;
+    const bellyY = 0.40; // 碗腹最宽处
+    const bowlBottomY = 0.65; // 碗底（与杯梗衔接）
+    final r = w * 0.05; // 碗口圆角
 
-    final path = Path();
-    // 杯碗（半圆）
-    path.moveTo(bowlCx - bowlRx, bowlTop);
-    path.quadraticBezierTo(
-        bowlCx - bowlRx, bowlBottom, bowlCx, bowlBottom);
-    path.quadraticBezierTo(
-        bowlCx + bowlRx, bowlBottom, bowlCx + bowlRx, bowlTop);
-    path.lineTo(bowlCx - bowlRx, bowlTop);
-    path.close();
+    return Path()
+      ..moveTo(w * rimL + r, h * rimY)
+      ..lineTo(w * rimR - r, h * rimY)
+      ..quadraticBezierTo(w * rimR, h * rimY, w * rimR, h * rimY + r)
+      // 右侧：外扩至碗腹
+      ..cubicTo(
+          w * rimR, h * 0.20, w * bellyR, h * 0.24, w * bellyR, h * bellyY)
+      // 碗底：大 U 弧收进杯梗
+      ..cubicTo(
+          w * bellyR, h * 0.56, w * stemR, h * 0.58, w * stemR, h * bowlBottomY)
+      ..lineTo(w * stemL, h * bowlBottomY)
+      // 左侧镜像
+      ..cubicTo(
+          w * stemL, h * 0.58, w * bellyL, h * 0.56, w * bellyL, h * bellyY)
+      ..cubicTo(
+          w * bellyL, h * 0.24, w * rimL, h * 0.20, w * rimL, h * rimY + r)
+      ..quadraticBezierTo(w * rimL, h * rimY, w * rimL + r, h * rimY)
+      ..close();
+  }
 
-    // 杯柄
-    path.moveTo(bowlCx - stemW / 2, stemTop);
-    path.lineTo(bowlCx - stemW / 2, stemBottom);
-    path.lineTo(bowlCx + stemW / 2, stemBottom);
-    path.lineTo(bowlCx + stemW / 2, stemTop);
-    path.close();
+  /// 红酒杯杯梗 + 底座（始终为酒红色，垫在杯碗下层）
+  Path _wineStemFootPath(double w, double h) {
+    const stemL = 0.451;
+    const stemR = 0.549;
+    const footL = 0.278; // 底座左
+    const footR = 0.722; // 底座右
+    const stemTopY = 0.62; // 梗顶（藏入碗内）
+    const stemBotY = 0.84;
+    const footY = 0.92; // 底座底
+    final rf = w * 0.10; // 增大底座圆角，避免尖锐
 
-    // 底座
-    path.addOval(Rect.fromCenter(
-      center: Offset(bowlCx, baseY),
-      width: baseRx * 2,
-      height: baseRy * 2,
-    ));
-
-    return path;
+    return Path()
+      ..moveTo(w * stemL, h * stemTopY)
+      ..lineTo(w * stemR, h * stemTopY)
+      ..lineTo(w * stemR, h * stemBotY)
+      // 右下外扩至底座（更圆润的过渡曲线）
+      ..cubicTo(w * stemR, h * (stemBotY + 0.05), w * footR,
+          h * (footY - 0.05), w * footR - rf, h * footY)
+      // 底座底边（带圆角）
+      ..quadraticBezierTo(w * footR, h * footY, w * footR - rf * 0.6,
+          h * (footY + 0.005))
+      ..lineTo(w * footL + rf * 0.6, h * (footY + 0.005))
+      ..quadraticBezierTo(w * footL, h * footY, w * footL + rf, h * footY)
+      // 左下回收至梗
+      ..cubicTo(w * footL, h * (footY - 0.05), w * stemL,
+          h * (stemBotY + 0.05), w * stemL, h * stemBotY)
+      ..close();
   }
 
   /// 烈酒杯（矮宽杯）
@@ -710,9 +850,29 @@ class _DrinkContainerPainter extends CustomPainter {
 
   /// 容器顶部盖子/杯口
   void _drawLid(Canvas canvas, double w, double h) {
-    final isTakeaway = beverageId.startsWith('coffee_') ||
-        beverageId == 'milk_tea' ||
-        beverageId == 'milk_juice';
+    if (beverageId == 'coffee') {
+      // 奶白圆顶盖 + 外翻盖沿（对标原版咖啡杯样式）
+      canvas.drawRRect(
+        RRect.fromRectAndCorners(
+          Rect.fromLTWH(w * 0.22, h * 0.10, w * 0.56, h * 0.10),
+          topLeft: Radius.circular(w * 0.10),
+          topRight: Radius.circular(w * 0.10),
+          bottomLeft: const Radius.circular(2),
+          bottomRight: const Radius.circular(2),
+        ),
+        Paint()..color = const Color(0xFFF2EFE9),
+      );
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(w * 0.15, h * 0.185, w * 0.70, h * 0.045),
+          Radius.circular(w * 0.03),
+        ),
+        Paint()..color = const Color(0xFFE8E3DA),
+      );
+      return;
+    }
+    if (beverageId == 'soda') return; // 易拉罐为整体轮廓，无单独杯盖
+    final isTakeaway = beverageId == 'milk_tea' || beverageId == 'milk_juice';
     final isMilkBottle = beverageId == 'milk_milk';
     if (isTakeaway || isMilkBottle) {
       final lidTop = isMilkBottle ? h * 0.06 : h * 0.12;
@@ -733,10 +893,17 @@ class _DrinkContainerPainter extends CustomPainter {
         Paint()..color = Colors.white.withValues(alpha: 0.6),
       );
     } else {
-      // 杯口高光条
+      // 杯口高光条（跟随各容器口沿位置）
+      final (rimY, left, right) = switch (beverageId) {
+        'tea' => (0.28, 0.08, 0.765),
+        'alcohol_beer' => (0.05, 0.19, 0.81),
+        'alcohol_wine' => (0.06, 0.23, 0.77),
+        'alcohol_spirits' => (0.35, 0.10, 0.90),
+        _ => (0.05, 0.08, 0.92),
+      };
       canvas.drawRRect(
         RRect.fromRectAndCorners(
-          Rect.fromLTWH(w * 0.08, h * 0.05 - 2, w * 0.84, 5),
+          Rect.fromLTWH(w * left, h * rimY - 2, w * (right - left), 5),
           topLeft: const Radius.circular(3),
           topRight: const Radius.circular(3),
         ),
@@ -747,9 +914,9 @@ class _DrinkContainerPainter extends CustomPainter {
 
   /// 装饰元素（咖啡豆/茶包/冰块/吸管等）
   void _drawDecorations(Canvas canvas, double w, double h, double surfaceY) {
-    if (beverageId.startsWith('coffee_')) {
-      _drawCoffeeBean(canvas, w * 0.5, h * 0.55, w * 0.12);
-    } else if (beverageId.startsWith('tea_')) {
+    if (beverageId == 'coffee') {
+      _drawCoffeeBean(canvas, w * 0.5, h * 0.56, w * 0.18);
+    } else if (beverageId == 'tea') {
       _drawTeaBag(canvas, w, h);
       _drawTeaLeaves(canvas, w, h, surfaceY);
     } else if (beverageId == 'milk_juice') {
@@ -805,37 +972,28 @@ class _DrinkContainerPainter extends CustomPainter {
     }
   }
 
-  /// 咖啡豆图标
-  void _drawCoffeeBean(Canvas canvas, double cx, double cy, double r) {
-    final paint = Paint()..color = const Color(0xFFF5E6D3);
-    // 左半
+  /// 单颗咖啡豆（米白豆身 + S 形中缝，对标原版）
+  void _drawCoffeeBean(Canvas canvas, double cx, double cy, double ry) {
+    final rx = ry * 0.62;
     canvas.save();
-    canvas.translate(cx - r * 0.5, cy);
-    canvas.rotate(-0.4);
-    canvas.drawOval(Rect.fromCenter(center: Offset.zero, width: r, height: r * 1.6), paint);
-    canvas.drawPath(
-      Path()
-        ..moveTo(0, -r * 0.8)
-        ..quadraticBezierTo(r * 0.2, 0, 0, r * 0.8),
-      Paint()
-        ..color = color.withValues(alpha: 0.6)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5,
+    canvas.translate(cx, cy);
+    canvas.rotate(-0.30);
+    // 豆身
+    canvas.drawOval(
+      Rect.fromCenter(center: Offset.zero, width: rx * 2, height: ry * 2),
+      Paint()..color = const Color(0xFFF2EFE8),
     );
-    canvas.restore();
-    // 右半
-    canvas.save();
-    canvas.translate(cx + r * 0.5, cy);
-    canvas.rotate(0.4);
-    canvas.drawOval(Rect.fromCenter(center: Offset.zero, width: r, height: r * 1.6), paint);
+    // S 形中缝（用液体色描边，两端渐尖）
     canvas.drawPath(
       Path()
-        ..moveTo(0, -r * 0.8)
-        ..quadraticBezierTo(-r * 0.2, 0, 0, r * 0.8),
+        ..moveTo(0, -ry * 0.88)
+        ..quadraticBezierTo(-rx * 1.05, -ry * 0.30, 0, 0)
+        ..quadraticBezierTo(rx * 1.05, ry * 0.30, 0, ry * 0.88),
       Paint()
-        ..color = color.withValues(alpha: 0.6)
+        ..color = color
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5,
+        ..strokeWidth = rx * 0.42
+        ..strokeCap = StrokeCap.round,
     );
     canvas.restore();
   }

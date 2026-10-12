@@ -32,10 +32,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   /// 底部水平滚动饮品快捷栏：水 / +98物品胶囊 / 羊驼卢娜 / 各类饮品（锁定的带锁）
   Widget _buildDrinkBar() {
-    final member = ref.watch(memberProvider);
     final drinks = Beverage.presets
-        .where((b) => b.id != 'water_pure' && (!b.memberOnly || member.isValid))
-        .take(12)
+        .where((b) => b.id != 'water_pure')
         .toList();
 
     return ListView(
