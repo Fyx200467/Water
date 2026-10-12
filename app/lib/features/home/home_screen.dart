@@ -35,7 +35,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final member = ref.watch(memberProvider);
     final drinks = Beverage.presets
         .where((b) => b.id != 'water_pure' && (!b.memberOnly || member.isValid))
-        .take(8)
+        .take(12)
         .toList();
 
     return ListView(
@@ -51,7 +51,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           badgeIcon: Icons.add,
           onTap: () => Navigator.push(
             context,
-            MaterialPageRoute(builder: (_) => const AddDrinkScreen()),
+            MaterialPageRoute(
+                builder: (_) => const AddDrinkScreen(beverageId: 'water_pure')),
           ),
         ),
         // 2. "+98 种物品和功能"胶囊
@@ -70,11 +71,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           _DrinkItem(
             beverageId: b.id,
             label: b.name,
-            color: b.category.color,
+            color: b.color,
             locked: b.memberOnly,
             onTap: () => Navigator.push(
               context,
-              MaterialPageRoute(builder: (_) => const AddDrinkScreen()),
+              MaterialPageRoute(
+                  builder: (_) => AddDrinkScreen(beverageId: b.id)),
             ),
           ),
       ],

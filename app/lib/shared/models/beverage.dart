@@ -25,6 +25,7 @@ class Beverage {
     required this.defaultMl,
     this.icon = Icons.local_drink,
     this.memberOnly = false,
+    this.liquidColor,
   });
 
   final String id;
@@ -33,6 +34,12 @@ class Beverage {
   final int defaultMl;
   final IconData icon;
   final bool memberOnly;
+
+  /// 液体颜色（对标原版每种饮品独立配色），为空时回退到分类色
+  final Color? liquidColor;
+
+  /// 显示用颜色：优先使用液体色，否则分类色
+  Color get color => liquidColor ?? category.color;
 
   /// 实际有效水分 = 容量 × 折算比例
   /// 酒类按 PRD §2.3 不贡献目标进度
@@ -43,17 +50,17 @@ class Beverage {
     Beverage(id: 'water_mineral', category: BeverageCategory.water, name: '矿泉水', defaultMl: 330),
     Beverage(id: 'water_cold', category: BeverageCategory.water, name: '凉白开', defaultMl: 250),
     Beverage(id: 'tea_green', category: BeverageCategory.tea, name: '绿茶', defaultMl: 250),
-    Beverage(id: 'tea_black', category: BeverageCategory.tea, name: '红茶', defaultMl: 250),
-    Beverage(id: 'tea_herbal', category: BeverageCategory.tea, name: '花茶', defaultMl: 250),
-    Beverage(id: 'coffee_americano', category: BeverageCategory.coffee, name: '美式', defaultMl: 250),
-    Beverage(id: 'coffee_latte', category: BeverageCategory.coffee, name: '拿铁', defaultMl: 350),
-    Beverage(id: 'milk_milk', category: BeverageCategory.milk, name: '牛奶', defaultMl: 250),
-    Beverage(id: 'milk_tea', category: BeverageCategory.milk, name: '奶茶', defaultMl: 500, memberOnly: true),
-    Beverage(id: 'milk_juice', category: BeverageCategory.milk, name: '果汁', defaultMl: 300),
-    Beverage(id: 'soup_porridge', category: BeverageCategory.soup, name: '白粥', defaultMl: 300),
-    Beverage(id: 'soup_chicken', category: BeverageCategory.soup, name: '鸡汤', defaultMl: 250),
-    Beverage(id: 'alcohol_beer', category: BeverageCategory.alcohol, name: '啤酒', defaultMl: 500, memberOnly: true),
-    Beverage(id: 'alcohol_wine', category: BeverageCategory.alcohol, name: '红酒', defaultMl: 150, memberOnly: true),
+    Beverage(id: 'tea_black', category: BeverageCategory.tea, name: '红茶', defaultMl: 250, liquidColor: Color(0xFF8B4513)),
+    Beverage(id: 'tea_herbal', category: BeverageCategory.tea, name: '花茶', defaultMl: 250, liquidColor: Color(0xFFE91E63)),
+    Beverage(id: 'coffee_americano', category: BeverageCategory.coffee, name: '美式', defaultMl: 250, liquidColor: Color(0xFF6B3E2E)),
+    Beverage(id: 'coffee_latte', category: BeverageCategory.coffee, name: '拿铁', defaultMl: 350, liquidColor: Color(0xFF8B5A3C)),
+    Beverage(id: 'milk_milk', category: BeverageCategory.milk, name: '牛奶', defaultMl: 250, liquidColor: Color(0xFFC8CDD0)),
+    Beverage(id: 'milk_tea', category: BeverageCategory.milk, name: '奶茶', defaultMl: 500, memberOnly: true, liquidColor: Color(0xFFA8723C)),
+    Beverage(id: 'milk_juice', category: BeverageCategory.milk, name: '果汁', defaultMl: 300, liquidColor: Color(0xFFFFB300)),
+    Beverage(id: 'soup_porridge', category: BeverageCategory.soup, name: '白粥', defaultMl: 300, liquidColor: Color(0xFFF0D9A8)),
+    Beverage(id: 'soup_chicken', category: BeverageCategory.soup, name: '鸡汤', defaultMl: 250, liquidColor: Color(0xFFFFB300)),
+    Beverage(id: 'alcohol_beer', category: BeverageCategory.alcohol, name: '啤酒', defaultMl: 500, memberOnly: true, liquidColor: Color(0xFFFFC107)),
+    Beverage(id: 'alcohol_wine', category: BeverageCategory.alcohol, name: '红酒', defaultMl: 150, memberOnly: true, liquidColor: Color(0xFF8B0000)),
   ];
 
   /// PRD §2.3 内置预设容量

@@ -103,18 +103,18 @@ class _DrinkInputSheetState extends ConsumerState<DrinkInputSheet> {
                       width: 60,
                       decoration: BoxDecoration(
                         color: selected
-                            ? b.category.color.withValues(alpha: 0.2)
+                            ? b.color.withValues(alpha: 0.2)
                             : theme.cardColor,
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
-                          color: selected ? b.category.color : Colors.transparent,
+                          color: selected ? b.color : Colors.transparent,
                           width: 2,
                         ),
                       ),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(b.category.icon, color: b.category.color),
+                          Icon(b.category.icon, color: b.color),
                           const SizedBox(height: 4),
                           Text(b.name,
                               style: theme.textTheme.labelSmall,
