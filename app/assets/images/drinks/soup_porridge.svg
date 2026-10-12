@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="bowlP" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#D0D0D0"/>
+    </linearGradient>
+    <linearGradient id="porridge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFAF0"/>
+      <stop offset="100%" stop-color="#F5E6D3"/>
+    </linearGradient>
+  </defs>
+  <!-- 碗身 -->
+  <path d="M16 48 L84 48 L78 80 Q76 88 68 88 L32 88 Q24 88 22 80 Z" fill="url(#bowlP)" stroke="#B0B0B0" stroke-width="1.5"/>
+  <!-- 碗口椭圆 -->
+  <ellipse cx="50" cy="48" rx="34" ry="6" fill="#FFFFFF" stroke="#B0B0B0" stroke-width="1.5"/>
+  <!-- 粥 -->
+  <ellipse cx="50" cy="50" rx="30" ry="4.5" fill="url(#porridge)"/>
+  <!-- 米粒点缀 -->
+  <ellipse cx="42" cy="50" rx="1.5" ry="1" fill="#E0C8A8" transform="rotate(20 42 50)"/>
+  <ellipse cx="55" cy="49" rx="1.5" ry="1" fill="#E0C8A8" transform="rotate(-30 55 49)"/>
+  <ellipse cx="58" cy="51" rx="1.5" ry="1" fill="#E0C8A8" transform="rotate(45 58 51)"/>
+  <ellipse cx="38" cy="51" rx="1.5" ry="1" fill="#E0C8A8" transform="rotate(-10 38 51)"/>
+  <!-- 热气 -->
+  <path d="M42 42 Q40 38 42 34 Q44 30 42 26" stroke="#D8D8D8" stroke-width="1.5" fill="none" opacity="0.6"/>
+  <path d="M58 42 Q60 38 58 34 Q56 30 58 26" stroke="#D8D8D8" stroke-width="1.5" fill="none" opacity="0.6"/>
+</svg>

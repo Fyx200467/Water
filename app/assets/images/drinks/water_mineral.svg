@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="bottleM" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#C8E8F0"/>
+      <stop offset="50%" stop-color="#FFFFFF" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#A0D0E0"/>
+    </linearGradient>
+    <linearGradient id="waterM" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#6AD7E0"/>
+      <stop offset="100%" stop-color="#4DB8D8"/>
+    </linearGradient>
+  </defs>
+  <!-- 瓶盖 -->
+  <rect x="42" y="10" width="16" height="8" rx="2" fill="#4DB8D8"/>
+  <!-- 瓶颈 -->
+  <path d="M44 18 L56 18 L56 24 L44 24 Z" fill="#A8D8E8"/>
+  <!-- 瓶身 -->
+  <path d="M30 24 L70 24 L70 86 Q70 90 66 90 L34 90 Q30 90 30 86 Z" fill="url(#bottleM)" stroke="#6AD7E0" stroke-width="2"/>
+  <!-- 标签 -->
+  <rect x="34" y="42" width="32" height="20" fill="#FFFFFF" opacity="0.85"/>
+  <text x="50" y="55" font-size="6" text-anchor="middle" fill="#4DB8D8" font-weight="bold">MINERAL</text>
+  <!-- 水面 -->
+  <path d="M30 40 Q40 36 50 40 Q60 36 70 40 L70 86 Q70 88 68 88 L32 88 Q30 88 30 86 Z" fill="url(#waterM)" opacity="0.6"/>
+  <!-- 高光 -->
+  <path d="M34 28 L36 28 L35 80 L33 80 Z" fill="#FFFFFF" opacity="0.6"/>
+</svg>

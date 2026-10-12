@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="glassWine" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#F5F5F5" stop-opacity="0.85"/>
+      <stop offset="50%" stop-color="#FFFFFF" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#E0E0E0" stop-opacity="0.85"/>
+    </linearGradient>
+    <linearGradient id="wine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#B71C1C"/>
+      <stop offset="100%" stop-color="#7F0000"/>
+    </linearGradient>
+  </defs>
+  <!-- 杯柄 -->
+  <rect x="48" y="58" width="4" height="28" fill="#E0E0E0"/>
+  <!-- 杯底 -->
+  <ellipse cx="50" cy="88" rx="14" ry="2.5" fill="#D8D8D8"/>
+  <!-- 杯身（高脚杯上半部分）-->
+  <path d="M30 18 Q30 14 50 14 Q70 14 70 18 Q70 20 68 36 Q66 56 50 58 Q34 56 32 36 Q30 20 30 18 Z" fill="url(#glassWine)" stroke="#B0B0B0" stroke-width="1.5"/>
+  <!-- 红酒液体 -->
+  <path d="M32 26 Q32 22 50 22 Q68 22 68 26 Q68 28 66 40 Q64 54 50 56 Q36 54 34 40 Q32 28 32 26 Z" fill="url(#wine)"/>
+  <!-- 水面 -->
+  <ellipse cx="50" cy="24" rx="18" ry="2.5" fill="#8B0000"/>
+  <ellipse cx="50" cy="23" rx="17" ry="1.5" fill="#A02020" opacity="0.7"/>
+  <!-- 高光 -->
+  <path d="M36 28 Q36 34 35 42" stroke="#FFFFFF" stroke-width="1.5" fill="none" opacity="0.6"/>
+</svg>

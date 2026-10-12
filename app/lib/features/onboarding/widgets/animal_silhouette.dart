@@ -8,7 +8,7 @@ import 'package:flutter/services.dart' show rootBundle;
 ///
 /// 复现要点：
 /// - 全彩卡通插画（透明背景 PNG）
-/// - 空杯态：底图去饱和洗白（浅灰白，像没装饮料的动物）
+/// - 空杯态：纯浅灰实心剪影（另一种白），轮廓边界完整清晰
 /// - 填充：饮料色带自上而下堆叠（每层从自己的波浪水面线填到底部，下层覆盖上层）
 /// - 色带用图片 alpha 做 dstIn 蒙版 → 只显示在动物轮廓内
 class AnimalSilhouette extends StatefulWidget {
@@ -42,6 +42,9 @@ class _AnimalSilhouetteState extends State<AnimalSilhouette>
   /// 波动动画驱动器：水面持续晃动
   late final AnimationController _wave;
 
+  /// 随机色带：每次挂载生成 10 层柔和随机色，层间色相不重复
+  late final List<Color> _bandColors = _generateRandomBands();
+
   /// 动物 ID → 全彩插画资源（透明背景 PNG）
   static const _assetPaths = <String, String>{
     'octopus': 'assets/images/animal_octopus_full.png',
@@ -66,6 +69,36 @@ class _AnimalSilhouetteState extends State<AnimalSilhouette>
   void dispose() {
     _wave.dispose();
     super.dispose();
+  }
+
+  /// 生成 10 层低饱和柔和随机色（色相两两不重复，间隔 ≥ 28°）
+  List<Color> _generateRandomBands() {
+    final rnd = math.Random();
+    double hueDist(double a, double b) {
+      final d = (a - b).abs() % 360;
+      return d > 180 ? 360 - d : d;
+    }
+
+    final hues = <double>[];
+    var guard = 0;
+    while (hues.length < 10 && guard++ < 400) {
+      final h = rnd.nextDouble() * 360;
+      if (hues.every((e) => hueDist(e, h) >= 28)) hues.add(h);
+    }
+    // 兜底：随机挑不够 10 个时按 36° 均匀补齐
+    while (hues.length < 10) {
+      hues.add(hues.length * 36.0);
+    }
+    hues.shuffle(rnd);
+    return [
+      for (final h in hues)
+        HSLColor.fromAHSL(
+          1,
+          h,
+          0.65 + rnd.nextDouble() * 0.20, // 高饱和，颜色鲜艳
+          0.55 + rnd.nextDouble() * 0.12, // 中等亮度，避免粉彩暗淡
+        ).toColor(),
+    ];
   }
 
   Future<void> _loadImage() async {
@@ -94,6 +127,7 @@ class _AnimalSilhouetteState extends State<AnimalSilhouette>
                   image: _image!,
                   fillRatio: widget.fillRatio,
                   phase: _wave.value * math.pi * 2,
+                  bandColors: _bandColors,
                   solidFillColor: widget.solidFillColor,
                   fullArt: widget.fullArt,
                 ),
@@ -108,6 +142,7 @@ class _AnimalFillPainter extends CustomPainter {
     required this.image,
     required this.fillRatio,
     required this.phase,
+    required this.bandColors,
     this.solidFillColor,
     this.fullArt = false,
   });
@@ -118,24 +153,11 @@ class _AnimalFillPainter extends CustomPainter {
   final Color? solidFillColor;
   final bool fullArt;
 
-  /// 7 色饮品色带（从下到上 = 第一杯饮料在底部）
-  static const _colorBands = <Color>[
-    Color(0xFFF28BAA), // 粉（草莓奶）
-    Color(0xFF7CB342), // 绿（抹茶）
-    Color(0xFFB0C4D4), // 灰蓝（椰水）
-    Color(0xFF3D6FE0), // 蓝（纯水）
-    Color(0xFFE05252), // 红（果汁）
-    Color(0xFF8E3B4E), // 酒红（红酒）
-    Color(0xFFF5C542), // 黄（橙汁）
-  ];
+  /// 随机柔和色带（10 层，层间色相不重复），由外层生成保证逐帧稳定
+  final List<Color> bandColors;
 
-  /// 空杯态：去饱和 + 洗白（颜色变浅灰白，轮廓隐约可见）
-  static const _paleMatrix = ColorFilter.matrix(<double>[
-    0.2126, 0.7152, 0.0722, 0, 130, //
-    0.2126, 0.7152, 0.0722, 0, 130, //
-    0.2126, 0.7152, 0.0722, 0, 130, //
-    0, 0, 0, 1, 0, //
-  ]);
+  /// 空杯态剪影色：比页面纯白稍深的「另一种白」，保证轮廓边界完整清晰
+  static const _silhouetteGray = Color(0xFFEBEBEB);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -150,19 +172,23 @@ class _AnimalFillPainter extends CustomPainter {
     final dst =
         _fitContain(srcRect.width, srcRect.height, size.width, size.height);
 
-    // 1. 空杯态底图（洗白的动物）
-    canvas.drawImageRect(
-      image,
-      srcRect,
-      dst,
-      Paint()..colorFilter = _paleMatrix,
-    );
-
-    // 目标已完成 → 直接显示全彩插画，不再填充液体
+    // 目标已完成 → 直接显示全彩插画
     if (fullArt) {
       canvas.drawImageRect(image, srcRect, dst, Paint());
       return;
     }
+
+    // 1. 底层：纯浅灰实心剪影（灰块经图片 alpha 蒙版裁形），
+    //    未填充时也有完整清晰的轮廓边界，对标原版空杯效果
+    canvas.saveLayer(Offset.zero & size, Paint());
+    canvas.drawRect(dst, Paint()..color = _silhouetteGray);
+    canvas.drawImageRect(
+      image,
+      srcRect,
+      dst,
+      Paint()..blendMode = BlendMode.dstIn,
+    );
+    canvas.restore();
 
     if (fillRatio <= 0) return;
 
@@ -190,7 +216,7 @@ class _AnimalFillPainter extends CustomPainter {
 
   /// 分层液体：自上而下画，每层从水面线填到底部，下层覆盖上层
   void _drawLiquidLayers(Canvas canvas, Rect dst) {
-    final bandCount = _colorBands.length;
+    final bandCount = bandColors.length;
     final bandHeight = dst.height / bandCount;
     final fillBottom = dst.bottom;
     final totalFill = dst.height * fillRatio;
@@ -209,7 +235,7 @@ class _AnimalFillPainter extends CustomPainter {
     for (var s = 0; s < surfaces.length; s++) {
       final colorIndex = partial > 0 ? fullLayers - s : fullLayers - 1 - s;
       if (colorIndex < 0 || colorIndex >= bandCount) continue;
-      _drawLiquidBody(canvas, dst, surfaces[s], _colorBands[colorIndex]);
+      _drawLiquidBody(canvas, dst, surfaces[s], bandColors[colorIndex]);
     }
   }
 
@@ -224,8 +250,8 @@ class _AnimalFillPainter extends CustomPainter {
     for (var i = 1; i <= samples; i++) {
       final t = i / samples;
       final x = dst.left + dst.width * t;
-      // 波浪：2.5 个周期，振幅 5px，每层相位不同
-      final wave = math.sin(t * math.pi * 2.5 + phase + surfaceY * 0.05) * 5;
+      // 波浪：2 个周期，振幅 2.5px（幅度调小更自然），每层相位不同
+      final wave = math.sin(t * math.pi * 2.0 + phase + surfaceY * 0.05) * 2.5;
       path.lineTo(x, top + wave);
     }
     path
@@ -251,6 +277,7 @@ class _AnimalFillPainter extends CustomPainter {
     return old.fillRatio != fillRatio ||
         old.image != image ||
         old.phase != phase ||
+        old.bandColors != bandColors ||
         old.solidFillColor != solidFillColor ||
         old.fullArt != fullArt;
   }

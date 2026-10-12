@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="ll" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#D7CCC8"/>
+      <stop offset="100%" stop-color="#8D6E63"/>
+    </linearGradient>
+  </defs>
+  <!-- 耳朵 -->
+  <ellipse cx="24" cy="24" rx="7" ry="9" fill="url(#ll)"/>
+  <ellipse cx="76" cy="24" rx="7" ry="9" fill="url(#ll)"/>
+  <!-- 头部 -->
+  <path d="M30 40 Q16 30 24 18 Q36 6 50 10 Q64 6 76 18 Q84 30 70 40 Q76 58 66 68 Q56 88 44 88 Q34 88 34 68 Q24 58 30 40 Z" fill="url(#ll)"/>
+  <!-- 眼睛 -->
+  <circle cx="40" cy="38" r="3" fill="#5D4037"/>
+  <circle cx="60" cy="38" r="3" fill="#5D4037"/>
+  <!-- 鼻子 -->
+  <ellipse cx="50" cy="70" rx="8" ry="5" fill="#BCAAA4"/>
+</svg>

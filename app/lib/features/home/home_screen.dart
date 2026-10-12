@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../shared/models/beverage.dart';
+import '../../shared/widgets/drink_illustration.dart';
 import '../drink/screens/add_drink_screen.dart';
 import '../onboarding/widgets/animal_silhouette.dart';
 import '../stats/history_screen.dart';
@@ -41,12 +42,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.symmetric(horizontal: 16),
       children: [
-        // 1. 水（青色渐变圆底 + 水滴图标）
+        // 1. 水（青色玻璃杯大插画 + 底部 ⊕ 徽章）
         _DrinkItem(
-          icon: Icons.water_drop,
+          beverageId: 'water_pure',
           label: '水',
           color: _brandCyan,
           highlight: true,
+          badgeIcon: Icons.add,
           onTap: () => Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => const AddDrinkScreen()),
@@ -56,16 +58,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         const _ItemsChip(),
         // 3. 羊驼卢娜头像
         _DrinkItem(
-          icon: Icons.pets,
+          beverageId: 'llama',
           label: '羊驼卢娜',
           color: const Color(0xFF8B6F47),
           bg: const Color(0xFFF5E6D3),
+          badgeIcon: Icons.refresh,
           onTap: () {},
         ),
         // 4. 各类饮品
         for (final b in drinks)
           _DrinkItem(
-            icon: b.category.icon,
+            beverageId: b.id,
             label: b.name,
             color: b.category.color,
             locked: b.memberOnly,
@@ -236,21 +239,25 @@ class _DayBadge extends StatelessWidget {
 /// 饮品快捷项：圆底图标 + 标签（锁定项右下角小锁徽章）
 class _DrinkItem extends StatelessWidget {
   const _DrinkItem({
-    required this.icon,
+    required this.beverageId,
     required this.label,
     required this.color,
     required this.onTap,
     this.bg,
     this.locked = false,
     this.highlight = false,
+    this.badgeIcon,
   });
-  final IconData icon;
+  final String beverageId;
   final String label;
   final Color color;
   final Color? bg;
   final VoidCallback onTap;
   final bool locked;
   final bool highlight;
+
+  /// 底部中央徽章图标（如水的 ⊕、羊驼的 ↻）；锁定项自动显示锁
+  final IconData? badgeIcon;
 
   @override
   Widget build(BuildContext context) {
@@ -262,48 +269,53 @@ class _DrinkItem extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Container(
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                    gradient: highlight
-                        ? LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              color.withValues(alpha: 0.85),
-                              color,
-                            ],
-                          )
-                        : null,
-                    color: highlight ? null : (bg ?? color.withValues(alpha: 0.14)),
-                    shape: BoxShape.circle,
+            // 对标原版：无圆底，饮品插画独立大图直接立在白色背景上
+            SizedBox(
+              width: 52,
+              height: 56,
+              child: Stack(
+                clipBehavior: Clip.none,
+                alignment: Alignment.center,
+                children: [
+                  DrinkIllustration(
+                    beverageId: beverageId,
+                    color: color,
+                    size: 52,
+                    highlight: highlight,
                   ),
-                  child: Icon(
-                    icon,
-                    color: highlight ? Colors.white : color,
-                    size: 26,
-                  ),
-                ),
-                if (locked)
-                  Positioned(
-                    right: -2,
-                    bottom: -2,
-                    child: Container(
-                      width: 18,
-                      height: 18,
-                      decoration: const BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
+                  // 底部中央徽章：锁定项灰底白锁，水的 ⊕ 用品牌色
+                  if (locked)
+                    Positioned(
+                      bottom: -2,
+                      child: Container(
+                        width: 20,
+                        height: 20,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF9E9E9E).withValues(alpha: 0.85),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 1.5),
+                        ),
+                        child: const Icon(Icons.lock,
+                            size: 11, color: Colors.white),
                       ),
-                      child: Icon(Icons.lock,
-                          size: 11, color: const Color(0xFF8E8E93)),
+                    )
+                  else if (badgeIcon != null)
+                    Positioned(
+                      bottom: -2,
+                      child: Container(
+                        width: 20,
+                        height: 20,
+                        decoration: BoxDecoration(
+                          color: color,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 1.5),
+                        ),
+                        child: Icon(badgeIcon,
+                            size: 12, color: Colors.white),
+                      ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
             const SizedBox(height: 4),
             Text(
@@ -351,8 +363,11 @@ class _ItemsChip extends StatelessWidget {
                   color: Color(0xFFF2F2F5),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.pets,
-                    color: Color(0xFF6B6B70), size: 20),
+                child: const DrinkIllustration(
+                    beverageId: 'llama',
+                    color: Color(0xFF6B6B70),
+                    size: 22,
+                  ),
               ),
               const SizedBox(width: 6),
               const Expanded(
