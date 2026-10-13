@@ -1,13 +1,17 @@
 import 'dart:math' as math;
 
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart'
     show SystemUiOverlayStyle, FilteringTextInputFormatter;
 
+import '../../../core/storage/providers.dart';
 import '../../../shared/models/beverage.dart';
 import '../../../shared/models/drink_entry.dart';
 import '../../home/providers/home_providers.dart';
+import '../providers/custom_beverage_provider.dart';
 
 /// 对标原版 WaterLlama 加水页（全屏模态）
 ///
@@ -32,12 +36,11 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
 
   late final Beverage _beverage;
 
-  /// 容量档位（饮品默认档位）
-  List<int> get _volumes => [
-        _beverage.defaultMl,
-        (_beverage.defaultMl * 1.3).round(),
-        (_beverage.defaultMl * 1.5).round(),
-      ];
+  /// 容量档位（内置档位 + 持久化的自定义覆盖，始终升序）
+  late List<int> _volumes;
+
+  /// 自定义量持久化 key：{beverageId: [档位数组]}
+  static const _kCustomVolumes = 'beverage_custom_volumes';
 
   late final PageController _pageCtrl;
   late final AnimationController _waveCtrl;
@@ -51,15 +54,103 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
   /// 饮品主题色（液体 + 按钮）——优先使用饮品独立液体色
   Color get _drinkColor => _beverage.color;
 
+  /// 液体色过浅（乳白类）时按钮文字改用深棕调，保证可读性
+  Color get _onDrinkColor => _drinkColor.computeLuminance() > 0.72
+      ? Color.lerp(_drinkColor, const Color(0xFF5B4A2F), 0.6)!
+      : Colors.white;
+
+  /// 图标主色：浅液体时加深，深液体时保持原色
+  Color get _accentIconColor => _drinkColor.computeLuminance() > 0.72
+      ? Color.lerp(_drinkColor, const Color(0xFF5B4A2F), 0.6)!
+      : _drinkColor;
+
+  /// 非会员锁定除水外的全部饮品（对标原版：仅水免费可记录）
+  bool get _beverageLocked =>
+      !ref.read(memberProvider).isValid && _beverage.id != 'water_pure';
+
+  /// 会员占位弹层：正式会员购买页后续接入（当前仅提示开通入口）
+  void _showMembershipSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(24, 28, 24, 36),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              decoration: const BoxDecoration(
+                color: Color(0xFFE8F7FB),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.workspace_premium,
+                size: 34,
+                color: Color(0xFF3BB3DB),
+              ),
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              '解锁全部饮品',
+              style: TextStyle(
+                color: Color(0xFF1C1C1E),
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              '开通会员后即可记录咖啡、果汁、奶茶等全部饮品',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Color(0xFF8E8E93), fontSize: 14),
+            ),
+            const SizedBox(height: 22),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: FilledButton(
+                onPressed: () => Navigator.pop(ctx),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF3BB3DB),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(26),
+                  ),
+                ),
+                child: const Text(
+                  '开通会员',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
-    _beverage = Beverage.presets.firstWhere(
+    // 完整饮品库 = 内置预设 + 自定义饮品（首页快捷栏可跳转自定义饮品加量页）
+    final customs = ref.read(customBeveragesProvider);
+    _beverage = allBeverages(customs).firstWhere(
       (b) => b.id == widget.beverageId,
       orElse: () => Beverage.presets.first,
     );
+    _volumes = [..._beverage.volumes]..sort();
+    // 初始档位 = 默认容量所在档；不在档位中（如红酒 150ml）时取首个 >= 默认容量的档
+    var idx = _volumes.indexOf(_beverage.defaultMl);
+    if (idx < 0) {
+      idx = _volumes.indexWhere((v) => v >= _beverage.defaultMl);
+      if (idx < 0) idx = _volumes.length - 1;
+    }
+    _cupMaxIdx = idx;
     _selected = _beverage.defaultMl;
-    _pageCtrl = PageController(viewportFraction: 0.5, initialPage: 0);
+    _pageCtrl = PageController(viewportFraction: 0.5, initialPage: idx);
     _waveCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1600),
@@ -68,6 +159,61 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
       vsync: this,
       duration: const Duration(seconds: 3),
     )..repeat();
+    _applyPersistedCustom();
+  }
+
+  /// 加载持久化的自定义档位覆盖（永久覆盖直到下次自定义）
+  Future<void> _applyPersistedCustom() async {
+    final storage = await ref.read(localStorageProvider.future);
+    final raw = storage.prefs.getString(_kCustomVolumes);
+    if (raw == null || !mounted) return;
+    try {
+      final map = jsonDecode(raw) as Map<String, dynamic>;
+      final list = map[widget.beverageId];
+      if (list is! List || list.length != _volumes.length) return;
+      final custom = list.map((e) => int.parse(e.toString())).toList()
+        ..sort();
+      setState(() {
+        _volumes = custom;
+        // 默认容量档可能已被覆盖，重新定位到 >= 默认容量的最小档
+        var i = _volumes.indexOf(_beverage.defaultMl);
+        if (i < 0) {
+          i = _volumes.indexWhere((v) => v >= _beverage.defaultMl);
+          if (i < 0) i = _volumes.length - 1;
+        }
+        _cupMaxIdx = i;
+        _selected = _beverage.defaultMl.clamp(10, _volumes.last);
+        _pageCtrl.jumpToPage(i);
+      });
+    } catch (_) {
+      // 持久化数据异常时忽略，使用内置档位
+    }
+  }
+
+  /// 自定义量：覆盖当前档位 → 升序重排 → 持久化永久覆盖 → 滚轮跳到新位置
+  void _applyCustomVolume(int ml) {
+    setState(() {
+      _volumes[_cupMaxIdx] = ml;
+      _volumes.sort();
+      _cupMaxIdx = _volumes.indexOf(ml);
+      _selected = ml;
+    });
+    _pageCtrl.animateToPage(
+      _cupMaxIdx,
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
+    );
+    _persistVolumes();
+  }
+
+  Future<void> _persistVolumes() async {
+    final storage = await ref.read(localStorageProvider.future);
+    final raw = storage.prefs.getString(_kCustomVolumes);
+    final map = raw == null
+        ? <String, dynamic>{}
+        : (jsonDecode(raw) as Map<String, dynamic>);
+    map[widget.beverageId] = _volumes;
+    await storage.prefs.setString(_kCustomVolumes, jsonEncode(map));
   }
 
   @override
@@ -105,7 +251,10 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
     if (mounted) Navigator.pop(context, true);
   }
 
+  /// 自定义量（会员功能）：下限固定 10ml，上限为当前饮品最大容量档；
+  /// 确认后覆盖当前档位并永久持久化
   Future<void> _showCustomInput() async {
+    final maxMl = _volumes.last;
     final ctrl = TextEditingController(text: '$_selected');
     final result = await showDialog<int>(
       context: context,
@@ -122,11 +271,11 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
           style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w700),
           decoration: InputDecoration(
             suffixText: 'ml',
-            helperText: '范围 10 ~ $_cupMax ml',
+            helperText: '范围 10 ~ $maxMl ml',
           ),
           onSubmitted: (v) {
             final n = int.tryParse(v);
-            if (n != null) Navigator.pop(ctx, n.clamp(10, _cupMax));
+            if (n != null) Navigator.pop(ctx, n.clamp(10, maxMl));
           },
         ),
         actions: [
@@ -137,22 +286,22 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
           ElevatedButton(
             onPressed: () {
               final n = int.tryParse(ctrl.text);
-              if (n != null) Navigator.pop(ctx, n.clamp(10, _cupMax));
+              if (n != null) Navigator.pop(ctx, n.clamp(10, maxMl));
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: _drinkColor,
-              foregroundColor: Colors.white,
+              foregroundColor: _onDrinkColor,
               elevation: 0,
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(20)),
             ),
-            child: const Text('确定'),
+            child: const Text('+ 自定义量'),
           ),
         ],
       ),
     );
     if (result != null && mounted) {
-      setState(() => _selected = result);
+      _applyCustomVolume(result);
     }
   }
 
@@ -265,22 +414,27 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        // 左侧：自定义量（九宫格）
+                        // 左侧：自定义量（会员功能：锁定态点击弹会员页）
                         _RoundIcon(
                           icon: Icons.apps,
                           label: '自定义',
-                          color: _drinkColor,
-                          onTap: _showCustomInput,
+                          color: _accentIconColor,
+                          locked: _beverageLocked,
+                          onTap: _beverageLocked
+                              ? _showMembershipSheet
+                              : _showCustomInput,
                         ),
-                        // 中间 "+ 饮品名" CTA
+                        // 中间 "+ 饮品名" CTA（锁定饮品带锁，点击弹会员页）
                         SizedBox(
                           width: 160,
                           height: 60,
                           child: ElevatedButton(
-                            onPressed: _submit,
+                            onPressed: _beverageLocked
+                                ? _showMembershipSheet
+                                : _submit,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: _drinkColor,
-                              foregroundColor: Colors.white,
+                              foregroundColor: _onDrinkColor,
                               elevation: 0,
                               shape: RoundedRectangleBorder(
                                   borderRadius:
@@ -294,6 +448,10 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
                               children: [
                                 const Text('+ '),
                                 Text(_beverage.name),
+                                if (_beverageLocked) ...[
+                                  const SizedBox(width: 6),
+                                  const Icon(Icons.lock, size: 18),
+                                ],
                               ],
                             ),
                           ),
@@ -302,7 +460,7 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
                         _RoundIcon(
                           icon: Icons.more_horiz,
                           label: '更多',
-                          color: _drinkColor,
+                          color: _accentIconColor,
                           onTap: () {},
                         ),
                       ],
@@ -342,14 +500,22 @@ class _CloseButton extends StatelessWidget {
   }
 }
 
-/// 圆形图标按钮 + 下方标签
+/// 圆形图标按钮 + 下方标签（locked 时右下角小锁徽章）
 class _RoundIcon extends StatelessWidget {
-  const _RoundIcon(
-      {required this.icon, required this.onTap, required this.color, this.label});
+  const _RoundIcon({
+    required this.icon,
+    required this.onTap,
+    required this.color,
+    this.label,
+    this.locked = false,
+  });
   final IconData icon;
   final VoidCallback onTap;
   final Color color;
   final String? label;
+
+  /// 会员专属功能锁定标记
+  final bool locked;
 
   @override
   Widget build(BuildContext context) {
@@ -366,7 +532,29 @@ class _RoundIcon extends StatelessWidget {
               color: color.withValues(alpha: 0.12),
               shape: BoxShape.circle,
             ),
-            child: Icon(icon, color: color, size: 24),
+            child: Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.center,
+              children: [
+                Icon(icon, color: color, size: 24),
+                if (locked)
+                  Positioned(
+                    right: -2,
+                    bottom: -2,
+                    child: Container(
+                      width: 16,
+                      height: 16,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF9E9E9E).withValues(alpha: 0.9),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 1),
+                      ),
+                      child:
+                          const Icon(Icons.lock, size: 9, color: Colors.white),
+                    ),
+                  ),
+              ],
+            ),
           ),
           if (label != null) ...[
             const SizedBox(height: 4),
@@ -466,10 +654,12 @@ class _DrinkContainerPainter extends CustomPainter {
     // 3. 装饰元素（绘制在液体之上）
     _drawDecorations(canvas, w, h, surfaceY);
 
-    // 4. 气泡（有水时；碳酸饮料气泡更多更密集）
+    // 4. 气泡（有水时；碳酸饮料气泡更多；白粥用米粒替代气泡）
     if (fillRatio > 0.04) {
       final rng = math.Random(42);
-      final bubbleCount = beverageId == 'soda' ? 12 : 6;
+      final bubbleCount = beverageId == 'soda'
+          ? 12
+          : (beverageId == 'soup_porridge' ? 0 : 6);
       for (var i = 0; i < bubbleCount; i++) {
         final cycleOffset = i * 0.14;
         final t = (bubbleSeed + cycleOffset) % 1.0;
@@ -482,6 +672,30 @@ class _DrinkContainerPainter extends CustomPainter {
           br,
           Paint()..color = Colors.white.withValues(alpha: alpha),
         );
+      }
+    }
+
+    // 4.5 白粥米粒（少量米粒悬浮在粥里，随时间缓慢浮动）
+    if (beverageId == 'soup_porridge' && fillRatio > 0.04) {
+      final rng = math.Random(7);
+      for (var i = 0; i < 7; i++) {
+        final cycleOffset = i * 0.17;
+        final t = (bubbleSeed * 0.25 + cycleOffset) % 1.0;
+        final cx = w * (0.22 + rng.nextDouble() * 0.56);
+        final baseY =
+            surfaceY + (h - surfaceY) * (0.15 + rng.nextDouble() * 0.65);
+        final cy = baseY + math.sin(t * math.pi * 2) * 3;
+        final rw = 3.5 + rng.nextDouble() * 2.5;
+        final rh = rw * 0.6;
+        canvas.save();
+        canvas.translate(cx, cy);
+        canvas.rotate(rng.nextDouble() * math.pi);
+        canvas.drawOval(
+          Rect.fromCenter(center: Offset.zero, width: rw * 2, height: rh * 2),
+          Paint()
+            ..color = const Color(0xFFE8DCC2).withValues(alpha: 0.9),
+        );
+        canvas.restore();
       }
     }
     canvas.restore();

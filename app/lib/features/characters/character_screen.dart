@@ -3,8 +3,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'character_art.dart';
+import 'character_catalog.dart';
+import 'character_collection_provider.dart';
 import 'character_data.dart';
 import 'current_character_provider.dart';
+import '../home/providers/home_providers.dart';
 
 /// 角色展示页：从底部滑出的独立全屏页面（不可拖拽关闭，只能点 X 返回）
 ///
@@ -17,6 +20,17 @@ class CharacterScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final currentChar = ref.watch(currentCharacterProvider);
+    final catalog = ref.watch(characterCatalogProvider);
+    // 当前角色为后台上传素材时的本地 SVG 路径（内置素材为 null）
+    final currentFilePath =
+        catalog.asData?.value.uploadedFilePaths[currentChar];
+    // 收集状态：历史饮水量里程碑点亮的角色集合
+    final collected =
+        ref.watch(characterCollectionProvider).value?.collectedIds ??
+            const <String>{'alpaca'};
+    // 会员可使用全部已点亮角色；非会员仅初始角色可用
+    final isMember = ref.watch(memberProvider).isValid;
+
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.dark.copyWith(
         statusBarColor: Colors.transparent,
@@ -28,20 +42,56 @@ class CharacterScreen extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const _HeaderBar(),
+              // 1. 随机按钮 + X 关闭 + 当前角色卡片
+              _HeaderBar(
+                currentChar: currentChar,
+                currentFilePath: currentFilePath,
+                collectedCount: collected.length,
+              ),
               Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.only(top: 4, bottom: 32),
-                  children: [
-                    for (final cat in characterCategories)
-                      _CategorySection(
-                        category: cat,
-                        currentChar: currentChar,
-                        onTapCharacter: (id) => ref
-                            .read(currentCharacterProvider.notifier)
-                            .select(id),
-                      ),
-                  ],
+                child: catalog.when(
+                  loading: () => const Center(
+                    child: CircularProgressIndicator(),
+                  ),
+                  error: (e, _) => Center(
+                    child: Text('角色目录加载失败：$e'),
+                  ),
+                  data: (state) => ListView(
+                    padding: const EdgeInsets.only(top: 4, bottom: 32),
+                    children: [
+                      // 分类列表来自后台管理目录层（已过滤下架素材、合并上传素材）
+                      for (final cat in state.categories)
+                        _CategorySection(
+                          category: cat,
+                          currentChar: currentChar,
+                          collectedIds: collected,
+                          isMember: isMember,
+                          uploadedFilePaths: state.uploadedFilePaths,
+                          onTapCharacter: (id) {
+                            final canUse =
+                                collected.contains(id) &&
+                                    (isMember || id == 'alpaca');
+                            if (canUse) {
+                              ref
+                                  .read(currentCharacterProvider.notifier)
+                                  .select(id);
+                            } else if (collected.contains(id)) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('点亮的角色需要开通会员才能设为首页角色'),
+                                ),
+                              );
+                            } else {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('继续喝水，累计饮水量达到里程碑即可点亮新角色'),
+                                ),
+                              );
+                            }
+                          },
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -54,7 +104,19 @@ class CharacterScreen extends ConsumerWidget {
 
 /// 顶部固定头部
 class _HeaderBar extends StatelessWidget {
-  const _HeaderBar();
+  const _HeaderBar({
+    required this.currentChar,
+    required this.collectedCount,
+    this.currentFilePath,
+  });
+
+  final String currentChar;
+
+  /// 当前角色为后台上传素材时的本地 SVG 路径（内置素材为 null）
+  final String? currentFilePath;
+
+  /// 已点亮（收集）角色数
+  final int collectedCount;
 
   @override
   Widget build(BuildContext context) {
@@ -111,8 +173,12 @@ class _HeaderBar extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          // 2. 当前角色展示（羊驼卢娜）
-          const _CurrentCharacterCard(),
+          // 2. 当前角色展示（跟随 currentCharacterProvider 动态渲染）
+          _CurrentCharacterCard(
+            animalId: currentChar,
+            filePath: currentFilePath,
+            collectedCount: collectedCount,
+          ),
           const SizedBox(height: 10),
           // 3. 收集角色按钮
           const _CollectButton(),
@@ -125,9 +191,21 @@ class _HeaderBar extends StatelessWidget {
   }
 }
 
-/// 当前角色展示卡片：彩色羊驼卢娜插画 + 名字 + 描述 + 进度
+/// 当前角色展示卡片：彩色插画 + 名字 + 描述 + 进度（随选中角色实时切换）
 class _CurrentCharacterCard extends StatelessWidget {
-  const _CurrentCharacterCard();
+  const _CurrentCharacterCard({
+    required this.animalId,
+    required this.collectedCount,
+    this.filePath,
+  });
+
+  final String animalId;
+
+  /// 当前角色为后台上传素材时的本地 SVG 路径（内置素材为 null）
+  final String? filePath;
+
+  /// 已点亮（收集）角色数
+  final int collectedCount;
 
   @override
   Widget build(BuildContext context) {
@@ -151,17 +229,18 @@ class _CurrentCharacterCard extends StatelessWidget {
               child: Padding(
                 padding: const EdgeInsets.all(6),
                 child: CharacterArt(
-                  animalId: 'alpaca',
+                  animalId: animalId,
                   unlocked: true,
                   size: 76,
+                  filePath: filePath,
                 ),
               ),
             ),
           ),
           const SizedBox(height: 8),
-          const Text(
-            '羊驼卢娜',
-            style: TextStyle(
+          Text(
+            characters[animalId]?.displayName ?? '角色',
+            style: const TextStyle(
               color: Color(0xFF1C1C1E),
               fontSize: 18,
               fontWeight: FontWeight.w700,
@@ -175,7 +254,7 @@ class _CurrentCharacterCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            '已收集 ${defaultUnlockedIds.length} 个，共 $totalCharacterCount 个',
+            '已收集 $collectedCount 个，共 $totalCharacterCount 个',
             style: const TextStyle(
               color: Color(0xFF5AC8FA),
               fontSize: 13,
@@ -263,19 +342,29 @@ class _CategorySection extends StatelessWidget {
   const _CategorySection({
     required this.category,
     required this.currentChar,
+    required this.collectedIds,
+    required this.isMember,
+    required this.uploadedFilePaths,
     required this.onTapCharacter,
   });
 
   final CharacterCategory category;
   final String currentChar;
+  final Set<String> collectedIds;
+  final bool isMember;
+  final Map<String, String> uploadedFilePaths;
   final ValueChanged<String> onTapCharacter;
 
   @override
   Widget build(BuildContext context) {
     final cat = category;
-    final unlockedCount = cat.characterIds
-        .where((id) => defaultUnlockedIds.contains(id))
-        .length;
+    final collectedCount =
+        cat.characterIds.where(collectedIds.contains).length;
+    // 排序：已点亮（收集）的角色依次排到未点亮角色前面
+    final orderedIds = [
+      ...cat.characterIds.where(collectedIds.contains),
+      ...cat.characterIds.where((id) => !collectedIds.contains(id)),
+    ];
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
@@ -292,7 +381,7 @@ class _CategorySection extends StatelessWidget {
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: Text(
-                  '$unlockedCount/${cat.characterIds.length}',
+                  '$collectedCount/${cat.characterIds.length}',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 14,
@@ -330,12 +419,15 @@ class _CategorySection extends StatelessWidget {
             crossAxisSpacing: 8,
             childAspectRatio: 1,
             children: [
-              for (final id in cat.characterIds)
+              for (final id in orderedIds)
                 _CharacterGridCard(
                   animalId: id,
                   color: cat.color,
-                  unlocked: defaultUnlockedIds.contains(id),
+                  unlocked: collectedIds.contains(id),
+                  locked: collectedIds.contains(id) &&
+                      !(isMember || id == 'alpaca'),
                   selected: currentChar == id,
+                  filePath: uploadedFilePaths[id],
                   onTap: () => onTapCharacter(id),
                 ),
             ],
@@ -347,6 +439,7 @@ class _CategorySection extends StatelessWidget {
 }
 
 /// 角色网格卡片：分类色浅底 + CharacterArt 插画 + 点击切换首页角色
+/// locked = 已点亮但需会员才能使用（右下角小锁徽章）
 class _CharacterGridCard extends StatelessWidget {
   const _CharacterGridCard({
     required this.animalId,
@@ -354,6 +447,8 @@ class _CharacterGridCard extends StatelessWidget {
     required this.unlocked,
     required this.selected,
     required this.onTap,
+    this.locked = false,
+    this.filePath,
   });
 
   final String animalId;
@@ -361,6 +456,12 @@ class _CharacterGridCard extends StatelessWidget {
   final bool unlocked;
   final bool selected;
   final VoidCallback onTap;
+
+  /// 已点亮但非会员：卡片仍带锁，不能设为首页角色
+  final bool locked;
+
+  /// 后台上传素材的本地 SVG 路径（内置素材为 null）
+  final String? filePath;
 
   @override
   Widget build(BuildContext context) {
@@ -377,15 +478,35 @@ class _CharacterGridCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           border: border,
         ),
-        child: Padding(
-          padding: const EdgeInsets.all(6),
-          child: Center(
-            child: CharacterArt(
-              animalId: animalId,
-              unlocked: unlocked,
-              size: 44,
+        child: Stack(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(6),
+              child: Center(
+                child: CharacterArt(
+                  animalId: animalId,
+                  unlocked: unlocked,
+                  size: 44,
+                  filePath: filePath,
+                ),
+              ),
             ),
-          ),
+            if (locked)
+              Positioned(
+                right: 4,
+                bottom: 4,
+                child: Container(
+                  width: 16,
+                  height: 16,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF9E9E9E).withValues(alpha: 0.85),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 1),
+                  ),
+                  child: const Icon(Icons.lock, size: 9, color: Colors.white),
+                ),
+              ),
+          ],
         ),
       ),
     );

@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/storage/providers.dart';
 import '../../shared/models/beverage.dart';
 import '../../shared/models/drink_entry.dart';
 import '../characters/current_character_provider.dart';
@@ -63,7 +64,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
   @override
   Widget build(BuildContext context) {
     final progress = ref.watch(dailyProgressProvider);
-    final streak = ref.watch(streakProvider);
+    final checkin = ref.watch(checkinDaysProvider);
     final currentChar = ref.watch(currentCharacterProvider);
     final profile = ref.watch(profileProvider);
     final now = DateTime.now();
@@ -89,10 +90,10 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                 padding: EdgeInsets.only(top: topInset + 60, bottom: 24),
                 child: Column(
                   children: [
-                    // 1. 顶部大徽章（始终显示今天的数据：% 与 连续天数 每 2 秒交替）
+                    // 1. 顶部大徽章（始终显示今天的数据：% 与 签到天数 每 2 秒交替）
                     _TopBadge(
                       percent: progress.progress,
-                      streakDays: streak.valueOrNull?.current ?? 0,
+                      streakDays: checkin.valueOrNull ?? 0,
                     ),
                     const SizedBox(height: 20),
                     // 2. 月历（标题动态渲染选中日期，日期可点选）
@@ -196,7 +197,10 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
             _LockedPill(
               icon: Icons.add_circle_outline,
               label: '补上遗漏',
-              onTap: () => _showTip('补上遗漏是会员功能'),
+              locked: !ref.read(memberProvider).isValid,
+              onTap: () => ref.read(memberProvider).isValid
+                  ? _showBackfillSheet()
+                  : _showTip('补上遗漏是会员功能'),
             ),
           ],
         ),
@@ -230,26 +234,284 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
           style: const TextStyle(color: _kHintGray, fontSize: 14),
         ),
         const SizedBox(height: 16),
-        // 编辑记录 / 补上遗漏
+        // 编辑记录 / 补上遗漏（会员功能；会员态无锁直接可用）
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             _LockedPill(
               icon: Icons.edit,
               label: '编辑记录',
-              onTap: () => _showTip('编辑记录是会员功能'),
+              locked: !ref.read(memberProvider).isValid,
+              onTap: () => ref.read(memberProvider).isValid
+                  ? _showEditSheet()
+                  : _showTip('编辑记录是会员功能'),
             ),
             const SizedBox(width: 12),
             _LockedPill(
               icon: Icons.add_circle_outline,
               label: '补上遗漏',
-              onTap: () => _showTip('补上遗漏是会员功能'),
+              locked: !ref.read(memberProvider).isValid,
+              onTap: () => ref.read(memberProvider).isValid
+                  ? _showBackfillSheet()
+                  : _showTip('补上遗漏是会员功能'),
             ),
           ],
         ),
         // 记录列表（按筛选过滤）
         _buildEntryList(entries),
       ],
+    );
+  }
+
+  // ---------------- 编辑记录 / 补上遗漏（会员功能） ----------------
+
+  /// 编辑记录弹层：列出选中日期全部条目，支持删除单条（软删 + 全链刷新）
+  Future<void> _showEditSheet() async {
+    final entries = ref
+            .read(dayEntriesForProvider(_selectedDate))
+            .valueOrNull ??
+        const <DrinkEntry>[];
+    if (entries.isEmpty) {
+      _showTip('当天没有可编辑的记录');
+      return;
+    }
+    final list = [...entries]..sort((a, b) => b.drankAt.compareTo(a.drankAt));
+    await showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheet) => SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    '编辑记录 · ${DateFormat('M月d日').format(_selectedDate)}',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: _kTextDark,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Flexible(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: list.length,
+                      itemBuilder: (ctx, i) {
+                        final e = list[i];
+                        final cat = e.beverageCategory;
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Row(
+                            children: [
+                              CircleAvatar(
+                                radius: 18,
+                                backgroundColor:
+                                    cat.color.withValues(alpha: 0.15),
+                                child:
+                                    Icon(cat.icon, color: cat.color, size: 20),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      e.beverageName,
+                                      style: const TextStyle(
+                                        color: _kTextDark,
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    Text(
+                                      '${e.volumeMl}ml · ${DateFormat('HH:mm').format(e.drankAt)}',
+                                      style: const TextStyle(
+                                          color: _kHintGray, fontSize: 12),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              IconButton(
+                                onPressed: () async {
+                                  final storage = await ref
+                                      .read(localStorageProvider.future);
+                                  await storage.softDeleteEntry(e.clientId);
+                                  // 全链刷新：今日列表/柱状图/日历/收集总量
+                                  ref.invalidate(todayEntriesProvider);
+                                  setSheet(() => list.remove(e));
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                          content: Text(
+                                              '已删除 ${e.beverageName} ${e.volumeMl}ml')),
+                                    );
+                                  }
+                                },
+                                icon: const Icon(Icons.delete_outline,
+                                    color: Color(0xFFE05252), size: 22),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// 补上遗漏弹层（会员）：选择饮品 + 输入量，写入选中日期并全链刷新
+  Future<void> _showBackfillSheet() async {
+    final day = _selectedDate;
+    final now = DateTime.now();
+    final drankAt =
+        DateTime(day.year, day.month, day.day, now.hour, now.minute);
+    var selected = Beverage.presets.first;
+    var volume = selected.defaultMl;
+    final ctrl = TextEditingController(text: '$volume');
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) => Padding(
+          padding: EdgeInsets.fromLTRB(
+              20, 20, 20, 24 + MediaQuery.of(ctx).viewInsets.bottom),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                '补上遗漏 · ${DateFormat('M月d日').format(day)}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: _kTextDark,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 14),
+              // 饮品横滑选择
+              SizedBox(
+                height: 84,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: Beverage.presets.length,
+                  itemBuilder: (ctx, i) {
+                    final b = Beverage.presets[i];
+                    final isSel = b.id == selected.id;
+                    return GestureDetector(
+                      onTap: () => setSheet(() {
+                        selected = b;
+                        volume = b.defaultMl;
+                        ctrl.text = '$volume';
+                      }),
+                      child: Container(
+                        width: 64,
+                        margin: const EdgeInsets.only(right: 8),
+                        decoration: BoxDecoration(
+                          color: isSel
+                              ? b.color.withValues(alpha: 0.18)
+                              : const Color(0xFFF5F5F7),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: isSel ? b.color : Colors.transparent,
+                            width: 2,
+                          ),
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(b.category.icon, color: b.color, size: 26),
+                            const SizedBox(height: 4),
+                            Text(
+                              b.name,
+                              style: TextStyle(
+                                color: isSel ? _kTextDark : _kHintGray,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 14),
+              // 容量输入
+              TextField(
+                controller: ctrl,
+                autofocus: true,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                    fontSize: 30, fontWeight: FontWeight.w800),
+                decoration: const InputDecoration(
+                  suffixText: 'ml',
+                  helperText: '范围 10 ~ 2000 ml',
+                ),
+                onChanged: (v) => volume = int.tryParse(v) ?? 0,
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                height: 52,
+                child: FilledButton(
+                  onPressed: () async {
+                    final v = volume.clamp(10, 2000);
+                    final entry = DrinkEntry.create(
+                      beverage: selected,
+                      volumeMl: v,
+                      drankAt: drankAt,
+                    );
+                    final storage =
+                        await ref.read(localStorageProvider.future);
+                    await storage.insertDrinkEntry(entry);
+                    ref.invalidate(todayEntriesProvider);
+                    if (ctx.mounted) Navigator.pop(ctx);
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('已补上 ${selected.name} ${v}ml')),
+                      );
+                    }
+                  },
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _kCyan,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(26),
+                    ),
+                  ),
+                  child: const Text(
+                    '补上',
+                    style: TextStyle(
+                        fontSize: 17, fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -422,8 +684,8 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
               _BarData(
                 label: const ['日', '一', '二', '三', '四', '五', '六'][d.day.weekday % 7],
                 value: d.effectiveMl,
-                valueLabel:
-                    d.effectiveMl > 0 && _isToday(d.day) ? _fmtMl(d.effectiveMl) : null,
+                // 所有非零柱都标注数值（今天青色加粗、其他天灰色），避免误读为只有今天的数据
+                valueLabel: d.effectiveMl > 0 ? _fmtMl(d.effectiveMl) : null,
                 highlighted: _isToday(d.day),
               ),
           ],
@@ -1009,10 +1271,14 @@ class _LockedPill extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onTap,
+    this.locked = true,
   });
   final IconData icon;
   final String label;
   final VoidCallback onTap;
+
+  /// false = 已是会员，隐藏锁图标
+  final bool locked;
 
   @override
   Widget build(BuildContext context) {
@@ -1028,8 +1294,10 @@ class _LockedPill extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.lock, size: 14, color: Color(0xFF6B6B70)),
-            const SizedBox(width: 6),
+            if (locked) ...[
+              const Icon(Icons.lock, size: 14, color: Color(0xFF6B6B70)),
+              const SizedBox(width: 6),
+            ],
             Icon(icon, size: 15, color: const Color(0xFF6B6B70)),
             const SizedBox(width: 4),
             Text(
@@ -1101,16 +1369,18 @@ class _BarChart extends StatelessWidget {
                 Column(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    // 柱顶值标签（仅当前柱）
+                    // 柱顶值标签（今天的柱青色加粗，其他天灰色）
                     if (b.valueLabel != null)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 4),
                         child: Text(
                           b.valueLabel!,
-                          style: const TextStyle(
-                            color: _kCyan,
+                          style: TextStyle(
+                            color: b.highlighted ? _kCyan : _kHintGray,
                             fontSize: 11,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: b.highlighted
+                                ? FontWeight.w700
+                                : FontWeight.w600,
                           ),
                         ),
                       ),

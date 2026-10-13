@@ -10,6 +10,7 @@ import '../../shared/models/beverage.dart';
 import '../../shared/models/drink_entry.dart';
 import '../../shared/models/user_profile.dart';
 import '../home/providers/home_providers.dart';
+import '../settings/goal_screen.dart';
 import 'widgets/animal_silhouette.dart';
 
 /// PRD §2.1 多步向导 onboarding（对标原版 WaterLlama 录屏流程）
@@ -29,9 +30,14 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 
   // 目标计算入参（GoalCalc 与 Loading 共用）
   Gender? _gender; // 默认未选
+  String? _genderLabel; // 性别展示标签（怀孕/母乳喂养等，与枚举分离）
+
+  /// 当前性别展示值（未选时返回 null，选项卡仅显示「性别」）
+  String? get _genderDisplayLabel => _gender == null ? null : _genderLabel;
   double _weight = 60; // 默认体重(kg)，未选时用此默认值参与计算
   bool _weightSelected = false; // 体重卡片是否已被用户点选过
   ActivityLevel _activity = ActivityLevel.medium; // 默认中等强度（已选中）
+  GoalTemperature _temp = GoalTemperature.mild; // 默认温和
   int? _customGoal; // 用户自定义目标 ml
 
   // 品牌色规范
@@ -39,15 +45,18 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   static const _textDark = Color(0xFF1C1C1E);
   static const _hintGray = Color(0xFF8E8E93);
 
-  /// 当前预览目标（自定义优先；否则按现有数据用 UserProfile.create 计算）
-  int get _previewGoal => _customGoal ??
-      UserProfile.create(
-        gender: _gender ?? Gender.male,
-        weightKg: _weight,
-        heightCm: 170,
-        age: 25,
-        activityLevel: _activity,
-      ).dailyGoalMl;
+  /// 当前预览目标（自定义优先；否则推荐算法 + 温度修正，夹紧 [1500, 4500]）
+  int get _previewGoal {
+    if (_customGoal != null) return _customGoal!.clamp(500, 5000);
+    final base = UserProfile.create(
+      gender: _gender ?? Gender.male,
+      weightKg: _weight,
+      heightCm: 170,
+      age: 25,
+      activityLevel: _activity,
+    ).dailyGoalMl;
+    return (base + _temp.deltaMl).clamp(1500, 4500);
+  }
 
   void _goNext() {
     if (_step < 3) setState(() => _step++);
@@ -72,7 +81,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     );
   }
 
-  /// 加载完成最后一步：保存 UserProfile 并跳转首页
+  /// 加载完成最后一步：保存 UserProfile（含温度修正与温度偏好）并跳转首页
   Future<void> _finishProfile() async {
     final profile = UserProfile.create(
       gender: _gender ?? Gender.male,
@@ -80,8 +89,14 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       heightCm: 170,
       age: 25,
       activityLevel: _activity,
-      customGoalMl: _customGoal,
+      customGoalMl: _previewGoal,
     );
+    final storage = await ref.read(localStorageProvider.future);
+    // 温度与性别展示标签持久化，与「常见目标」页共用同一 key
+    await storage.prefs.setString('goal_temperature', _temp.name);
+    if (_genderLabel != null) {
+      await storage.prefs.setString('gender_display_label', _genderLabel!);
+    }
     await ref.read(profileProvider.notifier).save(profile);
     if (mounted) context.go('/');
   }
@@ -106,10 +121,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             onSkip: _goSkip,
           ),
           _GoalCalcScreen(
-            gender: _gender,
+            genderLabel: _genderDisplayLabel,
             weightSelected: _weightSelected,
             weightKg: _weight,
             activity: _activity,
+            temp: _temp,
             customGoal: _customGoal,
             previewGoal: _previewGoal,
             onGenderTap: () => _showGenderSheet(context),
@@ -140,9 +156,12 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (_) => _GenderSheet(
-        selected: _gender,
-        onSelected: (g) {
-          setState(() => _gender = g);
+        selectedLabel: _genderLabel,
+        onSelected: (o) {
+          setState(() {
+            _gender = o.gender;
+            _genderLabel = o.label;
+          });
           Navigator.pop(context);
         },
       ),
@@ -248,8 +267,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   }
 
   void _showTempSheet(BuildContext context) {
-    // 温度卡片仅展示选择 UI，不影响目标计算（UserProfile 不含温度参数）
-    String? selected;
+    // 温度选择影响目标计算（寒冷 -150 / 温和 0 / 炎热 +300），与「常见目标」页一致
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.white,
@@ -257,8 +275,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheet) => Padding(
+      builder: (ctx) => SafeArea(
+        child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -271,8 +289,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                       fontSize: 18,
                       fontWeight: FontWeight.w700)),
               const SizedBox(height: 12),
-              ...['热', '温', '凉'].map((t) => InkWell(
-                    onTap: () => setSheet(() => selected = t),
+              ...GoalTemperature.values.map((t) => InkWell(
+                    onTap: () {
+                      setState(() => _temp = t);
+                      Navigator.pop(ctx);
+                    },
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       decoration: const BoxDecoration(
@@ -283,15 +304,26 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                       ),
                       child: Row(
                         children: [
-                          Text(t,
-                              style: const TextStyle(
-                                  color: _textDark, fontSize: 16)),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(t.label,
+                                  style: const TextStyle(
+                                      color: _textDark,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w500)),
+                              const SizedBox(height: 2),
+                              Text(t.description,
+                                  style: const TextStyle(
+                                      color: _hintGray, fontSize: 13)),
+                            ],
+                          ),
                           const Spacer(),
                           Icon(
-                            selected == t
+                            t == _temp
                                 ? Icons.radio_button_checked
                                 : Icons.radio_button_off,
-                            color: selected == t ? _brandCyan : _hintGray,
+                            color: t == _temp ? _brandCyan : _hintGray,
                             size: 20,
                           ),
                         ],
@@ -301,21 +333,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               const SizedBox(height: 16),
               const Text('不会收集或共享你的个人信息',
                   style: TextStyle(color: _hintGray, fontSize: 12)),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _brandCyan,
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(24)),
-                  ),
-                  child: const Text('确定'),
-                ),
-              ),
+              const SizedBox(height: 16),
             ],
           ),
         ),
@@ -831,14 +849,17 @@ class _NotificationCard extends StatelessWidget {
   }
 }
 
-// ============================ 第 3 步：目标计算 ============================
+// ============================ 第 3 步：目标计算（水下动画场景） ============================
 
-class _GoalCalcScreen extends StatelessWidget {
+/// 复用「常见目标」页的水下动画背景（冰晶缓旋浮动 + 气泡生灭），
+/// 布局对标原版初始化页：白底选项卡 + 底部白色「继续」按钮
+class _GoalCalcScreen extends StatefulWidget {
   const _GoalCalcScreen({
-    required this.gender,
+    required this.genderLabel,
     required this.weightSelected,
     required this.weightKg,
     required this.activity,
+    required this.temp,
     required this.customGoal,
     required this.previewGoal,
     required this.onGenderTap,
@@ -850,10 +871,12 @@ class _GoalCalcScreen extends StatelessWidget {
     required this.onSkip,
   });
 
-  final Gender? gender;
+  /// 性别展示标签（怀孕/母乳喂养等），null = 未选择
+  final String? genderLabel;
   final bool weightSelected;
   final double weightKg;
   final ActivityLevel activity;
+  final GoalTemperature temp;
   final int? customGoal;
   final int previewGoal;
   final VoidCallback onGenderTap;
@@ -865,114 +888,156 @@ class _GoalCalcScreen extends StatelessWidget {
   final VoidCallback onSkip;
 
   @override
+  State<_GoalCalcScreen> createState() => _GoalCalcScreenState();
+}
+
+class _GoalCalcScreenState extends State<_GoalCalcScreen>
+    with SingleTickerProviderStateMixin {
+  /// 驱动性别/体重胶囊颤动的循环控制器（与水下背景同周期 12s）
+  late final AnimationController _anim;
+
+  @override
+  void initState() {
+    super.initState();
+    _anim = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 12),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _anim.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        // 青色渐变背景 + 半透明六边形装饰（铺满全屏）
-        Positioned.fill(child: CustomPaint(painter: _HexagonBgPainter())),
+        // 底层：水下动画背景（渐变水体 + 冰晶 + 气泡）
+        const Positioned.fill(child: UnderwaterBackground()),
         // 内容层
         SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: onSkip,
-                    child: const Text('跳过',
-                        style: TextStyle(color: Colors.white70)),
-                  ),
-                ),
-                const Spacer(),
-                // 大字目标
-                Text(
-                  '$previewGoal ml',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 60,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: const [
-                    Text('常见目标',
-                        style: TextStyle(color: Colors.white70, fontSize: 14)),
-                    SizedBox(width: 4),
-                    Icon(Icons.info_outline, color: Colors.white70, size: 16),
+          child: AnimatedBuilder(
+            animation: _anim,
+            builder: (context, _) {
+              final t = _anim.value;
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: widget.onSkip,
+                        child: const Text('跳过',
+                            style: TextStyle(color: Colors.white70)),
+                      ),
+                    ),
+                    const Spacer(),
+                    // 大字目标
+                    Text(
+                      '${widget.previewGoal} ml',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 56,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: const [
+                        Text('常见目标',
+                            style:
+                                TextStyle(color: Colors.white70, fontSize: 14)),
+                        SizedBox(width: 4),
+                        Icon(Icons.info_outline,
+                            color: Colors.white70, size: 16),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    const Text(
+                      '计算你的目标',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    // 4 张白底选项卡（性别/体重带左右轻微颤动）
+                    PillSway(
+                      t: t,
+                      phase: 0.0,
+                      child: _WhitePill(
+                        label: '性别',
+                        value: widget.genderLabel,
+                        onTap: widget.onGenderTap,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    PillSway(
+                      t: t,
+                      phase: math.pi,
+                      child: _WhitePill(
+                        label: '体重',
+                        value: widget.weightSelected
+                            ? '${widget.weightKg.round()}kg'
+                            : null,
+                        onTap: widget.onWeightTap,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    _WhitePill(
+                      label: widget.activity.label,
+                      value: widget.activity.description,
+                      onTap: widget.onActivityTap,
+                    ),
+                    const SizedBox(height: 10),
+                    _WhitePill(
+                      label: '温度',
+                      value: widget.temp.label,
+                      onTap: widget.onTempTap,
+                    ),
+                    const SizedBox(height: 10),
+                    // 自定义目标文本链接
+                    Center(
+                      child: TextButton(
+                        onPressed: widget.onCustomGoalTap,
+                        child: const Text('自定义目标',
+                            style:
+                                TextStyle(color: Colors.white, fontSize: 14)),
+                      ),
+                    ),
+                    const Spacer(),
+                    // 底部"继续"按钮（白底青字）
+                    SizedBox(
+                      width: double.infinity,
+                      height: 56,
+                      child: ElevatedButton(
+                        onPressed: widget.onContinue,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: const Color(0xFF4DB8D8),
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(28)),
+                          textStyle: const TextStyle(
+                              fontSize: 17, fontWeight: FontWeight.w600),
+                        ),
+                        child: const Text('继续'),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
                   ],
                 ),
-                const SizedBox(height: 32),
-                const Text(
-                  '计算你的目标',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                // 4 张可点击卡片（纵排）
-                _GoalCard(
-                  label: '性别',
-                  value: gender == null ? '' : gender!.label,
-                  selected: gender != null,
-                  onTap: onGenderTap,
-                ),
-                _GoalCard(
-                  label: '体重',
-                  value: weightSelected ? '${weightKg.round()} kg' : '',
-                  selected: weightSelected,
-                  onTap: onWeightTap,
-                ),
-                _GoalCard(
-                  label: activity.label,
-                  value: activity.description,
-                  selected: true,
-                  onTap: onActivityTap,
-                ),
-                _GoalCard(
-                  label: '温度',
-                  value: '',
-                  selected: false,
-                  onTap: onTempTap,
-                ),
-                const SizedBox(height: 12),
-                // 自定义目标文本链接
-                Center(
-                  child: TextButton(
-                    onPressed: onCustomGoalTap,
-                    child: const Text('自定义目标',
-                        style: TextStyle(color: Colors.white, fontSize: 14)),
-                  ),
-                ),
-                const Spacer(),
-                // 底部"继续"按钮（白底青字）
-                SizedBox(
-                  width: double.infinity,
-                  height: 56,
-                  child: ElevatedButton(
-                    onPressed: onContinue,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: const Color(0xFF4DB8D8),
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(28)),
-                      textStyle: const TextStyle(
-                          fontSize: 17, fontWeight: FontWeight.w600),
-                    ),
-                    child: const Text('继续'),
-                  ),
-                ),
-                const SizedBox(height: 24),
-              ],
-            ),
+              );
+            },
           ),
         ),
       ],
@@ -980,104 +1045,50 @@ class _GoalCalcScreen extends StatelessWidget {
   }
 }
 
-class _GoalCard extends StatelessWidget {
-  const _GoalCard({
+/// 白底选项卡（对标原版初始化页：白底深字 + 右侧灰色箭头）
+class _WhitePill extends StatelessWidget {
+  const _WhitePill({
     required this.label,
-    required this.value,
-    required this.selected,
     required this.onTap,
+    this.value,
   });
   final String label;
-  final String value;
-  final bool selected;
+  final String? value;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Material(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(12),
-          child: Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: selected
-                  ? Border.all(color: const Color(0xFF4DB8D8), width: 2)
-                  : null,
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    value.isEmpty ? label : '$label · $value',
-                    style: const TextStyle(
-                      color: Color(0xFF1C1C1E),
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                    ),
+    final hasValue = value != null && value!.isNotEmpty;
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          height: 50,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  hasValue ? '$label · $value' : label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF1C1C1E),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
-                const Icon(Icons.chevron_right, color: Color(0xFF8E8E93)),
-              ],
-            ),
+              ),
+              const Icon(Icons.chevron_right, color: Color(0xFF8E8E93)),
+            ],
           ),
         ),
       ),
     );
   }
-}
-
-/// 青色渐变背景 + 半透明六边形散布
-class _HexagonBgPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    // 渐变背景
-    final bgPaint = Paint()
-      ..shader = const LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [Color(0xFF4DB8D8), Color(0xFF3A9BC9)],
-      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
-    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), bgPaint);
-
-    // 半透明六边形散布（固定种子保证一致布局）
-    final hexPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.08)
-      ..style = PaintingStyle.fill;
-    final rng = math.Random(7);
-    for (var i = 0; i < 14; i++) {
-      final cx = rng.nextDouble() * size.width;
-      final cy = rng.nextDouble() * size.height;
-      final r = 18 + rng.nextDouble() * 28;
-      canvas.drawPath(_hexagonPath(cx, cy, r), hexPaint);
-    }
-  }
-
-  Path _hexagonPath(double cx, double cy, double r) {
-    final p = Path();
-    for (var i = 0; i < 6; i++) {
-      final angle = (math.pi / 3) * i;
-      final x = cx + r * math.cos(angle);
-      final y = cy + r * math.sin(angle);
-      if (i == 0) {
-        p.moveTo(x, y);
-      } else {
-        p.lineTo(x, y);
-      }
-    }
-    p.close();
-    return p;
-  }
-
-  @override
-  bool shouldRepaint(covariant _HexagonBgPainter old) => false;
 }
 
 // ============================ 第 4 步：加载完成 ============================
@@ -1288,20 +1299,9 @@ class _DotsPainter extends CustomPainter {
 // ============================ 性别选择弹层 ============================
 
 class _GenderSheet extends StatelessWidget {
-  const _GenderSheet({required this.selected, required this.onSelected});
-  final Gender? selected;
-  final void Function(Gender) onSelected;
-
-  /// 5 个选项：(标签, 对应 Gender, 图标)
-  /// 备注：原版 WaterLlama 将怀孕/母乳喂养归为女性变体，这里仅作展示标签，
-  /// 实际保存时映射到 female/other，计算目标按性别修正系数处理。
-  static const _options = <_GenderOption>[
-    _GenderOption('男性', Gender.male, Icons.male),
-    _GenderOption('女性', Gender.female, Icons.female),
-    _GenderOption('怀孕', Gender.female, Icons.pregnant_woman),
-    _GenderOption('母乳喂养', Gender.female, Icons.child_care),
-    _GenderOption('不愿透露', Gender.other, Icons.no_accounts),
-  ];
+  const _GenderSheet({required this.selectedLabel, required this.onSelected});
+  final String? selectedLabel;
+  final void Function(GenderOption) onSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -1319,8 +1319,9 @@ class _GenderSheet extends StatelessWidget {
                     fontSize: 18,
                     fontWeight: FontWeight.w700)),
             const SizedBox(height: 12),
-            ..._options.map((o) => InkWell(
-                  onTap: () => onSelected(o.gender),
+            // 与「常见目标」页共用的 5 个性别选项（kGenderOptions）
+            ...kGenderOptions.map((o) => InkWell(
+                  onTap: () => onSelected(o),
                   child: Container(
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     decoration: const BoxDecoration(
@@ -1336,6 +1337,16 @@ class _GenderSheet extends StatelessWidget {
                                 color: Color(0xFF1C1C1E), fontSize: 16)),
                         const Spacer(),
                         Icon(o.icon, color: const Color(0xFF8E8E93)),
+                        const SizedBox(width: 12),
+                        Icon(
+                          o.label == selectedLabel
+                              ? Icons.check_circle
+                              : Icons.radio_button_unchecked,
+                          color: o.label == selectedLabel
+                              ? const Color(0xFF4DB8D8)
+                              : const Color(0xFF8E8E93),
+                          size: 20,
+                        ),
                       ],
                     ),
                   ),
@@ -1348,13 +1359,6 @@ class _GenderSheet extends StatelessWidget {
       ),
     );
   }
-}
-
-class _GenderOption {
-  const _GenderOption(this.label, this.gender, this.icon);
-  final String label;
-  final Gender gender;
-  final IconData icon;
 }
 
 // ============================ 活动强度弹层 ============================

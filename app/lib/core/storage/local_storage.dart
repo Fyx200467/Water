@@ -129,6 +129,23 @@ class LocalStorage {
     await prefs.setBool(_kWelcomeSeenKey, true);
   }
 
+  // ---------- 签到天数（当天打开过 App 即记录一天，不要求达标） ----------
+
+  static const String _kActiveDaysKey = 'active_days';
+
+  /// 记录某天为活跃日（App 启动时调用，重复记录自动去重）
+  Future<void> recordActiveDay(DateTime day) async {
+    final key = _dayKey(day);
+    final days = prefs.getStringList(_kActiveDaysKey) ?? const <String>[];
+    if (!days.contains(key)) {
+      await prefs.setStringList(_kActiveDaysKey, [...days, key]);
+    }
+  }
+
+  /// 全部活跃日（'yyyy-MM-dd' 字符串集合）
+  Set<String> loadActiveDayKeys() =>
+      (prefs.getStringList(_kActiveDaysKey) ?? const <String>[]).toSet();
+
   // ---------- 每日动物选择 ----------
 
   String? loadDailyAnimalId(DateTime day) {

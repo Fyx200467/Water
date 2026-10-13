@@ -7,6 +7,8 @@ import '../features/home/providers/home_providers.dart';
 import '../features/onboarding/onboarding_screen.dart';
 import '../features/onboarding/welcome_screen.dart';
 import '../features/reminder/reminder_settings_screen.dart';
+import '../features/drink/screens/drink_manage_screen.dart';
+import '../features/settings/goal_screen.dart';
 import '../features/settings/settings_screen.dart';
 import '../features/stats/stats_screen.dart';
 
@@ -58,6 +60,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/settings/reminder',
         builder: (context, state) => const ReminderSettingsScreen(),
+      ),
+      GoRoute(
+        path: '/settings/goal',
+        builder: (context, state) => const GoalScreen(),
+      ),
+      GoRoute(
+        path: '/drink/manage',
+        builder: (context, state) => const DrinkManageScreen(),
       ),
     ],
   );

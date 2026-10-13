@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,9 +7,14 @@ import 'package:go_router/go_router.dart';
 
 import '../../shared/models/beverage.dart';
 import '../../shared/widgets/drink_illustration.dart';
+import '../characters/character_art.dart';
+import '../characters/character_catalog.dart';
+import '../characters/character_data.dart';
 import '../characters/character_screen.dart';
 import '../characters/current_character_provider.dart';
+import '../drink/providers/custom_beverage_provider.dart';
 import '../drink/screens/add_drink_screen.dart';
+import '../drink/screens/drink_manage_screen.dart';
 import '../onboarding/widgets/animal_silhouette.dart';
 import '../stats/history_screen.dart';
 import '../stats/providers/stats_providers.dart';
@@ -63,11 +69,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return names[DateTime.now().weekday - 1];
   }
 
-  /// 底部水平滚动饮品快捷栏：水 / +98物品胶囊 / 羊驼卢娜 / 各类饮品（锁定的带锁）
-  Widget _buildDrinkBar() {
-    final drinks = Beverage.presets
-        .where((b) => b.id != 'water_pure')
-        .toList();
+  /// 底部水平滚动饮品快捷栏：水 / +98物品胶囊 / 当前角色 / 已开启饮品（可排序）/ 添加或编辑
+  Widget _buildDrinkBar(String currentChar, String? currentFilePath) {
+    final isMember = ref.watch(memberProvider).isValid;
+    final customs = ref.watch(customBeveragesProvider);
+    final homeDrinks = ref.watch(homeDrinksProvider);
+    // 全量池（非水预设 + 自定义）→ 按持久化顺序取已开启饮品
+    // （管理页从上到下 = 首页从左到右；水单独渲染在第一位）
+    final pool = [
+      ...Beverage.presets.where((b) => b.id != 'water_pure'),
+      ...customs,
+    ];
+    final byId = {for (final b in pool) b.id: b};
+    final drinks = [
+      for (final id in orderedVisibleIds(homeDrinks, pool))
+        if (id != 'water_pure' && byId[id] != null) byId[id]!,
+    ];
 
     return ListView(
       scrollDirection: Axis.horizontal,
@@ -88,10 +105,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         ),
         // 2. "+98 种物品和功能"胶囊
         const _ItemsChip(),
-        // 3. 羊驼卢娜头像
+        // 3. 当前选中角色头像（点击打开角色页）
         _DrinkItem(
-          beverageId: 'llama',
-          label: '羊驼卢娜',
+          icon: CharacterArt(
+            animalId: currentChar,
+            unlocked: true,
+            size: 52,
+            filePath: currentFilePath,
+          ),
+          label: characters[currentChar]?.displayName ?? '角色',
           color: const Color(0xFF8B6F47),
           bg: const Color(0xFFF5E6D3),
           badgeIcon: Icons.refresh,
@@ -114,19 +136,40 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           ),
         ),
-        // 4. 各类饮品
+        // 4. 各类饮品（非会员锁定除水外全部饮品；点击仍可进入容器页，记录时引导会员）
         for (final b in drinks)
           _DrinkItem(
-            beverageId: b.id,
+            beverageId: b.id.startsWith('custom_') ? null : b.id,
+            icon: b.id.startsWith('custom_')
+                ? Icon(b.icon, size: 30, color: b.color)
+                : null,
             label: b.name,
             color: b.color,
-            locked: b.memberOnly,
+            locked: !isMember && b.id != 'water_pure',
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(
                   builder: (_) => AddDrinkScreen(beverageId: b.id)),
             ),
           ),
+        // 5. 添加或编辑（浅青圆底 + 青色加号，对标原版）
+        _DrinkItem(
+          icon: Container(
+            width: 48,
+            height: 48,
+            decoration: const BoxDecoration(
+              color: Color(0xFFE0F4F8),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.add, size: 26, color: Color(0xFF31A8C9)),
+          ),
+          label: '添加或编辑',
+          color: _brandCyan,
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const DrinkManageScreen()),
+          ),
+        ),
       ],
     );
   }
@@ -134,8 +177,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final progress = ref.watch(dailyProgressProvider);
-    final streak = ref.watch(streakProvider);
+    final checkin = ref.watch(checkinDaysProvider);
     final currentChar = ref.watch(currentCharacterProvider);
+    // 角色目录（上传素材路径；内置素材为 null，watch 以保证切换角色后按钮刷新）
+    final catalogAsync = ref.watch(characterCatalogProvider);
 
     // 监听 dailyProgress：从未完成→完成时自动触发点亮 + 礼炮
     ref.listen(dailyProgressProvider, (prev, next) {
@@ -233,7 +278,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           // 3. 底部操作栏：水平滚动的饮品快捷栏（对标原版）
                           SizedBox(
                             height: 96,
-                            child: _buildDrinkBar(),
+                            child: _buildDrinkBar(
+                              currentChar,
+                              catalogAsync.value?.uploadedFilePaths[currentChar],
+                            ),
                           ),
                           // 4. 挑战横幅（贴底）
                           Padding(
@@ -258,23 +306,37 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  // 左上角：圆形天数徽章 → 打开历史记录页
+                  // 左上角：天数徽章（外圈进度环 + 启动展开动画）→ 打开历史记录页
+                  // 签到天数 = 当天打开过 App 即记录一天
                   // 完成态时在「天数」和「✓」之间循环切换（持续，不是只点亮时）
-                  streak.maybeWhen(
-                    data: (s) => _DayBadge(
-                      days: s.current,
+                  checkin.maybeWhen(
+                    data: (days) => _DayBadge(
+                      days: days,
+                      progress: progress.progress,
                       showCycle: done,
                       onTap: () => Navigator.push(
                         context,
                         MaterialPageRoute(builder: (_) => const HistoryScreen()),
                       ),
                     ),
-                    orElse: () => const _DayBadge(days: 0, onTap: null),
+                    orElse: () => _DayBadge(
+                      days: 0,
+                      progress: progress.progress,
+                      onTap: null,
+                    ),
                   ),
-                  // 右上角：菜单按钮
+                  // 右上角：菜单按钮（三根波浪线，尺寸与左上角徽章按钮一致）
                   IconButton(
-                    icon: const Icon(Icons.menu, color: _hintGray),
                     onPressed: () => context.push('/settings'),
+                    constraints: const BoxConstraints.tightFor(
+                      width: 42,
+                      height: 42,
+                    ),
+                    padding: EdgeInsets.zero,
+                    icon: const CustomPaint(
+                      size: Size(32, 24),
+                      painter: _MenuWavesPainter(),
+                    ),
                   ),
                 ],
               ),
@@ -292,12 +354,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 }
 
-/// 左上角青色圆形天数徽章（点击打开历史记录页）
-/// showCycle=true（完成当日目标）时在「天数」和「✓」之间循环显示（每 500ms 切换）
-/// 圆形容器，只显示数字（去除"天"字）
+/// 徽章按钮本体高度（圆形直径 / 胶囊高度），按钮与进度环共用
+const double _kBadgeH = 34;
+
+/// 左上角青色天数徽章（点击打开历史记录页）
+/// - 外圈进度环：实时显示当日饮水量进度，0ml 时顶部只显示一个小圆点（对标原版）
+/// - 启动动画：先横向展开为胶囊显示完整「N 天」，1.5 秒后收回圆形只显示「N」
+/// - showCycle=true（完成当日目标）时在「天数」和「✓」之间循环切换（每 2 秒）
 class _DayBadge extends StatefulWidget {
-  const _DayBadge({required this.days, this.showCycle = false, this.onTap});
+  const _DayBadge({
+    required this.days,
+    required this.progress,
+    this.showCycle = false,
+    this.onTap,
+  });
   final int days;
+
+  /// 当日饮水进度（0.0~1.0），驱动外圈进度环
+  final double progress;
   final bool showCycle;
   final VoidCallback? onTap;
 
@@ -307,11 +381,22 @@ class _DayBadge extends StatefulWidget {
 
 class _DayBadgeState extends State<_DayBadge> {
   bool _showCheck = false;
+  bool _expanded = false; // 进入首页先显示圆形，1 秒后再展开
   Timer? _toggleTimer;
+  Timer? _expandTimer;
+  Timer? _collapseTimer;
 
   @override
   void initState() {
     super.initState();
+    // 启动动画时序：进入首页 1 秒后展开为胶囊「N 天」，保持 1.5 秒后收回圆形
+    _expandTimer = Timer(const Duration(seconds: 1), () {
+      if (!mounted) return;
+      setState(() => _expanded = true);
+      _collapseTimer = Timer(const Duration(milliseconds: 1500), () {
+        if (mounted) setState(() => _expanded = false);
+      });
+    });
     if (widget.showCycle) _startToggle();
   }
 
@@ -345,58 +430,293 @@ class _DayBadgeState extends State<_DayBadge> {
   @override
   void dispose() {
     _stopToggle();
+    _expandTimer?.cancel();
+    _collapseTimer?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final showCheck = widget.showCycle && _showCheck;
-    return InkWell(
+    return GestureDetector(
       onTap: widget.onTap,
-      borderRadius: BorderRadius.circular(22),
-      child: Container(
-        width: 44,
-        height: 44,
-        alignment: Alignment.center,
-        decoration: const BoxDecoration(
-          color: Color(0xFF4DB8D8),
-          shape: BoxShape.circle,
-        ),
-        child: showCheck
-            ? const Text(
-                '✓',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                ),
-              )
-            : Text(
-                '${widget.days}',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
+      child: SizedBox(
+        width: 88.0 + _extraWidth,
+        height: 42,
+        // 宽度动画驱动：每帧重建按钮 + 进度环，环随形状逐帧变形（圆↔胶囊）
+        child: TweenAnimationBuilder<double>(
+          tween: Tween(end: _shapeWidth),
+          duration: const Duration(milliseconds: 450),
+          curve: Curves.easeOutCubic,
+          builder: (ctx, w, _) => Stack(
+            alignment: Alignment.centerLeft,
+            clipBehavior: Clip.none,
+            children: [
+              // 外圈进度环：沿当前形状（圆/胶囊）的外轮廓描边
+              // 扫过长度 = 当日饮水量进度，0ml 时顶部一个小圆点
+              Positioned.fill(
+                child: CustomPaint(
+                  painter: _BadgeRingPainter(
+                    progress: widget.progress.clamp(0.0, 1.0),
+                    shapeWidth: w,
+                  ),
                 ),
               ),
+              // 按钮本体：34（圆形）↔ 76（展开胶囊）
+              Container(
+                width: w,
+                height: _kBadgeH,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF4DB8D8),
+                  borderRadius: BorderRadius.circular(_kBadgeH / 2),
+                ),
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 200),
+                  child: showCheck
+                      ? const Text(
+                          '✓',
+                          key: ValueKey('check'),
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        )
+                      : _showExpandedContent(w)
+                          ? Padding(
+                              key: const ValueKey('full'),
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 18),
+                              // 数字居左、「天」居右，对标原版展开态的宽松间距；
+                              // 内容宽度固定为目标胶囊宽（不绑定当前帧宽 w）：
+                              // 收回时出场子组件会被 AnimatedSwitcher 冻结，
+                              // 若绑定 w 会被收缩中的容器钳制产生文字骤缩跳变；
+                              // 固定宽度 + FittedBox 保证任意帧宽下连续缩放、绝不溢出
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.center,
+                                child: SizedBox(
+                                  width: _shapeWidth - 36.0,
+                                  child: Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text(
+                                        '${widget.days}',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      const Text(
+                                        '天',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            )
+                          : Text(
+                              '${widget.days}',
+                              key: const ValueKey('num'),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
+
+  /// 天数每多一位数字，展开胶囊加宽 9（三位数「100 天」也不会挤压变形）
+  int get _extraWidth => math.max(0, '${widget.days}'.length - 1) * 9;
+
+  /// 按钮当前目标宽度（34=圆形，76+N*9=展开胶囊）
+  double get _shapeWidth => _expanded ? 76.0 + _extraWidth : _kBadgeH;
+
+  /// 展开内容仅在动画接近完成时切换：早期帧就显示会让文字缩得过小、观感差
+  /// （溢出已由「固定内容宽度 + FittedBox」从根本上排除，此处阈值纯为观感）
+  bool _showExpandedContent(double w) =>
+      _expanded && w >= _shapeWidth - 20;
+}
+
+/// 徽章外圈进度环：沿按钮当前形状（圆形/胶囊）外轮廓描边
+/// - 外轮廓 = 按钮矩形外扩 0.2px 间隙 + 半描边的 stadium 轮廓（跟随展开动画逐帧变形）
+/// - 起点固定在顶部 12 点方向，顺时针扫过（进度 × 周长）
+/// - 解析几何逐段绘制（直线 + 四分之一圆弧），不依赖 PathMetrics：
+///   其闭合轮廓起点在 Impeller 下会偏移，产生起点越过 12 点、端点凸起等伪影
+/// - 0ml 时也画一小段（配合终点圆头呈现为顶部小圆点，对标原版）
+class _BadgeRingPainter extends CustomPainter {
+  _BadgeRingPainter({required this.progress, required this.shapeWidth});
+  final double progress;
+
+  /// 按钮当前宽度（含动画中间帧）
+  final double shapeWidth;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const double stroke = 3.5;
+    const double gap = 0.8; // 环内沿与按钮边缘的间距（贴近浑然一体）
+
+    final m = gap + stroke / 2; // 按钮边缘到环中心线的距离
+    final center = Offset(shapeWidth / 2, size.height / 2);
+    final halfW = shapeWidth / 2 + m;
+    final r = _kBadgeH / 2 + m; // 圆角半径（stadium 形：= 半高 + 外扩）
+    final straight = halfW - r; // 顶/底边单侧直线长（圆形态为 0）
+
+    // 进度环用比按钮更深一档的蓝色，拉开层次（按钮 0xFF4DB8D8 浅水色）
+    final ringColor = const Color(0xFF2E93B8);
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = stroke
+      ..strokeCap = StrokeCap.butt
+      ..color = ringColor;
+    final capPaint = Paint()..color = ringColor;
+
+    // 周长 = 4 段直线 + 4 段四分之一圆弧
+    final q = math.pi / 2 * r;
+    final total = 4 * straight + 4 * q;
+    // 0 进度也画总长的 2%（配合终点圆头呈现为顶部正中小圆点，对标原版 0ml 态）
+    var remain = math.max(progress.clamp(0.0, 1.0) * total, total * 0.02);
+
+    // 当前绘制端点：从 12 点整出发，随各段推进
+    var cap = Offset(center.dx, center.dy - r);
+
+    // 直线段：dirX=±1（水平），长度 len
+    void lineSeg(double dirX, double len) {
+      if (remain <= 0) return;
+      final d = math.min(remain, len);
+      if (d <= 0) return;
+      final to = cap + Offset(dirX * d, 0);
+      canvas.drawLine(cap, to, paint);
+      cap = to;
+      remain -= d;
+    }
+
+    // 圆弧段：半圆圆心 x = circleCx（y 与按钮中心同高），起始角 startAngle，弧长 len
+    void arcSeg(double circleCx, double startAngle, double len) {
+      if (remain <= 0) return;
+      final d = math.min(remain, len);
+      if (d <= 0) return;
+      final c = Offset(circleCx, center.dy);
+      canvas.drawArc(
+        Rect.fromCircle(center: c, radius: r),
+        startAngle,
+        d / r,
+        false,
+        paint,
+      );
+      final a = startAngle + d / r;
+      cap = c + Offset(r * math.cos(a), r * math.sin(a));
+      remain -= d;
+    }
+
+    // 顺时针从 12 点整逐段推进（各段切线连续，端点精确衔接）
+    final rightCx = center.dx + straight; // 右半圆圆心
+    final leftCx = center.dx - straight; // 左半圆圆心
+    lineSeg(1, straight); // 上半右直线 →
+    arcSeg(rightCx, -math.pi / 2, q); // 右上四分之一弧 ↘
+    arcSeg(rightCx, 0, q); // 右下四分之一弧 ↙
+    lineSeg(-1, 2 * straight); // 下边直线（右→左）
+    arcSeg(leftCx, math.pi / 2, q); // 左下四分之一弧 ↖
+    arcSeg(leftCx, math.pi, q); // 左上四分之一弧 ↗
+    lineSeg(1, straight); // 上半左直线（回到 12 点整）
+
+    // 终点补圆头：0 进度时呈现为顶部小圆点，满进度时在 12 点整圆润收口
+    canvas.drawCircle(cap, stroke / 2, capPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _BadgeRingPainter old) =>
+      old.progress != progress || old.shapeWidth != shapeWidth;
+}
+
+/// 单根波浪线参数
+class _Wave {
+  const _Wave({
+    required this.y,
+    required this.amp,
+    required this.cycles,
+    required this.phase,
+  });
+  final double y; // 垂直基线位置（占高度比例）
+  final double amp; // 振幅（px）
+  final double cycles; // 波峰周期数
+  final double phase; // 相位偏移（rad）
+}
+
+/// 右上角菜单按钮图标：三根波浪线（替代三横线，水波意象呼应喝水主题）
+///
+/// 对标原版：三根等长同形、左右对齐的密集波浪线，深灰粗线无背景
+class _MenuWavesPainter extends CustomPainter {
+  const _MenuWavesPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.6
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..color = const Color(0xFF636E78);
+
+    // 三根线同形同相、等长对齐，密集波峰如「≈」，叠出整齐的水波层次
+    const waves = [
+      _Wave(y: 0.16, amp: 1.9, cycles: 1.75, phase: 0.0),
+      _Wave(y: 0.50, amp: 1.9, cycles: 1.75, phase: 0.0),
+      _Wave(y: 0.84, amp: 1.9, cycles: 1.75, phase: 0.0),
+    ];
+    for (final w in waves) {
+      final baseY = size.height * w.y;
+      final path = Path()..moveTo(0, baseY);
+      const steps = 48;
+      for (var i = 1; i <= steps; i++) {
+        final t = i / steps;
+        path.lineTo(
+          size.width * t,
+          baseY + w.amp * math.sin(2 * math.pi * w.cycles * t + w.phase),
+        );
+      }
+      canvas.drawPath(path, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _MenuWavesPainter oldDelegate) => false;
 }
 
 /// 饮品快捷项：圆底图标 + 标签（锁定项右下角小锁徽章）
 class _DrinkItem extends StatelessWidget {
   const _DrinkItem({
-    required this.beverageId,
     required this.label,
     required this.color,
     required this.onTap,
+    this.beverageId,
+    this.icon,
     this.bg,
     this.locked = false,
     this.highlight = false,
     this.badgeIcon,
   });
-  final String beverageId;
+
+  /// 饮品插画 id（icon 为空时使用）
+  final String? beverageId;
+
+  /// 自定义插画 widget（角色项用 CharacterArt）；为空时按 beverageId 渲染饮品插画
+  final Widget? icon;
   final String label;
   final Color color;
   final Color? bg;
@@ -425,12 +745,13 @@ class _DrinkItem extends StatelessWidget {
                 clipBehavior: Clip.none,
                 alignment: Alignment.center,
                 children: [
-                  DrinkIllustration(
-                    beverageId: beverageId,
-                    color: color,
-                    size: 52,
-                    highlight: highlight,
-                  ),
+                  icon ??
+                      DrinkIllustration(
+                        beverageId: beverageId ?? '',
+                        color: color,
+                        size: 52,
+                        highlight: highlight,
+                      ),
                   // 底部中央徽章：锁定项灰底白锁，水的 ⊕ 用品牌色
                   if (locked)
                     Positioned(

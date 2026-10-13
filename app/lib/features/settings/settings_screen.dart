@@ -70,9 +70,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     const SizedBox(height: 12),
                     // ---- 卡片2：每日目标 ----
                     _buildGoalCard(profile),
-                    const SizedBox(height: 12),
-                    // ---- 卡片3：推广 ----
-                    _buildPromoCard(),
                     const SizedBox(height: 28),
 
                     // ---- 分组1：功能 ----
@@ -84,6 +81,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           iconBg: const Color(0xFFA8E6CF),
                           iconColor: const Color(0xFF2E7D32),
                           title: '添加/编辑饮料',
+                          onTap: () => context.push('/drink/manage'),
                         ),
                         _settingRow(
                           icon: Icons.dashboard,
@@ -346,7 +344,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Widget _buildGoalCard(UserProfile profile) {
     return GestureDetector(
-      onTap: () => _editProfile(profile),
+      onTap: () => context.push('/settings/goal'),
       child: Stack(
         children: [
           Container(
@@ -420,99 +418,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ==================== 卡片3：推广 ====================
-
-  Widget _buildPromoCard() {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-      decoration: BoxDecoration(
-        color: const Color(0xFFB8E6C9),
-        borderRadius: BorderRadius.circular(22),
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const [
-                    Text(
-                      '解锁新角色！',
-                      style: TextStyle(
-                        color: Color(0xFF2E7D32),
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    SizedBox(height: 4),
-                    Text(
-                      '使用"卡路里羊驼"',
-                      style: TextStyle(
-                        color: Color(0xFF2E7D32),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    Text(
-                      '跟踪饮食。',
-                      style: TextStyle(
-                        color: Color(0xFF2E7D32),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              const DrinkIllustration(
-                beverageId: 'llama',
-                color: Color(0xFF8B6F47),
-                size: 84,
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          // CTA 胶囊按钮
-          GestureDetector(
-            onTap: () => _showSnack('功能开发中'),
-            child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 28,
-                vertical: 12,
-              ),
-              decoration: BoxDecoration(
-                color: const Color(0xFF00695C),
-                borderRadius: BorderRadius.circular(26),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: const [
-                  Icon(Icons.pan_tool, color: Colors.white, size: 18),
-                  SizedBox(width: 8),
-                  Text(
-                    '获取我们的 App',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            '隐藏',
-            style: TextStyle(color: Colors.white54, fontSize: 12),
           ),
         ],
       ),
@@ -875,20 +780,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  // ==================== 资料编辑（保留原逻辑） ====================
-
-  void _editProfile(UserProfile profile) {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) => _ProfileEditSheet(profile: profile),
-    );
-  }
-
   // ==================== 清除全部数据（保留原逻辑） ====================
 
   Future<void> _confirmClearAll() async {
@@ -932,6 +823,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     ref.invalidate(monthDataProvider);
     ref.invalidate(dayEntriesForProvider);
     ref.invalidate(streakProvider);
+    ref.invalidate(checkinDaysProvider);
 
     if (mounted) context.go('/onboarding');
   }
@@ -1016,184 +908,6 @@ class _PreferencesSheet extends ConsumerWidget {
           const SizedBox(height: 12),
         ],
       ),
-    );
-  }
-}
-
-// ============================================================
-// 资料编辑底部弹层（保留原有逻辑，仅适配圆角弹层外观）
-// ============================================================
-
-class _ProfileEditSheet extends ConsumerStatefulWidget {
-  const _ProfileEditSheet({required this.profile});
-
-  final UserProfile profile;
-
-  @override
-  ConsumerState<_ProfileEditSheet> createState() =>
-      _ProfileEditSheetState();
-}
-
-class _ProfileEditSheetState extends ConsumerState<_ProfileEditSheet> {
-  late Gender _gender = widget.profile.gender;
-  late double _weight = widget.profile.weightKg;
-  late double _height = widget.profile.heightCm;
-  late int _age = widget.profile.age;
-  late ActivityLevel _activity = widget.profile.activityLevel;
-  bool _saving = false;
-
-  int get _previewGoal => UserProfile.create(
-        gender: _gender,
-        weightKg: _weight,
-        heightCm: _height,
-        age: _age,
-        activityLevel: _activity,
-      ).dailyGoalMl;
-
-  Future<void> _save() async {
-    setState(() => _saving = true);
-    final oldRecommended = UserProfile.create(
-      gender: widget.profile.gender,
-      weightKg: widget.profile.weightKg,
-      heightCm: widget.profile.heightCm,
-      age: widget.profile.age,
-      activityLevel: widget.profile.activityLevel,
-    ).dailyGoalMl;
-    final goal = widget.profile.dailyGoalMl == oldRecommended
-        ? _previewGoal
-        : widget.profile.dailyGoalMl;
-    await ref.read(profileProvider.notifier).save(
-          widget.profile.copyWith(
-            gender: _gender,
-            weightKg: _weight,
-            heightCm: _height,
-            age: _age,
-            activityLevel: _activity,
-            dailyGoalMl: goal,
-          ),
-        );
-    if (mounted) Navigator.pop(context);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-
-    return Padding(
-      padding: EdgeInsets.fromLTRB(20, 12, 20, 20 + bottomInset),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // 拖拽指示器
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFD1D1D6),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            Text('编辑个人资料', style: theme.textTheme.titleLarge),
-            const SizedBox(height: 16),
-
-            SegmentedButton<Gender>(
-              segments: Gender.values
-                  .map((g) => ButtonSegment(value: g, label: Text(g.label)))
-                  .toList(),
-              selected: {_gender},
-              onSelectionChanged: (s) => setState(() => _gender = s.first),
-            ),
-            const SizedBox(height: 16),
-
-            _sliderRow('年龄', _age.toDouble(), 10, 100, 90,
-                '$_age 岁', (v) => setState(() => _age = v.round())),
-            _sliderRow('体重', _weight, 30, 150, 120,
-                '${_weight.round()} kg', (v) => setState(() => _weight = v)),
-            _sliderRow('身高', _height, 120, 220, 100,
-                '${_height.round()} cm', (v) => setState(() => _height = v)),
-
-            ...ActivityLevel.values.map(
-              (a) => RadioListTile<ActivityLevel>(
-                contentPadding: EdgeInsets.zero,
-                value: a,
-                groupValue: _activity,
-                title: Text(a.label),
-                subtitle: Text(a.description),
-                onChanged: (v) => setState(() => _activity = v ?? _activity),
-              ),
-            ),
-
-            const SizedBox(height: 8),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text('推荐目标', style: theme.textTheme.titleMedium),
-                    Text(
-                      '$_previewGoal ml',
-                      style: theme.textTheme.titleLarge
-                          ?.copyWith(color: theme.colorScheme.primary),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            ElevatedButton(
-              onPressed: _saving ? null : _save,
-              child: _saving
-                  ? const SizedBox(
-                      height: 24,
-                      width: 24,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white),
-                    )
-                  : const Text('保存'),
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _sliderRow(
-    String label,
-    double value,
-    double min,
-    double max,
-    int divisions,
-    String text,
-    ValueChanged<double> onChanged,
-  ) {
-    final theme = Theme.of(context);
-    return Row(
-      children: [
-        SizedBox(
-            width: 56, child: Text(label, style: theme.textTheme.titleMedium)),
-        Expanded(
-          child: Slider(
-            value: value.clamp(min, max).toDouble(),
-            min: min,
-            max: max,
-            divisions: divisions,
-            label: text,
-            onChanged: onChanged,
-          ),
-        ),
-        SizedBox(
-          width: 84,
-          child: Text(text, textAlign: TextAlign.end),
-        ),
-      ],
     );
   }
 }
