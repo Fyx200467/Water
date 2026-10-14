@@ -9,7 +9,10 @@ import 'package:intl/intl.dart';
 import '../../core/storage/providers.dart';
 import '../../shared/models/beverage.dart';
 import '../../shared/models/drink_entry.dart';
+import '../../shared/widgets/drink_illustration.dart';
 import '../characters/current_character_provider.dart';
+import '../drink/providers/custom_beverage_provider.dart';
+import '../drink/widgets/svg_container.dart';
 import '../home/providers/home_providers.dart';
 import '../onboarding/widgets/animal_silhouette.dart';
 import 'providers/stats_providers.dart';
@@ -19,6 +22,18 @@ const Color _kCyan = Color(0xFF4DB8D8);
 const Color _kTextDark = Color(0xFF1C1C1E);
 const Color _kHintGray = Color(0xFF8E8E93);
 const Color _kFutureGray = Color(0xFFC7C7CC);
+
+/// 与首页/管理页一致的饮品图标（预设=插画 / SVG 容器=染色剪影 / 自定义=Icon）
+Widget _beverageIcon(Beverage b, double size) {
+  if (isSvgContainer(b.containerId)) {
+    return SvgContainerIcon(
+        containerId: b.containerId!, color: b.color, size: size);
+  }
+  if (b.id.startsWith('custom_')) {
+    return Icon(b.icon, size: size - 4, color: b.color);
+  }
+  return DrinkIllustration(beverageId: b.id, color: b.color, size: size);
+}
 
 /// 彩虹渐变（「所有」行图标 / 统计卡徽章）
 const LinearGradient _kRainbow = LinearGradient(
@@ -536,13 +551,24 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     );
   }
 
-  /// 单条记录行：青色杯形图标 + 名称 + 容量 + 右侧时间
+  /// 单条记录行：饮品图标（与首页饮品选项一一对应）+ 名称 + 容量 + 右侧时间
   Widget _buildEntryRow(DrinkEntry e) {
+    // 按记录的饮品 id 渲染首页同款图标；饮品已被删除时回退分类图标
+    final b = _beverageById(e.beverageId);
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
       child: Row(
         children: [
-          const Icon(Icons.local_drink, color: _kCyan, size: 26),
+          SizedBox(
+            width: 28,
+            height: 28,
+            child: Center(
+              child: b != null
+                  ? _beverageIcon(b, 28)
+                  : Icon(e.beverageCategory.icon,
+                      color: e.beverageCategory.color, size: 24),
+            ),
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -635,7 +661,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     );
   }
 
-  /// 彩色筛选按钮：选中「全部」→彩虹渐变圆；选中具体饮品→该饮品分类色+图标
+  /// 彩色筛选按钮：选中「全部」→彩虹渐变圆；选中具体饮品→首页同款图标
   Widget _buildFilterButton() {
     if (_beverageFilter == '全部') {
       return GestureDetector(
@@ -650,21 +676,22 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
         ),
       );
     }
-    // 查找选中饮品的分类色与图标（与筛选弹层一一对应）
-    final preset = Beverage.presets.firstWhere(
-      (b) => b.name == _beverageFilter,
-      orElse: () => Beverage.presets.first,
-    );
+    // 选中具体饮品：渲染与管理页/首页一致的图标（浅灰圆底承托）
+    final b = _beverageByName(_beverageFilter);
     return GestureDetector(
       onTap: () => _showFilterSheet(),
       child: Container(
         width: 32,
         height: 32,
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           shape: BoxShape.circle,
-          color: preset.color,
+          color: Color(0xFFECECEE),
         ),
-        child: Icon(preset.category.icon, size: 16, color: Colors.white),
+        child: Center(
+          child: b != null
+              ? _beverageIcon(b, 28)
+              : const Icon(Icons.local_drink, color: _kCyan, size: 18),
+        ),
       ),
     );
   }
@@ -808,9 +835,30 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
       builder: (ctx) => _FilterSheet(
         current: _beverageFilter,
         entries: entries,
+        pool: _drinkPool(),
         onSelect: (v) => setState(() => _beverageFilter = v),
       ),
     );
+  }
+
+  /// 首页/管理页同款饮品池（预设 + 自定义）
+  List<Beverage> _drinkPool() =>
+      [...Beverage.presets, ...ref.read(customBeveragesProvider)];
+
+  /// 按名称查找饮品（筛选按钮用）
+  Beverage? _beverageByName(String name) {
+    for (final b in _drinkPool()) {
+      if (b.name == name) return b;
+    }
+    return null;
+  }
+
+  /// 按条目的饮品 id 查找饮品（记录列表用；已删除的自定义饮品返回 null）
+  Beverage? _beverageById(String id) {
+    for (final b in _drinkPool()) {
+      if (b.id == id) return b;
+    }
+    return null;
   }
 
   void _showTip(String msg) {
@@ -1067,7 +1115,8 @@ class _MonthCalendar extends StatelessWidget {
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: () => onSelect(cellDate),
+      // 未来日期不可点击（还没到的日期无法选中/补录）
+      onTap: isFuture ? null : () => onSelect(cellDate),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -1093,31 +1142,39 @@ class _MonthCalendar extends StatelessWidget {
 
 // ==================== 筛选弹层 ====================
 
-/// 饮品筛选弹层：白底圆角顶部 + 右上 X + 浅灰圆角行（彩色饮品图标 + 名称）
+/// 饮品筛选弹层：白底圆角顶部 + 右上 X + 浅灰圆角行（饮品图标与首页/管理页一致）
 class _FilterSheet extends StatelessWidget {
   const _FilterSheet({
     required this.current,
     required this.entries,
+    required this.pool,
     required this.onSelect,
   });
 
   final String current;
   final List<DrinkEntry> entries;
+
+  /// 首页/管理页同款饮品池（预设 + 自定义）
+  final List<Beverage> pool;
   final ValueChanged<String> onSelect;
 
-  /// (名称, 图标色, 图标)
-  List<(String, Color, IconData)> _options() {
-    final out = <(String, Color, IconData)>[];
-    void add(String name, Color c, IconData i) {
-      if (!out.any((o) => o.$1 == name)) out.add((name, c, i));
+  /// (名称, 饮品对象[池内命中], 回退图标[仅条目但饮品已删除])
+  List<(String, Beverage?, IconData?, Color?)> _options() {
+    final out = <(String, Beverage?, IconData?, Color?)>[];
+    void add(String name, [Beverage? b, IconData? icon, Color? color]) {
+      if (!out.any((o) => o.$1 == name)) out.add((name, b, icon, color));
     }
 
-    add('全部', Colors.transparent, Icons.water_drop);
-    for (final b in Beverage.presets) {
-      add(b.name, b.category.color, b.category.icon);
+    add('全部');
+    for (final b in pool) {
+      add(b.name, b);
     }
+    // 仅出现在当日记录中、但饮品已被删除的条目：回退分类图标
     for (final e in entries) {
-      add(e.beverageName, e.beverageCategory.color, e.beverageCategory.icon);
+      if (!pool.any((b) => b.name == e.beverageName)) {
+        add(e.beverageName, null, e.beverageCategory.icon,
+            e.beverageCategory.color);
+      }
     }
     return out;
   }
@@ -1174,31 +1231,31 @@ class _FilterSheet extends StatelessWidget {
                         },
                         child: Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 10),
+                              horizontal: 14, vertical: 8),
                           decoration: BoxDecoration(
                             color: const Color(0xFFF2F2F7),
                             borderRadius: BorderRadius.circular(14),
                           ),
                           child: Row(
                             children: [
-                              // 彩色饮品图标（「全部」行 = 彩虹杯）
-                              Container(
-                                width: 28,
-                                height: 28,
-                                alignment: Alignment.center,
-                                decoration: isAll
-                                    ? const BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        gradient: _kRainbow,
-                                      )
-                                    : BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        color: o.$2.withValues(alpha: 0.18),
-                                      ),
-                                child: Icon(
-                                  o.$3,
-                                  size: 16,
-                                  color: isAll ? Colors.white : o.$2,
+                              // 饮品图标（与管理页/首页一致）；「全部」= 彩虹杯
+                              SizedBox(
+                                width: 32,
+                                height: 32,
+                                child: Center(
+                                  child: isAll
+                                      ? Container(
+                                          width: 28,
+                                          height: 28,
+                                          decoration: const BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            gradient: _kRainbow,
+                                          ),
+                                        )
+                                      : o.$2 != null
+                                          ? _beverageIcon(o.$2!, 28)
+                                          : Icon(o.$3,
+                                              size: 24, color: o.$4),
                                 ),
                               ),
                               const SizedBox(width: 12),

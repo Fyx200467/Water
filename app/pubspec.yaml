@@ -54,6 +54,7 @@ flutter:
     - assets/images/
     - assets/images/drinks/
     - assets/images/characters/
+    - assets/images/containers/
 
 # sqlite3 钩子默认从 GitHub Releases 下载预编译库，当前网络直连超时，
 # 改走 gh-proxy 镜像（$RELEASE_TAG/$FILENAME 为占位符，由钩子替换）

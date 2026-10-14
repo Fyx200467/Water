@@ -13,9 +13,11 @@ import '../characters/character_data.dart';
 import '../characters/character_screen.dart';
 import '../characters/current_character_provider.dart';
 import '../drink/providers/custom_beverage_provider.dart';
+import '../drink/widgets/svg_container.dart';
 import '../drink/screens/add_drink_screen.dart';
 import '../drink/screens/drink_manage_screen.dart';
 import '../onboarding/widgets/animal_silhouette.dart';
+import '../settings/settings_flags.dart';
 import '../stats/history_screen.dart';
 import '../stats/providers/stats_providers.dart';
 import 'confetti_rain.dart';
@@ -140,9 +142,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         for (final b in drinks)
           _DrinkItem(
             beverageId: b.id.startsWith('custom_') ? null : b.id,
-            icon: b.id.startsWith('custom_')
-                ? Icon(b.icon, size: 30, color: b.color)
-                : null,
+            icon: isSvgContainer(b.containerId)
+                ? SvgContainerIcon(
+                    containerId: b.containerId!,
+                    color: b.color,
+                  )
+                : b.id.startsWith('custom_')
+                    ? Icon(b.icon, size: 30, color: b.color)
+                    : null,
             label: b.name,
             color: b.color,
             locked: !isMember && b.id != 'water_pure',
@@ -274,6 +281,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                               ),
                             ),
                           ),
+                          const SizedBox(height: 8),
+                          // 2.5 完成态轮播：第1页「庆祝我的一天！」按钮 + 第2页鼓励横幅
+                          //（可横滑，圆点指示；celebrateDay 开关控制第1页显隐）
+                          if (done)
+                            _CelebrationCarousel(
+                              animalId: currentChar,
+                              onCelebrate: _triggerLit,
+                            ),
                           const SizedBox(height: 8),
                           // 3. 底部操作栏：水平滚动的饮品快捷栏（对标原版）
                           SizedBox(
@@ -854,6 +869,183 @@ class _ItemsChip extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// 完成态轮播条（对标原版：角色卡与饮品栏之间，可横滑两页）
+/// - 第1页：黑色胶囊「庆祝我的一天！」按钮（白方块内青色角色剪影）
+///   —— 受设置页 celebrateDay 开关控制，关闭时不渲染此页
+/// - 第2页：白色横幅 + 角色头像 + 鼓励文案
+/// - 底部圆点指示当前页（单页时隐藏）
+class _CelebrationCarousel extends StatefulWidget {
+  const _CelebrationCarousel({
+    required this.animalId,
+    required this.onCelebrate,
+  });
+
+  final String animalId;
+  final VoidCallback onCelebrate;
+
+  @override
+  State<_CelebrationCarousel> createState() => _CelebrationCarouselState();
+}
+
+class _CelebrationCarouselState extends State<_CelebrationCarousel> {
+  final _pageCtrl = PageController(viewportFraction: 0.88);
+  int _page = 0;
+
+  @override
+  void dispose() {
+    _pageCtrl.dispose();
+    super.dispose();
+  }
+
+  /// 青色角色剪影（第1页白色方块内）
+  Widget _cyanSilhouette(double size) => ColorFiltered(
+        colorFilter: const ColorFilter.mode(
+            Color(0xFF4DB8D8), BlendMode.srcIn),
+        child: CharacterArt(
+          animalId: widget.animalId,
+          unlocked: false,
+          size: size,
+        ),
+      );
+
+  /// 第1页：黑色胶囊庆祝按钮（点击触发角色点亮 2 秒）
+  Widget _celebrateButton() => Center(
+        child: GestureDetector(
+          onTap: widget.onCelebrate,
+          child: Container(
+            height: 56,
+            padding: const EdgeInsets.fromLTRB(8, 8, 24, 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1C1C22),
+              borderRadius: BorderRadius.circular(28),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Center(child: _cyanSilhouette(30)),
+                ),
+                const SizedBox(width: 14),
+                const Text(
+                  '庆祝我的一天！',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 19,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+  /// 第2页：白色鼓励横幅（角色头像 + 文案）
+  Widget _tipBanner() => Center(
+        child: Container(
+          height: 56,
+          padding: const EdgeInsets.fromLTRB(10, 10, 16, 10),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.06),
+                blurRadius: 12,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE3F4F8),
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Center(
+                  child: CharacterArt(
+                    animalId: widget.animalId,
+                    unlocked: true,
+                    size: 26,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  '今天选择喝水再完美不过了，继续享受！',
+                  style: TextStyle(
+                    color: Color(0xFF1C1C1E),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: SettingsFlags.instance,
+      builder: (ctx, _) {
+        // celebrateDay 开关控制第1页显隐（设置页实时生效）
+        final showCelebrate = SettingsFlags.instance.celebrateDay;
+        final pageCount = showCelebrate ? 2 : 1;
+        if (_page > pageCount - 1) _page = pageCount - 1;
+
+        return Column(
+          children: [
+            SizedBox(
+              height: 56,
+              child: PageView(
+                controller: _pageCtrl,
+                onPageChanged: (i) => setState(() => _page = i),
+                children: [
+                  if (showCelebrate) _celebrateButton(),
+                  _tipBanner(),
+                ],
+              ),
+            ),
+            // 翻页圆点（单页时隐藏）
+            if (pageCount > 1) ...[
+              const SizedBox(height: 6),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  for (var i = 0; i < pageCount; i++)
+                    Container(
+                      width: 7,
+                      height: 7,
+                      margin: const EdgeInsets.symmetric(horizontal: 3),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: i == _page
+                            ? const Color(0xFF1C1C22)
+                            : const Color(0xFFD9D9DE),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ],
+        );
+      },
     );
   }
 }

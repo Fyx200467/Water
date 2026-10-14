@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../shared/models/beverage.dart';
 import '../../../shared/widgets/drink_illustration.dart';
 import '../providers/custom_beverage_provider.dart';
-import '../widgets/container_shapes.dart';
+import '../widgets/svg_container.dart';
 import 'drink_edit_screen.dart';
 
 /// 添加或编辑饮品页（对标原版「饮料」页：品类胶囊筛选 + 灰底卡片列表）
@@ -14,7 +14,8 @@ import 'drink_edit_screen.dart';
 /// 1. 顶栏：左返回圆钮 + 居中标题「饮料」+ 右上青色「+添加」胶囊
 /// 2. 品类胶囊（Wrap 多行）：点选后下方列表只展示该品类饮品，
 ///    选中胶囊渲染为该品类颜色（「所有」选中为深灰黑，对标原版）
-/// 3. 列表：灰底圆角卡片，右侧显示「进水量」折算百分比；自定义饮品可点击编辑
+/// 3. 列表：灰底圆角卡片，右侧显示「进水量」折算百分比；点击任意卡片
+///    进入编辑页（内置预设只读浏览不可保存，自定义饮品可编辑保存）
 /// 4. 底部：查看折算说明的青色文字链接
 class DrinkManageScreen extends ConsumerStatefulWidget {
   const DrinkManageScreen({super.key});
@@ -42,6 +43,57 @@ class _DrinkManageScreenState extends ConsumerState<DrinkManageScreen> {
         BeverageCategory.alcohol => '酒精',
       };
 
+  /// 品类筛选匹配规则：名称/属性模式优先 + 分类兜底防漏。
+  /// 显式模式（用户定稿）：水 = 仅进水量 100%；茶 = 名字含「茶」+ 含
+  /// 咖啡因 + 不含「奶」；咖啡 = 含「咖啡」+ 咖啡因 + 不含「茶」；
+  /// 奶茶·果汁·牛奶 = 含「奶茶」+ 咖啡因 / 含「汁」/ 含「牛奶」；
+  /// 碳酸饮料 = 含 碳酸/汽/可乐/气泡/苏打；汤粥 = 含「汤」或「粥」；
+  /// 酒精 = 酒精度非空。
+  /// 兜底（水除外，防名称漏匹配）：分类等于筛选品类且名称未命中任何
+  /// 其它品类模式时归入本品类——「拿铁」归咖啡、「雪碧」归碳酸、
+  /// 无咖啡因的「菊花茶」归茶
+  bool _matchesFilter(Beverage b) {
+    if (_matchesNamePattern(_filter!, b)) return true;
+    if (_filter == BeverageCategory.water) return false; // 水严格按 100%
+    return b.category == _filter && !_hitsAnyNamePattern(b);
+  }
+
+  /// 名称/属性模式是否命中指定品类
+  bool _matchesNamePattern(BeverageCategory c, Beverage b) {
+    final name = b.name;
+    final hasCaffeine = (b.caffeineMg ?? 0) > 0;
+    return switch (c) {
+      BeverageCategory.water => (b.effectiveRatio * 100).round() == 100,
+      BeverageCategory.tea =>
+        name.contains('茶') && hasCaffeine && !name.contains('奶'),
+      BeverageCategory.coffee =>
+        name.contains('咖啡') && hasCaffeine && !name.contains('茶'),
+      BeverageCategory.milk =>
+        (name.contains('奶茶') && hasCaffeine) ||
+            name.contains('汁') ||
+            name.contains('牛奶'),
+      BeverageCategory.soda =>
+        name.contains('碳酸') ||
+            name.contains('汽') ||
+            name.contains('可乐') ||
+            name.contains('气泡') ||
+            name.contains('苏打'),
+      BeverageCategory.soup =>
+        name.contains('汤') || name.contains('粥'),
+      BeverageCategory.alcohol => b.alcoholPercent != null,
+    };
+  }
+
+  /// 名称/属性是否命中任意品类模式（水的进水量属性不参与排除，
+  /// 避免 100% 折算的非水饮品被错误逐出原品类兜底）
+  bool _hitsAnyNamePattern(Beverage b) {
+    for (final c in BeverageCategory.values) {
+      if (c == BeverageCategory.water) continue;
+      if (_matchesNamePattern(c, b)) return true;
+    }
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     final customs = ref.watch(customBeveragesProvider);
@@ -53,9 +105,8 @@ class _DrinkManageScreenState extends ConsumerState<DrinkManageScreen> {
       for (final id in orderedAllIds(homeDrinks, raw))
         if (byId[id] != null) byId[id]!,
     ];
-    final shown = _filter == null
-        ? ordered
-        : ordered.where((b) => b.category == _filter).toList();
+    final shown =
+        _filter == null ? ordered : ordered.where(_matchesFilter).toList();
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.dark,
@@ -144,9 +195,10 @@ class _DrinkManageScreenState extends ConsumerState<DrinkManageScreen> {
                   ],
                 ),
               ),
-              // ---- 列表头：进水量（右对齐小标签，对标原版） ----
+              // ---- 列表头：进水量（与卡片百分比列右缘对齐：列表右距12 +
+              // 拖拽把手区44 + 卡片右距12 + 开关前间距10 + 开关布局宽60） ----
               Padding(
-                padding: const EdgeInsets.only(right: 76, top: 10, bottom: 4),
+                padding: const EdgeInsets.only(right: 138, top: 10, bottom: 4),
                 child: Align(
                   alignment: Alignment.centerRight,
                   child: Text(
@@ -212,10 +264,8 @@ class _DrinkManageScreenState extends ConsumerState<DrinkManageScreen> {
                                         : () => ref
                                             .read(homeDrinksProvider.notifier)
                                             .setVisible(b.id, !visible),
-                                    onTap: isCustom
-                                        ? () => _showEditSheet(b)
-                                        : () => _showSnack(
-                                            '内置饮品暂不支持编辑，可添加自定义饮品'),
+                                    onTap: () =>
+                                        _showEditSheet(b, readOnly: !isCustom),
                                   ),
                                 ),
                                 // 卡片外右侧整体箭头图形：长按浮起后上下拖动排序
@@ -257,12 +307,6 @@ class _DrinkManageScreenState extends ConsumerState<DrinkManageScreen> {
           height: 1.4,
         ),
       ),
-    );
-  }
-
-  void _showSnack(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), duration: const Duration(milliseconds: 1200)),
     );
   }
 
@@ -407,16 +451,35 @@ class _DrinkManageScreenState extends ConsumerState<DrinkManageScreen> {
         MaterialPageRoute(builder: (_) => const DrinkEditScreen()),
       );
 
-  Future<void> _showEditSheet(Beverage b) => Navigator.push<void>(
+  /// 点击卡片进入编辑页：自定义饮品可编辑保存；
+  /// 内置预设饮品为只读浏览（无保存按钮，改动不生效）
+  Future<void> _showEditSheet(Beverage b, {required bool readOnly}) =>
+      Navigator.push<void>(
         context,
-        MaterialPageRoute(builder: (_) => DrinkEditScreen(existing: b)),
+        MaterialPageRoute(
+          builder: (_) => DrinkEditScreen(existing: b, readOnly: readOnly),
+        ),
       );
-
 }
 
 // ============================================================
 // 组件
 // ============================================================
+
+/// 酒精档位标签（与编辑页酒精选项卡的五档区间一致）：
+/// 淡酒（1-4%）/ 微量酒（4-5%）/ 低度酒（5-6%）/ 中度酒（6-15%）/ 烈酒（15%+）
+String _alcoholTag(int v) {
+  final base = v < 4
+      ? '淡酒'
+      : v < 5
+          ? '微量'
+          : v < 6
+              ? '低度'
+              : v < 15
+                  ? '中度'
+                  : '烈';
+  return base.endsWith('酒') ? base : '$base酒';
+}
 
 /// 顶部返回圆钮（浅灰圆底）
 class _CircleButton extends StatelessWidget {
@@ -499,6 +562,28 @@ class _DrinkCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final b = beverage;
     final percent = (b.effectiveRatio * 100).round();
+    // 副标题：水固定「纯水」（进水量 100%）；营养小字优先级 酒 > 咖啡因
+    // （只展示其一，预设与自定义一致生效）：有酒精档位展示档位酒名
+    // （如「淡酒/中度酒/烈酒」），否则有咖啡因展示「XXmg咖啡因」；
+    // 仅有卡路里或两项皆无时，自定义不渲染小字、预设回退「分类 · 容量」；
+    // 内置预设的奶茶·果汁·牛奶 / 碳酸饮料 / 汤粥类不显示小字
+    final String? subtitle;
+    if (isWater) {
+      subtitle = '纯水';
+    } else if (!isCustom &&
+        (b.category == BeverageCategory.milk ||
+            b.category == BeverageCategory.soda ||
+            b.category == BeverageCategory.soup)) {
+      subtitle = null;
+    } else if (b.alcoholPercent != null) {
+      subtitle = _alcoholTag(b.alcoholPercent!);
+    } else if ((b.caffeineMg ?? 0) > 0) {
+      subtitle = '${b.caffeineMg}mg咖啡因';
+    } else if (isCustom) {
+      subtitle = null;
+    } else {
+      subtitle = '${b.category.label} · ${b.defaultMl}ml';
+    }
     return Material(
       color: const Color(0xFFF5F5F7),
       borderRadius: BorderRadius.circular(20),
@@ -509,14 +594,13 @@ class _DrinkCard extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
           child: Row(
             children: [
-              // 图标：自定义饮品用所选容器形状，内置用饮品插画
-              isCustom && b.containerId != null
-                  ? CustomPaint(
-                      size: const Size(38, 40),
-                      painter: ContainerShapePainter(
-                        id: b.containerId!,
-                        color: b.color,
-                      ),
+              // 图标：SVG 容器饮品用染色剪影（包围盒归一化，尺寸对齐内置
+              // 插画 42），自定义饮品用圆底模板插画，其余用内置插画
+              isSvgContainer(b.containerId)
+                  ? SvgContainerIcon(
+                      containerId: b.containerId!,
+                      color: b.color,
+                      size: 42,
                     )
                   : isCustom
                       ? Container(
@@ -556,14 +640,16 @@ class _DrinkCard extends StatelessWidget {
                         fontWeight: FontWeight.w700,
                       ),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${b.category.label} · ${b.defaultMl}ml',
-                      style: const TextStyle(
-                        color: Color(0xFF8E8E93),
-                        fontSize: 12,
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle,
+                        style: const TextStyle(
+                          color: Color(0xFF8E8E93),
+                          fontSize: 12,
+                        ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
               ),
@@ -576,23 +662,26 @@ class _DrinkCard extends StatelessWidget {
                   fontWeight: FontWeight.w700,
                 ),
               ),
-              // 首页展示开关（iOS 风格：开青色/关浅灰；水无开关）
-              if (!isWater) ...[
-                const SizedBox(width: 10),
-                Transform.scale(
-                  scale: 0.82,
-                  child: Switch(
-                    value: visible,
-                    onChanged: onToggle == null
-                        ? null
-                        : (_) => onToggle!(),
-                    activeTrackColor: const Color(0xFF35B5D6),
-                    activeThumbColor: Colors.white,
-                    inactiveThumbColor: Colors.white,
-                    inactiveTrackColor: const Color(0xFFE5E5EA),
-                  ),
-                ),
-              ],
+              // 首页展示开关（iOS 风格：开青色/关浅灰）；水无开关但保留
+              // 同宽隐形占位，使进水量百分比与其它卡片右缘对齐
+              const SizedBox(width: 10),
+              Transform.scale(
+                scale: 0.82,
+                child: isWater
+                    ? const Opacity(
+                        opacity: 0,
+                        child: Switch(value: false, onChanged: null),
+                      )
+                    : Switch(
+                        value: visible,
+                        onChanged:
+                            onToggle == null ? null : (_) => onToggle!(),
+                        activeTrackColor: const Color(0xFF35B5D6),
+                        activeThumbColor: Colors.white,
+                        inactiveThumbColor: Colors.white,
+                        inactiveTrackColor: const Color(0xFFE5E5EA),
+                      ),
+              ),
             ],
           ),
         ),

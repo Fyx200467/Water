@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 /// PRD §2.3 饮品分类 + 水分折算比例
 enum BeverageCategory {
-  water('纯水', 1.00, Color(0xFF6AD7E0), Icons.water_drop),
+  water('纯水', 1.00, Color(0xFF00BFDC), Icons.water_drop),
   tea('茶水类', 0.90, Color(0xFF8BC34A), Icons.emoji_food_beverage),
   coffee('咖啡类', 0.70, Color(0xFF795548), Icons.coffee),
   milk('奶茶 / 果汁 / 牛奶', 0.80, Color(0xFFFFC107), Icons.local_drink),
@@ -55,7 +55,7 @@ class Beverage {
   /// 液体动画：'bubbles' 气泡 / 'micro' 微气泡 / 'ice' 冰块 / 'rice' 悬浮米粒 / 'none' 无；为空时按模板推断（汤粥→米粒，其余→气泡）
   final String? animation;
 
-  /// 自定义饮品的容器图标形状 id（container_shapes.dart 目录），为空时沿用模板插画
+  /// 容器图标 id（'svg:<文件名>' 对应 assets/images/containers/ 下的 SVG 剪影），为空时沿用模板插画
   final String? containerId;
 
   /// 附加营养信息（自定义饮品编辑页维护）
@@ -93,19 +93,33 @@ class Beverage {
   /// 实际有效水分 = 容量 × 折算比例（负值为脱水，从当日总量中扣减）
   int effectiveMl(int volumeMl) => (volumeMl * effectiveRatio).round();
 
+  // 预设营养值初始化规则（与营养选项卡页计算口径一致）：
+  // 卡路里/咖啡因按每 250ml（8 盎司）计；酒精按 ABV 档位代表值
+  // （淡酒 3 / 微量 4 / 低度 5 / 中度 10 / 烈 20，见 drink_nutrient_screen）
   static const List<Beverage> presets = [
     Beverage(id: 'water_pure', category: BeverageCategory.water, name: '纯净水', defaultMl: 250),
-    Beverage(id: 'tea', category: BeverageCategory.tea, name: '茶', defaultMl: 250),
-    Beverage(id: 'coffee', category: BeverageCategory.coffee, name: '咖啡', defaultMl: 250, liquidColor: Color(0xFF6B3E2E)),
-    Beverage(id: 'milk_milk', category: BeverageCategory.milk, name: '牛奶', defaultMl: 250, liquidColor: Color(0xFFC8CDD0)),
-    Beverage(id: 'milk_tea', category: BeverageCategory.milk, name: '奶茶', defaultMl: 500, memberOnly: true, liquidColor: Color(0xFFA8723C)),
-    Beverage(id: 'milk_juice', category: BeverageCategory.milk, name: '果汁', defaultMl: 300, liquidColor: Color(0xFFFFB300)),
-    Beverage(id: 'soda', category: BeverageCategory.soda, name: '碳酸饮料', defaultMl: 330, liquidColor: Color(0xFFC9364F)),
-    Beverage(id: 'soup_porridge', category: BeverageCategory.soup, name: '白粥', defaultMl: 300, liquidColor: Color(0xFFF5EFE2)),
-    Beverage(id: 'soup_chicken', category: BeverageCategory.soup, name: '鸡汤', defaultMl: 250, liquidColor: Color(0xFFFFB300)),
-    Beverage(id: 'alcohol_beer', category: BeverageCategory.alcohol, name: '啤酒', defaultMl: 500, memberOnly: true, liquidColor: Color(0xFFFFC107), hydrationRatio: -0.40),
-    Beverage(id: 'alcohol_wine', category: BeverageCategory.alcohol, name: '红酒', defaultMl: 150, memberOnly: true, liquidColor: Color(0xFFA62034), hydrationRatio: -0.95),
-    Beverage(id: 'alcohol_spirits', category: BeverageCategory.alcohol, name: '白酒', defaultMl: 100, memberOnly: true, liquidColor: Color(0xFFE3E8EC), hydrationRatio: -3.18),
+    // 红茶基底：47mg 咖啡因（选项卡说明示例），无糖无卡路里
+    Beverage(id: 'tea', category: BeverageCategory.tea, name: '茶', defaultMl: 250, caffeineMg: 47),
+    // 黑咖啡：约 5 卡 + 95mg 咖啡因
+    Beverage(id: 'coffee', category: BeverageCategory.coffee, name: '咖啡', defaultMl: 250, liquidColor: Color(0xFF6B3E2E), calories: 5, caffeineMg: 95),
+    // 全脂牛奶：约 155 卡，不含咖啡因
+    Beverage(id: 'milk_milk', category: BeverageCategory.milk, name: '牛奶', defaultMl: 250, liquidColor: Color(0xFFC8CDD0), calories: 155),
+    // 含糖奶茶：约 170 卡 + 45mg 咖啡因（茶汤基底）
+    Beverage(id: 'milk_tea', category: BeverageCategory.milk, name: '奶茶', defaultMl: 500, memberOnly: true, liquidColor: Color(0xFFA8723C), calories: 170, caffeineMg: 45),
+    // 鲜榨果汁：约 110 卡
+    Beverage(id: 'milk_juice', category: BeverageCategory.milk, name: '果汁', defaultMl: 300, liquidColor: Color(0xFFFFB300), calories: 110),
+    // 可乐类碳酸饮料：100 卡（选项卡说明示例）+ 25mg 咖啡因
+    Beverage(id: 'soda', category: BeverageCategory.soda, name: '碳酸饮料', defaultMl: 330, liquidColor: Color(0xFFC9364F), calories: 100, caffeineMg: 25),
+    // 米粥：约 80 卡
+    Beverage(id: 'soup_porridge', category: BeverageCategory.soup, name: '白粥', defaultMl: 300, liquidColor: Color(0xFFF5EFE2), calories: 80),
+    // 清炖鸡汤：约 35 卡
+    Beverage(id: 'soup_chicken', category: BeverageCategory.soup, name: '鸡汤', defaultMl: 250, liquidColor: Color(0xFFFFB300), calories: 35),
+    // 啤酒 1-4% ABV（选项卡淡酒档示例「低度啤酒」）：约 110 卡
+    Beverage(id: 'alcohol_beer', category: BeverageCategory.alcohol, name: '啤酒', defaultMl: 500, memberOnly: true, liquidColor: Color(0xFFFFC107), hydrationRatio: -0.40, calories: 110, alcoholPercent: 3),
+    // 红酒 12-13% ABV → 中度档：约 200 卡
+    Beverage(id: 'alcohol_wine', category: BeverageCategory.alcohol, name: '红酒', defaultMl: 150, memberOnly: true, liquidColor: Color(0xFFA62034), hydrationRatio: -0.95, calories: 200, alcoholPercent: 10),
+    // 白酒 40%+ ABV → 烈档：约 550 卡（纯酒精热量折算每 250ml）
+    Beverage(id: 'alcohol_spirits', category: BeverageCategory.alcohol, name: '白酒', defaultMl: 100, memberOnly: true, liquidColor: Color(0xFFE3E8EC), hydrationRatio: -3.18, calories: 550, alcoholPercent: 20),
   ];
 
   /// PRD §2.3 内置预设容量

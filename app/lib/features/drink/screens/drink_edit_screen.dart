@@ -8,20 +8,28 @@ import '../../../shared/models/beverage.dart';
 import '../../../shared/widgets/drink_illustration.dart';
 import '../../home/providers/home_providers.dart';
 import '../providers/custom_beverage_provider.dart';
-import '../widgets/container_shapes.dart';
+import '../widgets/liquid_preview.dart';
+import '../widgets/svg_container.dart';
+import 'drink_animation_screen.dart';
+import 'drink_color_screen.dart' show DrinkColorScreen, drinkColorPresets;
 import 'drink_icon_screen.dart';
+import 'drink_nutrient_screen.dart' show DrinkNutrientScreen, NutrientTab;
 
 /// 添加 / 编辑自定义饮品页（对标原版：全屏编辑器）
 ///
 /// 结构：
 /// 1. 顶栏：左「取消」+ 右深色「⬆保存」胶囊
-/// 2. 「类似于: X」模板选择胶囊 + 居中大预览插画（会员模板带锁徽章）
+/// 2. 居中大预览（SVG 容器动态液体，会员模板带锁徽章）
 /// 3. iOS 风格分组行：名称 / 大小 ‖ 图标 / 颜色 / 动画 ‖ 进水量 / 卡路里 / 咖啡因 / 酒精
 /// 4. 编辑模式下底部提供删除按钮
 class DrinkEditScreen extends ConsumerStatefulWidget {
-  const DrinkEditScreen({super.key, this.existing});
+  const DrinkEditScreen({super.key, this.existing, this.readOnly = false});
 
   final Beverage? existing;
+
+  /// 只读浏览模式（系统内置预设饮品）：可进入页面查看并修改各项，
+  /// 但右上角无保存按钮、底部无删除按钮，改动不会被保存
+  final bool readOnly;
 
   @override
   ConsumerState<DrinkEditScreen> createState() => _DrinkEditScreenState();
@@ -37,51 +45,13 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
   static const _caffeineBrown = Color(0xFF8D6E63);
   static const _alcoholPurple = Color(0xFF7E57C2);
 
-  /// 「类似于」品牌饮品模板（决定分类/颜色/进水量/插画）
-  static const _brands = <_BrandSpec>[
-    _BrandSpec('可口可乐', BeverageCategory.soda, Color(0xFFC9364F), 0.83),
-    _BrandSpec('雪碧', BeverageCategory.soda, Color(0xFFA5DE5C), 0.90),
-    _BrandSpec('芬达', BeverageCategory.soda, Color(0xFFFF8A3D), 0.88),
-    _BrandSpec('无糖可乐', BeverageCategory.soda, Color(0xFF3A3A3C), 0.83),
-    _BrandSpec('冰红茶', BeverageCategory.tea, Color(0xFFC96A2E), 0.90),
-    _BrandSpec('柠檬茶', BeverageCategory.tea, Color(0xFFE8C84A), 0.90),
-    _BrandSpec('拿铁咖啡', BeverageCategory.coffee, Color(0xFFB08968), 0.70),
-    _BrandSpec('美式咖啡', BeverageCategory.coffee, Color(0xFF5D4037), 0.70),
-    _BrandSpec('纯牛奶', BeverageCategory.milk, Color(0xFFC8CDD0), 0.80),
-    _BrandSpec('橙汁', BeverageCategory.milk, Color(0xFFFFA726), 0.80),
-    _BrandSpec('苹果汁', BeverageCategory.milk, Color(0xFF9CCC65), 0.80),
-    _BrandSpec('矿泉水', BeverageCategory.water, Color(0xFF6AD7E0), 1.00),
-    _BrandSpec('苏打水', BeverageCategory.water, Color(0xFF8FDDE8), 1.00),
-    _BrandSpec('运动饮料', BeverageCategory.soda, Color(0xFF4DB8D8), 0.95),
-    _BrandSpec('青岛啤酒', BeverageCategory.alcohol, Color(0xFFF5A623), -0.40),
-    _BrandSpec('红酒', BeverageCategory.alcohol, Color(0xFFA62034), -0.95),
-    _BrandSpec('白酒', BeverageCategory.alcohol, Color(0xFFE3E8EC), -3.18),
-    _BrandSpec('豆浆', BeverageCategory.soup, Color(0xFFF5EFE2), 0.85),
-  ];
-
-  /// 颜色可选色板（第一项 = 跟随模板）
-  static const _palette = <int>[
-    0xFFC9364F,
-    0xFFFF8A65,
-    0xFFFFC107,
-    0xFF8BC34A,
-    0xFF4DB8D8,
-    0xFF5B8DEF,
-    0xFF7E57C2,
-    0xFFF06292,
-    0xFF8D6E63,
-    0xFF9E9E9E,
-    0xFF3A3A3C,
-    0xFFF5EFE2,
-  ];
-
   late Beverage _template;
   late TextEditingController _nameCtrl;
   late int _sizeMl;
   Color? _colorOverride;
-  String? _animation; // null = 跟随模板
+  String? _animation; // null = 未选择（新增默认态）
   double? _ratioPercent; // 进水量覆盖（%），null = 跟随模板
-  String? _containerId; // 容器图标形状，null = 沿用模板插画
+  String? _containerId; // 容器图标 id（'svg:<文件名>'）
   int? _calories;
   int? _caffeineMg;
   int? _alcoholPercent;
@@ -103,16 +73,39 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
       _calories = b.calories;
       _caffeineMg = b.caffeineMg;
       _alcoholPercent = b.alcoholPercent;
-      final tid = b.templateId ?? Beverage.fallbackIllustration(b.category);
-      _template = Beverage.presets.firstWhere(
-        (p) => p.id == tid,
-        orElse: () => b,
-      );
+      if (b.id.startsWith('custom_')) {
+        // 自定义饮品：以保存时的模板预设派生分类/折算比例等
+        final tid = b.templateId ?? Beverage.fallbackIllustration(b.category);
+        _template = Beverage.presets.firstWhere(
+          (p) => p.id == tid,
+          orElse: () => b,
+        );
+      } else {
+        // 内置预设饮品：直接以自身为模板（无 templateId，
+        // 避免回退到同分类的其他预设）
+        _template = b;
+      }
     } else {
       _nameCtrl = TextEditingController();
+      // 新增默认模板（「类似于」入口已剔除）：分类/折算比例由此派生
       _template = Beverage.presets.firstWhere((p) => p.id == 'soda');
       _sizeMl = _template.defaultMl;
+      _randomizeNew();
     }
+  }
+
+  /// 新增模式：每次打开页面从容器图标库随机挑一个容器展示，
+  /// 颜色同样随机取自预设色板，动画默认不选择
+  Future<void> _randomizeNew() async {
+    final ids = await loadSvgContainerIds();
+    if (!mounted || _isEditing) return;
+    final rnd = math.Random();
+    setState(() {
+      if (ids.isNotEmpty) {
+        _containerId = ids[rnd.nextInt(ids.length)];
+      }
+      _colorOverride = drinkColorPresets[rnd.nextInt(drinkColorPresets.length)];
+    });
   }
 
   @override
@@ -137,6 +130,7 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
 
   String get _animationLabel => switch (_animKey) {
         'rice' => '米粒',
+        'leaves' => '茶叶',
         'micro' => '微气泡',
         'ice' => '冰块',
         'none' => '无',
@@ -178,93 +172,6 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
   }
 
   // ---------------- 交互弹层 ----------------
-
-  /// 「类似于」品牌选择器：从品牌库中挑选一个饮品作为模板
-  Future<void> _pickTemplate() async {
-    final spec = await showModalBottomSheet<_BrandSpec>(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-          children: [
-            const Text('类似于哪个饮品？',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                    color: _textDark,
-                    fontSize: 17,
-                    fontWeight: FontWeight.w800)),
-            const SizedBox(height: 12),
-            for (final s in _brands)
-              InkWell(
-                borderRadius: BorderRadius.circular(14),
-                onTap: () => Navigator.pop(ctx, s),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 9),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 34,
-                        height: 34,
-                        decoration: BoxDecoration(
-                          color: s.color,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          s.category.icon,
-                          size: 17,
-                          color: s.color.computeLuminance() > 0.72
-                              ? const Color(0xFF5B4A2F)
-                              : Colors.white,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(s.name,
-                            style: const TextStyle(
-                                color: _textDark,
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600)),
-                      ),
-                      Text(
-                        '${(s.ratio * 100).round()}%',
-                        style: TextStyle(
-                          color: s.ratio >= 0 ? _brandCyan : _ratioRed,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-    if (spec == null) return;
-    setState(() {
-      _template = Beverage(
-        id: 'brand_${spec.name}',
-        category: spec.category,
-        name: spec.name,
-        defaultMl: 330,
-        icon: spec.category.icon,
-        liquidColor: spec.color,
-        hydrationRatio: spec.ratio,
-        templateId: Beverage.fallbackIllustration(spec.category),
-      );
-      // 切换模板后重置所有跟随模板的覆盖项
-      _colorOverride = null;
-      _animation = null;
-      _ratioPercent = null;
-      _sizeMl = 330;
-    });
-  }
 
   /// 名称输入（无字符过滤，避免破坏中文 IME 组合输入）
   Future<void> _editName() async {
@@ -440,117 +347,35 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
     );
   }
 
-  /// 颜色选择：跟随模板 + 固定色板
+  /// 颜色选择：跳转全屏颜色选择页（预设色板 + 自定义滑杆）
   Future<void> _editColor() async {
-    await showModalBottomSheet<Object?>(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text('液体颜色',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      color: _textDark,
-                      fontSize: 17,
-                      fontWeight: FontWeight.w800)),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 14,
-                runSpacing: 14,
-                alignment: WrapAlignment.center,
-                children: [
-                  _ColorDot(
-                    color: _template.color,
-                    selected: _colorOverride == null,
-                    onTap: () => Navigator.pop(ctx, false),
-                  ),
-                  for (final c in _palette)
-                    _ColorDot(
-                      color: Color(c),
-                      selected: _colorOverride?.toARGB32() == c,
-                      onTap: () => Navigator.pop(ctx, Color(c)),
-                    ),
-                ],
-              ),
-            ],
-          ),
+    final id = _containerId;
+    if (id == null || !isSvgContainer(id)) return; // 老数据无容器：无法预览
+    final c = await Navigator.of(context).push<Color>(
+      MaterialPageRoute(
+        builder: (_) => DrinkColorScreen(
+          containerId: id,
+          initial: _liquidColor,
         ),
       ),
-    ).then((r) {
-      if (r == false) {
-        setState(() => _colorOverride = null);
-      } else if (r is Color) {
-        setState(() => _colorOverride = r);
-      }
-    });
+    );
+    if (c != null) setState(() => _colorOverride = c);
   }
 
-  /// 动画选择：气泡 / 微气泡 / 冰块 / 米粒 / 无
+  /// 动画选择：跳转全屏动画选择页（实时预览）
   Future<void> _editAnimation() async {
-    const options = {
-      'bubbles': '气泡',
-      'micro': '微气泡',
-      'ice': '冰块',
-      'rice': '米粒',
-      'none': '无',
-    };
-    await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text('液体动画',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      color: _textDark,
-                      fontSize: 17,
-                      fontWeight: FontWeight.w800)),
-              const SizedBox(height: 10),
-              for (final e in options.entries)
-                InkWell(
-                  borderRadius: BorderRadius.circular(14),
-                  onTap: () => Navigator.pop(ctx, e.key),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(e.value,
-                              style: const TextStyle(
-                                  color: _textDark,
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w600)),
-                        ),
-                        if (_animationLabel == e.value)
-                          const Icon(Icons.check,
-                              size: 20, color: _brandCyan),
-                      ],
-                    ),
-                  ),
-                ),
-            ],
-          ),
+    final id = _containerId;
+    if (id == null || !isSvgContainer(id)) return; // 老数据无容器：无法预览
+    final v = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => DrinkAnimationScreen(
+          containerId: id,
+          color: _liquidColor,
+          initial: _animation,
         ),
       ),
-    ).then((v) {
-      if (v != null) setState(() => _animation = v);
-    });
+    );
+    if (v != null) setState(() => _animation = v.isEmpty ? null : v);
   }
 
   /// 数字输入弹层（digitsOnly；空 = 无）
@@ -713,20 +538,43 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
     if (v != null) setState(() => _ratioPercent = v);
   }
 
-  /// 卡路里滑杆：0 ~ 1000 卡（0 = 无）
+  /// 卡路里滚轮页（0 = 无）
   Future<void> _editCalories() async {
-    final v = await _sliderSheet(
-      title: '卡路里',
-      min: 0,
-      max: 1000,
-      divisions: 100,
-      initial: (_calories ?? 0).toDouble(),
-      label: (v) => '${v.round()} 卡',
-      valueColor: (v) => _calorieOrange,
+    final v = await _pushNutrient(NutrientTab.calories, _calories);
+    if (v != null) setState(() => _calories = v);
+  }
+
+  /// 咖啡因滚轮页（0 = 无）
+  Future<void> _editCaffeine() async {
+    final v = await _pushNutrient(NutrientTab.caffeine, _caffeineMg);
+    if (v != null) setState(() => _caffeineMg = v);
+  }
+
+  /// 酒精分类滚轮页（无 / 五档 ABV）
+  Future<void> _editAlcohol() async {
+    final v = await _pushNutrient(NutrientTab.alcohol, _alcoholPercent);
+    if (v != null) setState(() => _alcoholPercent = v);
+  }
+
+  /// 营养选项滚轮页统一跳转（对标原版卡路里 / 咖啡因 / 酒精选项卡）
+  Future<int?> _pushNutrient(NutrientTab tab, int? initial) {
+    return Navigator.of(context).push<int>(
+      MaterialPageRoute(
+        builder: (_) => DrinkNutrientScreen(
+          tab: tab,
+          color: switch (tab) {
+            NutrientTab.calories => _calorieOrange,
+            NutrientTab.caffeine => _caffeineBrown,
+            NutrientTab.alcohol => _alcoholPurple,
+          },
+          containerId: _containerId,
+          templateId: _template.templateId ?? _template.id,
+          liquidColor: _liquidColor,
+          animationKey: _animKey,
+          initial: initial,
+        ),
+      ),
     );
-    if (v != null) {
-      setState(() => _calories = v.round() == 0 ? null : v.round());
-    }
   }
 
   /// 会员占位弹层（正式会员购买页后续接入）
@@ -787,8 +635,6 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
                   children: [
                     const SizedBox(height: 8),
-                    Center(child: _templatePill()),
-                    const SizedBox(height: 6),
                     SizedBox(height: 270, child: _preview()),
                     _row(
                       icon: Icons.sell_outlined,
@@ -818,18 +664,16 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
                     _row(
                       icon: Icons.crop_free,
                       label: '图标',
-                      value: _containerId == null
+                      value: !isSvgContainer(_containerId)
                           ? DrinkIllustration(
                               beverageId: _template.templateId ?? _template.id,
                               color: _liquidColor,
                               size: 30,
                             )
-                          : CustomPaint(
-                              size: const Size(30, 32),
-                              painter: ContainerShapePainter(
-                                id: _containerId!,
-                                color: _liquidColor,
-                              ),
+                          : SvgContainerIcon(
+                              containerId: _containerId!,
+                              color: _liquidColor,
+                              size: 30,
                             ),
                       onTap: _editIcon,
                     ),
@@ -851,11 +695,13 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
                     _row(
                       icon: Icons.bubble_chart,
                       label: '动画',
-                      value: Text(_animationLabel,
-                          style: const TextStyle(
-                              color: _valueGray,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600)),
+                      value: _animation == null
+                          ? const SizedBox.shrink()
+                          : Text(_animationLabel,
+                              style: const TextStyle(
+                                  color: _valueGray,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600)),
                       onTap: _editAnimation,
                     ),
                     _groupDivider(),
@@ -892,30 +738,17 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
                         text: _caffeineMg == null ? null : '$_caffeineMg mg',
                         color: _caffeineBrown,
                       ),
-                      onTap: () async {
-                        final v = await _inputNumber(
-                            title: '咖啡因（mg）', hint: '留空为无');
-                        if (v != null) {
-                          setState(() =>
-                              _caffeineMg = v == 0 ? null : v);
-                        }
-                      },
+                      onTap: _editCaffeine,
                     ),
                     const SizedBox(height: 10),
                     _row(
                       icon: Icons.local_bar_outlined,
                       label: '酒精',
                       value: _alcoholText(),
-                      onTap: () async {
-                        final v = await _inputNumber(
-                            title: '酒精含量（%）', hint: '留空为无');
-                        if (v != null) {
-                          setState(() =>
-                              _alcoholPercent = v == 0 ? null : v);
-                        }
-                      },
+                      onTap: _editAlcohol,
                     ),
-                    if (_isEditing) ...[
+                    // 删除按钮仅自定义饮品编辑模式提供（内置预设只读浏览）
+                    if (_isEditing && !widget.readOnly) ...[
                       const SizedBox(height: 24),
                       TextButton(
                         onPressed: _confirmDelete,
@@ -955,82 +788,60 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
             ),
           ),
           const Spacer(),
-          GestureDetector(
-            onTap: nameEmpty ? null : _save,
-            child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-              decoration: BoxDecoration(
-                color: nameEmpty
-                    ? const Color(0xFF1F2733).withValues(alpha: 0.35)
-                    : const Color(0xFF1F2733),
-                borderRadius: BorderRadius.circular(22),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.upload, size: 15, color: Colors.white),
-                  SizedBox(width: 5),
-                  Text('保存',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800)),
-                ],
+          // 只读浏览模式（内置预设饮品）无保存按钮
+          if (!widget.readOnly)
+            GestureDetector(
+              onTap: nameEmpty ? null : _save,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                decoration: BoxDecoration(
+                  color: nameEmpty
+                      ? const Color(0xFF1F2733).withValues(alpha: 0.35)
+                      : const Color(0xFF1F2733),
+                  borderRadius: BorderRadius.circular(22),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.upload, size: 15, color: Colors.white),
+                    SizedBox(width: 5),
+                    Text('保存',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800)),
+                  ],
+                ),
               ),
             ),
-          ),
         ],
       ),
     );
   }
 
-  /// 「类似于: X ⌄」模板胶囊（模板色浅底）
-  Widget _templatePill() {
-    return GestureDetector(
-      onTap: _pickTemplate,
-      child: Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-        decoration: BoxDecoration(
-          color: _liquidColor.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              '类似于: ${_template.name}',
-              style: TextStyle(
-                color: _liquidColor.computeLuminance() > 0.75
-                    ? Color.lerp(_liquidColor, const Color(0xFF5B4A2F), 0.5)
-                    : _liquidColor,
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            Icon(Icons.keyboard_arrow_down,
-                size: 18,
-                color: _liquidColor.computeLuminance() > 0.75
-                    ? Color.lerp(_liquidColor, const Color(0xFF5B4A2F), 0.5)
-                    : _liquidColor),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// 居中大预览：动态液体容器（颜色实时渲染 + 液体晃动 + 动画粒子）+ 会员锁徽章
+  /// 居中大预览：SVG 容器动态液体（颜色/动画实时渲染）+ 会员锁徽章
+  /// （只读浏览内置预设时不显示锁）；编辑老数据无容器时回退模板插画
   Widget _preview() {
+    final child = isSvgContainer(_containerId)
+        ? LiquidPreview(
+            containerId: _containerId!,
+            color: _liquidColor,
+            animation: _animKey,
+          )
+        : _isEditing
+            ? DrinkIllustration(
+                beverageId: _template.templateId ?? _template.id,
+                color: _liquidColor,
+                size: 150,
+              )
+            : const SizedBox(width: 170, height: 225);
     return Stack(
       alignment: Alignment.center,
       children: [
-        _LiquidPreview(
-          color: _liquidColor,
-          animation: _animKey,
-          containerId: _containerId,
-        ),
-        if (_template.memberOnly)
+        child,
+        // 会员模板锁徽章：仅编辑自定义饮品时显示，只读浏览预设不加锁
+        if (!widget.readOnly && _template.memberOnly)
           Container(
             width: 92,
             height: 92,
@@ -1106,12 +917,22 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
   }
 
   Widget _alcoholText() {
-    final v = _alcoholPercent;
     return Text(
-      v == null ? '无' : '$v%',
+      _alcoholLabel,
       style: const TextStyle(
           color: _alcoholPurple, fontSize: 15, fontWeight: FontWeight.w800),
     );
+  }
+
+  /// 酒精档位短名（按 ABV 区间映射，与选项页档位一致）
+  String get _alcoholLabel {
+    final v = _alcoholPercent;
+    if (v == null) return '无';
+    if (v < 4) return '淡酒';
+    if (v < 5) return '微量';
+    if (v < 6) return '低度';
+    if (v < 15) return '中度';
+    return '烈';
   }
 
   Future<void> _confirmDelete() async {
@@ -1153,328 +974,4 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
       duration: const Duration(milliseconds: 1200),
     ));
   }
-}
-
-/// 颜色选择圆点
-class _ColorDot extends StatelessWidget {
-  const _ColorDot({
-    required this.color,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final Color color;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 42,
-        height: 42,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: selected ? const Color(0xFF1C1C1E) : Colors.transparent,
-            width: 2.5,
-          ),
-        ),
-        padding: const EdgeInsets.all(3),
-        child: Container(
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-      ),
-    );
-  }
-}
-
-/// 动态液体预览容器：液体颜色实时渲染 + 液面晃动 + 按动画选项渲染粒子
-class _LiquidPreview extends StatefulWidget {
-  const _LiquidPreview({
-    required this.color,
-    required this.animation,
-    this.containerId,
-  });
-
-  final Color color;
-
-  /// 动画 key：bubbles / micro / ice / rice / none
-  final String animation;
-
-  /// 容器形状 id；null = 默认圆角玻璃杯
-  final String? containerId;
-
-  @override
-  State<_LiquidPreview> createState() => _LiquidPreviewState();
-}
-
-class _LiquidPreviewState extends State<_LiquidPreview>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 12),
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _ctrl,
-      builder: (context, _) => CustomPaint(
-        painter: _LiquidPainter(
-          color: widget.color,
-          animation: widget.animation,
-          containerId: widget.containerId,
-          t: _ctrl.value * 12,
-        ),
-        child: const SizedBox(width: 170, height: 225),
-      ),
-    );
-  }
-}
-
-/// 液体自绘：
-/// - 默认容器为圆角玻璃杯（上圆角 30、下圆角 24）；选择容器形状后按形状裁剪
-/// - 液面由多重正弦叠加产生真实晃动效果
-/// - bubbles：气泡自底部升起，上升途中渐显、顶端渐散
-/// - micro：微气泡（数量多、体积小、上升更快）
-/// - ice：冰块悬浮于液面下方，带轻微上下浮动与旋转
-/// - rice：米粒悬浮于液体中，轻微上下浮动（粥类）
-class _LiquidPainter extends CustomPainter {
-  _LiquidPainter({
-    required this.color,
-    required this.animation,
-    required this.t,
-    this.containerId,
-  });
-
-  final Color color;
-  final String animation;
-  final double t;
-  final String? containerId;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final w = size.width;
-    final h = size.height;
-    const inset = 9.0;
-
-    // 容器裁剪路径：形状库容器 或 默认圆角玻璃杯
-    final Path clipPath;
-    final ContainerShape? shape =
-        containerId == null ? null : containerShapeById(containerId);
-    if (shape != null) {
-      clipPath = scaledContainerPath(
-        shape,
-        Rect.fromLTWH(0, 0, w, h),
-      );
-    } else {
-      clipPath = Path()
-        ..addRRect(RRect.fromRectAndCorners(
-          Rect.fromLTWH(inset, inset, w - inset * 2, h - inset * 2),
-          topLeft: const Radius.circular(30),
-          topRight: const Radius.circular(30),
-          bottomLeft: const Radius.circular(24),
-          bottomRight: const Radius.circular(24),
-        ));
-    }
-
-    // 空容器底色
-    canvas.drawPath(clipPath, Paint()..color = const Color(0xFFF3F3F6));
-
-    canvas.save();
-    canvas.clipPath(clipPath);
-
-    final left = inset + 7;
-    final right = w - inset - 7;
-    final bottom = h - inset - 7;
-    final baseLevel = bottom - h * 0.50;
-
-    // 液面：多重正弦叠加 → 真实晃动
-    double surfaceY(double x) =>
-        baseLevel +
-        math.sin(t * 1.5) * 5 +
-        math.sin(t * 0.9 + 1.7) * 3 +
-        math.sin(x * 0.045 + t * 2.6) * 1.8 +
-        math.sin(x * 0.09 - t * 1.9) * 1.1;
-
-    // 液体主体
-    final liquid = Path()
-      ..moveTo(left, bottom)
-      ..lineTo(left, surfaceY(left));
-    for (double x = left; x <= right; x += 6) {
-      liquid.lineTo(x, surfaceY(x));
-    }
-    liquid
-      ..lineTo(right, surfaceY(right))
-      ..lineTo(right, bottom)
-      ..close();
-    canvas.drawPath(liquid, Paint()..color = color);
-
-    // 液面高光
-    final highlight = Path();
-    for (double x = left; x <= right; x += 6) {
-      final y = surfaceY(x);
-      if (x == left) {
-        highlight.moveTo(x, y);
-      } else {
-        highlight.lineTo(x, y);
-      }
-    }
-    canvas.drawPath(
-      highlight,
-      Paint()
-        ..color = Colors.white.withValues(alpha: 0.35)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.5
-        ..strokeCap = StrokeCap.round,
-    );
-
-    // 粒子层（按动画选项）
-    final paint = Paint();
-    switch (animation) {
-      case 'bubbles':
-        for (int i = 0; i < 10; i++) {
-          final speed = 0.14 + _rnd(i, 1) * 0.16;
-          final p = (t * speed + _rnd(i, 3)) % 1;
-          final cx = left + _rnd(i, 5) * (right - left);
-          final by = bottom - p * (bottom - baseLevel - 6);
-          final r = 2.5 + _rnd(i, 7) * 3;
-          paint.color = Colors.white
-              .withValues(alpha: _fadeAlpha(p) * 0.55);
-          canvas.drawCircle(Offset(cx, by), r, paint);
-        }
-      case 'micro':
-        for (int i = 0; i < 24; i++) {
-          final speed = 0.22 + _rnd(i, 1) * 0.2;
-          final p = (t * speed + _rnd(i, 3)) % 1;
-          final cx = left + _rnd(i, 5) * (right - left);
-          final by = bottom - p * (bottom - baseLevel - 6);
-          final r = 1 + _rnd(i, 7) * 1.4;
-          paint.color = Colors.white
-              .withValues(alpha: _fadeAlpha(p) * 0.5);
-          canvas.drawCircle(Offset(cx, by), r, paint);
-        }
-      case 'ice':
-        for (int i = 0; i < 2; i++) {
-          final bob = math.sin(t * 1.2 + i * 2.1) * 4;
-          final rot = math.sin(t * 0.8 + i * 1.4) * 0.10;
-          final cx = left + (right - left) * (i == 0 ? 0.36 : 0.66);
-          final cy = surfaceY(cx) + 20 + bob;
-          canvas.save();
-          canvas.translate(cx, cy);
-          canvas.rotate(rot);
-          final rect = RRect.fromRectAndRadius(
-            Rect.fromCenter(
-                center: Offset.zero, width: 34, height: 34),
-            const Radius.circular(8),
-          );
-          paint.color = Colors.white.withValues(alpha: 0.62);
-          canvas.drawRRect(rect, paint);
-          paint
-            ..color = Colors.white.withValues(alpha: 0.9)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1.5;
-          canvas.drawRRect(rect, paint);
-          paint.style = PaintingStyle.fill;
-          canvas.restore();
-        }
-      case 'rice':
-        for (int i = 0; i < 10; i++) {
-          final gy = baseLevel + 16 + _rnd(i, 9) * (bottom - baseLevel - 30);
-          final cy = gy + math.sin(t * 1.1 + i * 1.3) * 3;
-          final cx = left + _rnd(i, 5) * (right - left);
-          canvas.save();
-          canvas.translate(cx, cy);
-          canvas.rotate(_rnd(i, 11) * math.pi);
-          paint.color = Colors.white.withValues(alpha: 0.78);
-          canvas.drawOval(
-            Rect.fromCenter(
-                center: Offset.zero, width: 7, height: 4.2),
-            paint,
-          );
-          canvas.restore();
-        }
-      case 'none':
-        break;
-    }
-
-    canvas.restore();
-
-    if (shape != null) {
-      // 容器把手（描边）
-      if (shape.handle != null) {
-        final matrix = Matrix4.diagonal3Values(w / 100, h / 100, 1);
-        canvas.drawPath(
-          shape.handle!.transform(matrix.storage),
-          Paint()
-            ..color = color
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 7
-            ..strokeCap = StrokeCap.round
-            ..strokeJoin = StrokeJoin.round,
-        );
-      }
-    } else {
-      // 默认玻璃杯杯口描边
-      canvas.drawPath(
-        Path()
-          ..addRRect(RRect.fromRectAndCorners(
-            Rect.fromLTWH(inset, inset, w - inset * 2, h - inset * 2),
-            topLeft: const Radius.circular(30),
-            topRight: const Radius.circular(30),
-            bottomLeft: const Radius.circular(24),
-            bottomRight: const Radius.circular(24),
-          )),
-        Paint()
-          ..color = const Color(0xFFE7E7EC)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2,
-      );
-    }
-  }
-
-  /// 粒子生命周期透明度：入场渐显（p<0.15）、顶端渐散（p>0.72）
-  double _fadeAlpha(double p) {
-    if (p < 0.15) return p / 0.15;
-    if (p > 0.72) return (1 - (p - 0.72) / 0.28).clamp(0.0, 1.0);
-    return 1;
-  }
-
-  /// 确定性伪随机（每帧稳定，无抖动）
-  double _rnd(int i, int salt) {
-    final v =
-        math.sin((i + 1) * 12.9898 + salt * 78.233) * 43758.5453;
-    return v - v.floor();
-  }
-
-  @override
-  bool shouldRepaint(_LiquidPainter oldDelegate) =>
-      oldDelegate.color != color ||
-      oldDelegate.animation != animation ||
-      oldDelegate.containerId != containerId ||
-      oldDelegate.t != t;
-}
-
-/// 「类似于」品牌饮品模板描述（名称 + 分类 + 液体色 + 进水量折算比例）
-class _BrandSpec {
-  const _BrandSpec(this.name, this.category, this.color, this.ratio);
-
-  final String name;
-  final BeverageCategory category;
-  final Color color;
-  final double ratio;
 }

@@ -11,6 +11,12 @@ import '../../shared/widgets/drink_illustration.dart';
 import '../home/providers/home_providers.dart';
 import '../reminder/reminder_providers.dart';
 import '../stats/providers/stats_providers.dart';
+import 'app_icon_screen.dart';
+import 'app_prefs_screen.dart';
+import 'calorie_screen.dart';
+import 'reset_time_screen.dart';
+import 'settings_flags.dart';
+import 'widget_settings_screen.dart';
 
 /// PRD §2.8 设置页 — 对标原版 WaterLlama App 设计
 ///
@@ -20,8 +26,8 @@ import '../stats/providers/stats_providers.dart';
 /// 3. 每日目标卡片（渐变青绿 + 红色角标）
 /// 4. 推广卡片（薄荷绿 + 羊驼插画）
 /// 5. 功能分组（饮料 / 小组件 / App图标）
-/// 6. 偏好分组（重置时间 / 卡路里 / 单位 / App声音动画 / 健康同步 / Watch）
-/// 7. iCloud 备份
+/// 6. 偏好分组（重置时间 / 卡路里 / 单位 / App声音动画 / 健康同步 / 手表）
+/// 7. 云备份
 /// 8. 语言 / 帮助与支持
 /// 9. 社区
 /// 10. 分享 CTA
@@ -43,6 +49,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   static const _arrowColor = Color(0xFFC7C7CC);
   static const _separatorColor = Color(0xFFE5E5EA);
   static const _cardRadius = 14.0;
+
+  @override
+  void initState() {
+    super.initState();
+    SettingsFlags.instance.ensureLoaded();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -88,12 +100,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           iconBg: const Color(0xFFB4D7F0),
                           iconColor: const Color(0xFF1976D2),
                           title: '小组件',
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                                builder: (_) => const WidgetSettingsScreen()),
+                          ),
                         ),
                         _settingRow(
                           icon: Icons.pets,
                           iconBg: const Color(0xFFFFE082),
                           iconColor: const Color(0xFF5D4037),
                           title: 'App 图标',
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                                builder: (_) => const AppIconScreen()),
+                          ),
                         ),
                       ],
                     ),
@@ -103,19 +123,36 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     _buildSection(
                       '偏好',
                       [
-                        _settingRow(
-                          icon: Icons.restart_alt,
-                          iconBg: const Color(0xFFFFB6C1),
-                          iconColor: const Color(0xFFAD1457),
-                          title: '一天中的重置时间',
-                          trailingText: '00:00',
+                        ListenableBuilder(
+                          listenable: SettingsFlags.instance,
+                          builder: (ctx, _) => _settingRow(
+                            icon: Icons.restart_alt,
+                            iconBg: const Color(0xFFFFB6C1),
+                            iconColor: const Color(0xFFAD1457),
+                            title: '一天中的重置时间',
+                            trailingText: SettingsFlags.instance.resetLabel,
+                            onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                  builder: (_) => const ResetTimeScreen()),
+                            ),
+                          ),
                         ),
-                        _settingRow(
-                          icon: Icons.local_fire_department,
-                          iconBg: const Color(0xFFFFD93D),
-                          iconColor: const Color(0xFFE65100),
-                          title: '卡路里',
-                          trailingText: '关',
+                        ListenableBuilder(
+                          listenable: SettingsFlags.instance,
+                          builder: (ctx, _) => _settingRow(
+                            icon: Icons.local_fire_department,
+                            iconBg: const Color(0xFFFFD93D),
+                            iconColor: const Color(0xFFE65100),
+                            title: '卡路里',
+                            trailingText:
+                                SettingsFlags.instance.trackCalories
+                                    ? '开'
+                                    : '关',
+                            onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                  builder: (_) => const CalorieScreen()),
+                            ),
+                          ),
                         ),
                         _settingRow(
                           icon: Icons.straighten,
@@ -131,26 +168,29 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           iconBg: const Color(0xFFD4BBFF),
                           iconColor: const Color(0xFF6A1B9A),
                           title: 'App、声音、动画',
-                          onTap: () => _showPreferencesSheet(),
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                                builder: (_) => const AppPrefsScreen()),
+                          ),
                         ),
                         _settingRow(
                           icon: Icons.favorite,
                           iconBg: const Color(0xFFFF2D55),
                           iconColor: Colors.white,
-                          title: 'Apple"健康"同步',
+                          title: '"健康"同步',
                           trailingText: '连接',
                         ),
                         _settingRow(
                           icon: Icons.watch,
                           iconBg: const Color(0xFFFFCCAA),
                           iconColor: const Color(0xFFD84315),
-                          title: 'Apple Watch',
+                          title: '手表',
                         ),
                       ],
                     ),
                     const SizedBox(height: 28),
 
-                    // ---- 分组3：iCloud ----
+                    // ---- 分组3：云备份 ----
                     _buildSection(
                       '',
                       [
@@ -158,7 +198,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           icon: Icons.cloud,
                           iconBg: const Color(0xFF5AC8FA),
                           iconColor: Colors.white,
-                          title: 'iCloud 备份',
+                          title: '云备份',
                         ),
                       ],
                     ),
@@ -744,38 +784,53 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  void _showPreferencesSheet() {
+  /// 测量单位弹层（对标原版：「你使用什么单位」+ 两个青色胶囊按钮）
+  void _showUnitPicker() {
     showModalBottomSheet<void>(
       context: context,
-      isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (_) => const _PreferencesSheet(),
-    );
-  }
-
-  void _showUnitPicker() {
-    final cur = ref.read(preferredUnitProvider);
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => SimpleDialog(
-        title: const Text('测量单位'),
-        children: [
-          for (final u in PreferredUnit.values)
-            RadioListTile<PreferredUnit>(
-              value: u,
-              groupValue: cur,
-              title: Text(u.label),
-              onChanged: (v) {
-                if (v != null) {
-                  ref.read(preferredUnitProvider.notifier).select(v);
-                }
-                Navigator.pop(ctx);
-              },
-            ),
-        ],
+      builder: (ctx) => SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 26, 24, 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('你使用什么单位',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      color: _textPrimary,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w800)),
+              const SizedBox(height: 26),
+              for (final u in PreferredUnit.values) ...[
+                SizedBox(
+                  height: 52,
+                  child: FilledButton(
+                    onPressed: () {
+                      ref.read(preferredUnitProvider.notifier).select(u);
+                      Navigator.pop(ctx);
+                    },
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF35B5D6),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(26)),
+                    ),
+                    child: Text(u.label == 'ml（毫升）' ? 'ml (毫升)' : u.label,
+                        style: const TextStyle(
+                            fontSize: 17, fontWeight: FontWeight.w800)),
+                  ),
+                ),
+                if (u != PreferredUnit.values.last) const SizedBox(height: 14),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -826,88 +881,5 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     ref.invalidate(checkinDaysProvider);
 
     if (mounted) context.go('/onboarding');
-  }
-}
-
-// ============================================================
-// App/声音/动画 偏好底部弹层（音效 + 外观主题）
-// ============================================================
-
-class _PreferencesSheet extends ConsumerWidget {
-  const _PreferencesSheet();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final sound = ref.watch(soundEnabledProvider);
-    final themeMode = ref.watch(themeModeProvider);
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-
-    return Padding(
-      padding: EdgeInsets.fromLTRB(20, 12, 20, 20 + bottomInset),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // 拖拽指示器
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              margin: const EdgeInsets.only(bottom: 16),
-              decoration: BoxDecoration(
-                color: const Color(0xFFD1D1D6),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          Text('App、声音、动画', style: theme.textTheme.titleLarge),
-          const SizedBox(height: 16),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            secondary: const Icon(Icons.music_note_outlined),
-            title: const Text('喝水音效'),
-            value: sound,
-            onChanged: (v) =>
-                ref.read(soundEnabledProvider.notifier).set(v),
-          ),
-          const Divider(),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(0, 12, 0, 4),
-            child: Row(
-              children: [
-                const Icon(Icons.palette_outlined, size: 20),
-                const SizedBox(width: 16),
-                Text('外观', style: theme.textTheme.titleMedium),
-              ],
-            ),
-          ),
-          const SizedBox(height: 8),
-          SegmentedButton<ThemeMode>(
-            segments: const [
-              ButtonSegment(
-                value: ThemeMode.system,
-                label: Text('跟随系统'),
-                icon: Icon(Icons.settings_suggest_outlined),
-              ),
-              ButtonSegment(
-                value: ThemeMode.light,
-                label: Text('浅色'),
-                icon: Icon(Icons.light_mode_outlined),
-              ),
-              ButtonSegment(
-                value: ThemeMode.dark,
-                label: Text('深色'),
-                icon: Icon(Icons.dark_mode_outlined),
-              ),
-            ],
-            selected: {themeMode},
-            onSelectionChanged: (s) =>
-                ref.read(themeModeProvider.notifier).set(s.first),
-          ),
-          const SizedBox(height: 12),
-        ],
-      ),
-    );
   }
 }

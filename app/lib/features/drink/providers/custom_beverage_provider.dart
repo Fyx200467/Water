@@ -77,10 +77,12 @@ class CustomBeverageListNotifier extends StateNotifier<List<Beverage>> {
     );
   }
 
-  /// 新增自定义饮品（由编辑页构建完整对象后传入）
+  /// 新增自定义饮品（由编辑页构建完整对象后传入）。
+  /// 新饮品默认不在首页展示（管理页开关默认关闭），由用户手动开启
   Future<void> addCustom(Beverage beverage) async {
     state = [...state, beverage];
     await _save();
+    await ref.read(homeDrinksProvider.notifier).registerHidden(beverage.id);
   }
 
   /// 保存自定义饮品编辑（按 id 整体替换）
@@ -214,6 +216,17 @@ class HomeDrinksNotifier extends StateNotifier<HomeDrinksState> {
     final o = [...order]..remove('water_pure');
     o.insert(0, 'water_pure');
     return o;
+  }
+
+  /// 新饮品登记为默认隐藏（仅进 hidden 集合，管理页开关默认关闭，
+  /// 用户开启后经 setVisible 正常进入 order 参与排序）
+  Future<void> registerHidden(String id) async {
+    if (id == 'water_pure' || state.hidden.contains(id)) return;
+    state = HomeDrinksState(
+      order: state.order,
+      hidden: {...state.hidden, id},
+    );
+    await _save();
   }
 
   /// 开关首页展示（水不可关闭）。
