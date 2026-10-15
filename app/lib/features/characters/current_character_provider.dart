@@ -5,8 +5,7 @@ import '../../../core/storage/providers.dart';
 /// 当前选中角色（首页液体填充用）
 ///
 /// 业务规则（PRD §2.3）：
-/// - 默认值 'alpaca'（非会员主页固定角色）
-/// - 主页角色自由切换需要会员资格；非会员只能用 'alpaca'
+/// - 默认值 'alpaca'
 /// - 持久化到 SharedPreferences，App 重启后保持上次选择
 class CurrentCharacterNotifier extends StateNotifier<String> {
   CurrentCharacterNotifier(this.ref) : super('alpaca') {

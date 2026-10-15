@@ -557,10 +557,8 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
     return all.firstWhere((b) => b.id == id, orElse: () => all.first);
   }
 
-  /// 预览卡内单个饮料格：容量/名称 + 灰底圆角容器 + 会员锁角标
+  /// 预览卡内单个饮料格：容量/名称 + 灰底圆角容器
   Widget _widgetDrinkTile(Beverage b, WidgetSettingsState s) {
-    final isMember = ref.watch(memberProvider).isValid;
-    final locked = b.memberOnly && !isMember;
     final tileColor = s.colorfulButtons ? s.themeColor : const Color(0xFFF1F1F4);
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -579,33 +577,15 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
           ],
         ),
         const SizedBox(width: 10),
-        Stack(
-          clipBehavior: Clip.none,
-          children: [
-            Container(
-              width: 54,
-              height: 54,
-              decoration: BoxDecoration(
-                color: tileColor,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              alignment: Alignment.center,
-              child: _drinkThumb(b, 36),
-            ),
-            if (locked)
-              Positioned(
-                left: -5,
-                top: -5,
-                child: Container(
-                  width: 18,
-                  height: 18,
-                  decoration: const BoxDecoration(
-                      color: Color(0xFF3C3C43), shape: BoxShape.circle),
-                  child: const Icon(Icons.lock,
-                      color: Colors.white, size: 10),
-                ),
-              ),
-          ],
+        Container(
+          width: 54,
+          height: 54,
+          decoration: BoxDecoration(
+            color: tileColor,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          alignment: Alignment.center,
+          child: _drinkThumb(b, 36),
         ),
       ],
     );
@@ -786,10 +766,9 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
     );
   }
 
-  /// 饮料选择弹层：两步（先选饮品，再选容量），会员专属饮品带锁
+  /// 饮料选择弹层：两步（先选饮品，再选容量）
   Future<void> _pickDrink(
       Beverage current, void Function(String, int) onPicked) async {
-    final isMember = ref.read(memberProvider).isValid;
     final customs = ref.read(customBeveragesProvider);
     final all = [...Beverage.presets, ...customs];
     Beverage? picked;
@@ -821,7 +800,6 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
                         itemCount: all.length,
                         itemBuilder: (ctx, i) {
                           final b = all[i];
-                          final locked = b.memberOnly && !isMember;
                           return ListTile(
                             leading: SizedBox(
                                 width: 40,
@@ -832,20 +810,9 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
                                     color: _textDark,
                                     fontSize: 15,
                                     fontWeight: FontWeight.w600)),
-                            trailing: locked
-                                ? const Icon(Icons.lock,
-                                    color: Color(0xFFB0B0B6), size: 18)
-                                : const Icon(Icons.chevron_right,
-                                    color: Color(0xFFC7C7CC)),
+                            trailing: const Icon(Icons.chevron_right,
+                                color: Color(0xFFC7C7CC)),
                             onTap: () {
-                              if (locked) {
-                                Navigator.pop(ctx);
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                      content: Text('该饮品为会员专属，开通会员后可选')),
-                                );
-                                return;
-                              }
                               if (b.category == BeverageCategory.water ||
                                   b.volumes.length == 1) {
                                 Navigator.pop(ctx);

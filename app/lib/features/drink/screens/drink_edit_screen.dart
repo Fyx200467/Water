@@ -6,7 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../shared/models/beverage.dart';
 import '../../../shared/widgets/drink_illustration.dart';
-import '../../home/providers/home_providers.dart';
+import '../../settings/settings_flags.dart';
 import '../providers/custom_beverage_provider.dart';
 import '../widgets/liquid_preview.dart';
 import '../widgets/svg_container.dart';
@@ -19,7 +19,7 @@ import 'drink_nutrient_screen.dart' show DrinkNutrientScreen, NutrientTab;
 ///
 /// 结构：
 /// 1. 顶栏：左「取消」+ 右深色「⬆保存」胶囊
-/// 2. 居中大预览（SVG 容器动态液体，会员模板带锁徽章）
+/// 2. 居中大预览（SVG 容器动态液体）
 /// 3. iOS 风格分组行：名称 / 大小 ‖ 图标 / 颜色 / 动画 ‖ 进水量 / 卡路里 / 咖啡因 / 酒精
 /// 4. 编辑模式下底部提供删除按钮
 class DrinkEditScreen extends ConsumerStatefulWidget {
@@ -57,7 +57,6 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
   int? _alcoholPercent;
 
   bool get _isEditing => widget.existing != null;
-  bool get _isMember => ref.watch(memberProvider).isValid;
 
   @override
   void initState() {
@@ -249,9 +248,8 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
     }
   }
 
-  /// 容量选择：3 个固定档位 + 会员专属自定义量
+  /// 容量选择：3 个固定档位 + 自定义量
   Future<void> _editSize() async {
-    final member = _isMember;
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.white,
@@ -298,11 +296,6 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
               InkWell(
                 borderRadius: BorderRadius.circular(14),
                 onTap: () async {
-                  if (!member) {
-                    Navigator.pop(ctx);
-                    _showMembershipSheet();
-                    return;
-                  }
                   Navigator.pop(ctx);
                   final custom = await _inputNumber(
                     title: '自定义量（ml）',
@@ -331,11 +324,6 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
                       if (!_template.volumes.contains(_sizeMl))
                         const Icon(Icons.check,
                             size: 20, color: _brandCyan),
-                      if (!member) ...[
-                        const SizedBox(width: 8),
-                        const Icon(Icons.lock,
-                            size: 15, color: Color(0xFFB9B9C0)),
-                      ],
                     ],
                   ),
                 ),
@@ -577,45 +565,6 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
     );
   }
 
-  /// 会员占位弹层（正式会员购买页后续接入）
-  void _showMembershipSheet() {
-    showModalBottomSheet<void>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.fromLTRB(24, 28, 24, 36),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 64,
-              height: 64,
-              decoration: const BoxDecoration(
-                color: Color(0xFFE8F7FB),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.workspace_premium,
-                  size: 34, color: Color(0xFF3BB3DB)),
-            ),
-            const SizedBox(height: 14),
-            const Text('解锁自定义量',
-                style: TextStyle(
-                    color: _textDark,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800)),
-            const SizedBox(height: 6),
-            const Text(
-              '开通会员即可自由设置饮品容量档位',
-              style: TextStyle(color: Color(0xFF8E8E93), fontSize: 14),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   // ---------------- UI ----------------
 
   @override
@@ -719,17 +668,29 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
                       onTap: _editRatio,
                     ),
                     const SizedBox(height: 10),
-                    _row(
-                      icon: Icons.local_fire_department_outlined,
-                      label: '卡路里',
-                      value: _nutritionText(
-                        value: _calories,
-                        text: _calories == null ? null : '$_calories 卡',
-                        color: _calorieOrange,
-                      ),
-                      onTap: _editCalories,
+                    // 「跟踪卡路里」总开关关闭：卡路里选项卡整行隐藏（新增/编辑通用）
+                    ListenableBuilder(
+                      listenable: SettingsFlags.instance,
+                      builder: (ctx, _) => SettingsFlags.instance.trackCalories
+                          ? Column(
+                              children: [
+                                _row(
+                                  icon: Icons.local_fire_department_outlined,
+                                  label: '卡路里',
+                                  value: _nutritionText(
+                                    value: _calories,
+                                    text: _calories == null
+                                        ? null
+                                        : '$_calories 卡',
+                                    color: _calorieOrange,
+                                  ),
+                                  onTap: _editCalories,
+                                ),
+                                const SizedBox(height: 10),
+                              ],
+                            )
+                          : const SizedBox.shrink(),
                     ),
-                    const SizedBox(height: 10),
                     _row(
                       icon: Icons.medication_outlined,
                       label: '咖啡因',
@@ -820,8 +781,8 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
     );
   }
 
-  /// 居中大预览：SVG 容器动态液体（颜色/动画实时渲染）+ 会员锁徽章
-  /// （只读浏览内置预设时不显示锁）；编辑老数据无容器时回退模板插画
+  /// 居中大预览：SVG 容器动态液体（颜色/动画实时渲染）
+  /// （编辑老数据无容器时回退模板插画）
   Widget _preview() {
     final child = isSvgContainer(_containerId)
         ? LiquidPreview(
@@ -840,18 +801,6 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
       alignment: Alignment.center,
       children: [
         child,
-        // 会员模板锁徽章：仅编辑自定义饮品时显示，只读浏览预设不加锁
-        if (!widget.readOnly && _template.memberOnly)
-          Container(
-            width: 92,
-            height: 92,
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.10),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.lock_outline,
-                size: 34, color: Colors.white),
-          ),
       ],
     );
   }

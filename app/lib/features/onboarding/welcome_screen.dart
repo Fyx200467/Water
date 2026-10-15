@@ -2,11 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../home/confetti_rain.dart';
 import '../home/providers/home_providers.dart';
 import 'unit_selection_sheet.dart';
 import 'widgets/animal_silhouette.dart';
-import 'widgets/beverage_cup.dart';
+import 'widgets/selling_points_carousel.dart';
 
 /// PRD 对标 §开屏体验：欢迎页
 ///
@@ -82,26 +81,19 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen>
     final theme = Theme.of(context);
     return Scaffold(
       backgroundColor: Colors.white,
-      body: Stack(
-        children: [
-          // 1. 持续全屏礼炮雨（复用 confetti_rain.dart 的 ConfettiRain widget）
-          Positioned.fill(
-            child: ConfettiRain(active: _confettiStarted),
-          ),
-
-          // 2. 主内容层
-          SafeArea(
+      body: SafeArea(
             child: Column(
               children: [
-                // 顶部：饮料杯 + 标题
+                // 顶部：卖点文案轮换（对标原版：无插画，彩色✓文案淡入淡出）
                 Padding(
                   padding: const EdgeInsets.only(top: 16),
                   child: Column(
                     children: [
-                      BeverageCup(
-                        size: 56,
-                        frozen: _confettiStarted,
-                      ),
+                      // 三饮品循环置换动画（对标用户截图：中顶杯左滑降底
+                      // → 右底杯左滑升顶 → 左底杯右滑补位，循环往复）
+                      const DrinksTrioCarousel(),
+                      const SizedBox(height: 8),
+                      const SellingPointsCarousel(width: 260),
                       const SizedBox(height: 8),
                       Text(
                         '跟踪你的饮水量',
@@ -150,8 +142,6 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen>
               ],
             ),
           ),
-        ],
-      ),
     );
   }
 

@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../../settings/settings_flags.dart';
 import 'svg_container.dart';
 
 /// 动态液体预览（添加饮品页 / 图标 / 颜色 / 动画选择页共用）：
@@ -299,6 +300,8 @@ class LiquidPainter extends CustomPainter {
           seed: 9,
         );
       case 'ice':
+        // 「杯子里的动画」总开关关闭：冰块停画
+        if (!SettingsFlags.instance.cupAnimations) break;
         final iceSize =
             (math.min(right - left, bottom - baseLevel) * 0.3)
                 .clamp(12.0, 34.0);
@@ -326,6 +329,8 @@ class LiquidPainter extends CustomPainter {
           canvas.restore();
         }
       case 'rice':
+        // 「杯子里的动画」总开关关闭：米粒停画
+        if (!SettingsFlags.instance.cupAnimations) break;
         // 米粒分布在满杯固定区间（8%~85% 液深），不随当前液面压缩；
         // 高于当前液面的米粒跳过（低液量时自然隐藏，与气泡同哲学）
         final fullDepth = bottom - body;

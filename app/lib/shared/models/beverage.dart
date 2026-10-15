@@ -25,7 +25,6 @@ class Beverage {
     required this.name,
     required this.defaultMl,
     this.icon = Icons.local_drink,
-    this.memberOnly = false,
     this.liquidColor,
     this.hydrationRatio,
     this.templateId,
@@ -41,7 +40,6 @@ class Beverage {
   final String name;
   final int defaultMl;
   final IconData icon;
-  final bool memberOnly;
 
   /// 液体颜色（对标原版每种饮品独立配色），为空时回退到分类色
   final Color? liquidColor;
@@ -105,7 +103,7 @@ class Beverage {
     // 全脂牛奶：约 155 卡，不含咖啡因
     Beverage(id: 'milk_milk', category: BeverageCategory.milk, name: '牛奶', defaultMl: 250, liquidColor: Color(0xFFC8CDD0), calories: 155),
     // 含糖奶茶：约 170 卡 + 45mg 咖啡因（茶汤基底）
-    Beverage(id: 'milk_tea', category: BeverageCategory.milk, name: '奶茶', defaultMl: 500, memberOnly: true, liquidColor: Color(0xFFA8723C), calories: 170, caffeineMg: 45),
+    Beverage(id: 'milk_tea', category: BeverageCategory.milk, name: '奶茶', defaultMl: 500, liquidColor: Color(0xFFA8723C), calories: 170, caffeineMg: 45),
     // 鲜榨果汁：约 110 卡
     Beverage(id: 'milk_juice', category: BeverageCategory.milk, name: '果汁', defaultMl: 300, liquidColor: Color(0xFFFFB300), calories: 110),
     // 可乐类碳酸饮料：100 卡（选项卡说明示例）+ 25mg 咖啡因
@@ -115,11 +113,11 @@ class Beverage {
     // 清炖鸡汤：约 35 卡
     Beverage(id: 'soup_chicken', category: BeverageCategory.soup, name: '鸡汤', defaultMl: 250, liquidColor: Color(0xFFFFB300), calories: 35),
     // 啤酒 1-4% ABV（选项卡淡酒档示例「低度啤酒」）：约 110 卡
-    Beverage(id: 'alcohol_beer', category: BeverageCategory.alcohol, name: '啤酒', defaultMl: 500, memberOnly: true, liquidColor: Color(0xFFFFC107), hydrationRatio: -0.40, calories: 110, alcoholPercent: 3),
+    Beverage(id: 'alcohol_beer', category: BeverageCategory.alcohol, name: '啤酒', defaultMl: 500, liquidColor: Color(0xFFFFC107), hydrationRatio: -0.40, calories: 110, alcoholPercent: 3),
     // 红酒 12-13% ABV → 中度档：约 200 卡
-    Beverage(id: 'alcohol_wine', category: BeverageCategory.alcohol, name: '红酒', defaultMl: 150, memberOnly: true, liquidColor: Color(0xFFA62034), hydrationRatio: -0.95, calories: 200, alcoholPercent: 10),
+    Beverage(id: 'alcohol_wine', category: BeverageCategory.alcohol, name: '红酒', defaultMl: 150, liquidColor: Color(0xFFA62034), hydrationRatio: -0.95, calories: 200, alcoholPercent: 10),
     // 白酒 40%+ ABV → 烈档：约 550 卡（纯酒精热量折算每 250ml）
-    Beverage(id: 'alcohol_spirits', category: BeverageCategory.alcohol, name: '白酒', defaultMl: 100, memberOnly: true, liquidColor: Color(0xFFE3E8EC), hydrationRatio: -3.18, calories: 550, alcoholPercent: 20),
+    Beverage(id: 'alcohol_spirits', category: BeverageCategory.alcohol, name: '白酒', defaultMl: 100, liquidColor: Color(0xFFE3E8EC), hydrationRatio: -3.18, calories: 550, alcoholPercent: 20),
   ];
 
   /// PRD §2.3 内置预设容量

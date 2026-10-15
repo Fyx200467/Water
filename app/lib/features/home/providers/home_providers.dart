@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/storage/providers.dart';
 import '../../../shared/models/animal_character.dart';
 import '../../../shared/models/drink_entry.dart';
-import '../../../shared/models/member_state.dart';
 import '../../../shared/models/preferred_unit.dart';
 import '../../../shared/models/user_profile.dart';
 import '../../drink/services/hydration_calculator.dart';
@@ -39,49 +38,6 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
   }
 }
 
-/// PRD §2.7 会员状态
-final memberProvider = StateNotifierProvider<MemberNotifier, MemberState>((ref) {
-  return MemberNotifier(ref);
-});
-
-class MemberNotifier extends StateNotifier<MemberState> {
-  /// 【测试临时】默认以会员状态启动，便于验证会员专属功能；
-  /// 正式上线时改回 MemberState.free() 并删掉 _load 中的强制覆盖
-  MemberNotifier(this.ref) : super(_testMember()) {
-    _load();
-  }
-  final Ref ref;
-
-  /// 测试用会员状态（终身会员 + 远期过期时间，确保 isValid 通过）
-  static MemberState _testMember() {
-    return MemberState(
-      isMember: true,
-      plan: MemberPlan.lifetime,
-      expireAt: DateTime(2099, 12, 31),
-      benefits: const MemberBenefits.premium(),
-    );
-  }
-
-  Future<void> _load() async {
-    final storage = await ref.read(localStorageProvider.future);
-    final loaded = storage.loadMember();
-    // 【测试临时】本地未开通也强制按会员处理；正式版改回 state = loaded
-    state = loaded.isMember ? loaded : _testMember();
-  }
-
-  Future<void> upgrade(MemberPlan plan, DateTime expireAt) async {
-    final next = MemberState(
-      isMember: true,
-      plan: plan,
-      expireAt: expireAt,
-      benefits: const MemberBenefits.premium(),
-    );
-    final storage = await ref.read(localStorageProvider.future);
-    await storage.saveMember(next);
-    state = next;
-  }
-}
-
 /// 单位偏好（首次启动在欢迎页选择）
 final preferredUnitProvider =
     StateNotifierProvider<PreferredUnitNotifier, PreferredUnit>((ref) {
@@ -110,8 +66,7 @@ class PreferredUnitNotifier extends StateNotifier<PreferredUnit> {
 /// PRD §2.2 当日动物形象
 final dailyAnimalProvider = FutureProvider<AnimalCharacter>((ref) async {
   final storage = await ref.read(localStorageProvider.future);
-  final member = ref.watch(memberProvider);
-  return storage.pickOrLoadDailyAnimal(isMember: member.isValid);
+  return storage.pickOrLoadDailyAnimal();
 });
 
 /// PRD §2.3 当日饮水记录

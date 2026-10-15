@@ -48,7 +48,7 @@ const LinearGradient _kRainbow = LinearGradient(
 /// 1. 顶部居中大徽章：进度环 + 「%/今天的饮水量」↔「N/天 连续达到」每 2 秒交替
 /// 2. 月历：今天黑圆白字，有记录的过去日期带圆点（达标青点）
 /// 3. 羊驼区：达标显示全彩插画 + 当日总量大字 + 目标百分比
-/// 4. 编辑记录 / 补上遗漏（会员带锁胶囊）
+/// 4. 编辑记录 / 补上遗漏（功能胶囊）
 /// 5. 饮水记录列表（右上小按钮触发挥品筛选弹层）
 /// 6. 统计卡：天/周/月三段切换 + 真实数据柱状图
 /// 右上角灰色 X 悬浮固定，不随滚动
@@ -109,6 +109,17 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                     _TopBadge(
                       percent: progress.progress,
                       streakDays: checkin.valueOrNull ?? 0,
+                    ),
+                    const SizedBox(height: 14),
+                    // 徽章底注：使用 App 以来的最长连续签到天数（补录/删除实时重算）
+                    Text(
+                      '历史记录最长连续签到'
+                      ' ${ref.watch(bestCheckinDaysProvider).valueOrNull ?? 0} 天',
+                      style: const TextStyle(
+                        color: _kHintGray,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                     const SizedBox(height: 20),
                     // 2. 月历（标题动态渲染选中日期，日期可点选）
@@ -173,7 +184,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
 
   /// 选中日期的内容区：
   /// - 有条目：角色（与首页角色统一）+ 当日总量 + 编辑记录/补上遗漏按钮 + 记录列表
-  /// - 无条目：显示「无条目」+「补上遗漏」按钮（会员带锁）
+  /// - 无条目：显示「无条目」+「补上遗漏」按钮
   Widget _buildDaySection({
     required List<DrinkEntry> entries,
     required int goalMl,
@@ -195,7 +206,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     final displayPct = isToday ? todayProgress.progress : ratio;
 
     if (!hasEntries) {
-      // 无条目：显示「无条目」+「补上遗漏」按钮（会员带锁，对标原版第六张图）
+      // 无条目：显示「无条目」+「补上遗漏」按钮（对标原版第六张图）
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 24),
         child: Column(
@@ -209,13 +220,10 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            _LockedPill(
+            _ActionPill(
               icon: Icons.add_circle_outline,
               label: '补上遗漏',
-              locked: !ref.read(memberProvider).isValid,
-              onTap: () => ref.read(memberProvider).isValid
-                  ? _showBackfillSheet()
-                  : _showTip('补上遗漏是会员功能'),
+              onTap: _showBackfillSheet,
             ),
           ],
         ),
@@ -249,26 +257,20 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
           style: const TextStyle(color: _kHintGray, fontSize: 14),
         ),
         const SizedBox(height: 16),
-        // 编辑记录 / 补上遗漏（会员功能；会员态无锁直接可用）
+        // 编辑记录 / 补上遗漏
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            _LockedPill(
+            _ActionPill(
               icon: Icons.edit,
               label: '编辑记录',
-              locked: !ref.read(memberProvider).isValid,
-              onTap: () => ref.read(memberProvider).isValid
-                  ? _showEditSheet()
-                  : _showTip('编辑记录是会员功能'),
+              onTap: _showEditSheet,
             ),
             const SizedBox(width: 12),
-            _LockedPill(
+            _ActionPill(
               icon: Icons.add_circle_outline,
               label: '补上遗漏',
-              locked: !ref.read(memberProvider).isValid,
-              onTap: () => ref.read(memberProvider).isValid
-                  ? _showBackfillSheet()
-                  : _showTip('补上遗漏是会员功能'),
+              onTap: _showBackfillSheet,
             ),
           ],
         ),
@@ -278,7 +280,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     );
   }
 
-  // ---------------- 编辑记录 / 补上遗漏（会员功能） ----------------
+  // ---------------- 编辑记录 / 补上遗漏 ----------------
 
   /// 编辑记录弹层：列出选中日期全部条目，支持删除单条（软删 + 全链刷新）
   Future<void> _showEditSheet() async {
@@ -360,8 +362,10 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                                   final storage = await ref
                                       .read(localStorageProvider.future);
                                   await storage.softDeleteEntry(e.clientId);
-                                  // 全链刷新：今日列表/柱状图/日历/收集总量
+                                  // 全链刷新：今日列表/柱状图/日历/收集总量/连续签到/连续达标
                                   ref.invalidate(todayEntriesProvider);
+                                  ref.invalidate(checkinDaysProvider);
+                                  ref.invalidate(streakProvider);
                                   setSheet(() => list.remove(e));
                                   if (mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
@@ -389,13 +393,15 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     );
   }
 
-  /// 补上遗漏弹层（会员）：选择饮品 + 输入量，写入选中日期并全链刷新
+  /// 补上遗漏弹层：选择饮品 + 输入量，写入选中日期并全链刷新
   Future<void> _showBackfillSheet() async {
     final day = _selectedDate;
     final now = DateTime.now();
     final drankAt =
         DateTime(day.year, day.month, day.day, now.hour, now.minute);
-    var selected = Beverage.presets.first;
+    // 饮品池与首页/管理页同源（预设 + 自定义），图标用 _beverageIcon 一一对应
+    final pool = _drinkPool();
+    var selected = pool.first;
     var volume = selected.defaultMl;
     final ctrl = TextEditingController(text: '$volume');
 
@@ -423,14 +429,14 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                 ),
               ),
               const SizedBox(height: 14),
-              // 饮品横滑选择
+              // 饮品横滑选择（预设+自定义，图标与饮品管理页一一对应）
               SizedBox(
                 height: 84,
                 child: ListView.builder(
                   scrollDirection: Axis.horizontal,
-                  itemCount: Beverage.presets.length,
+                  itemCount: pool.length,
                   itemBuilder: (ctx, i) {
-                    final b = Beverage.presets[i];
+                    final b = pool[i];
                     final isSel = b.id == selected.id;
                     return GestureDetector(
                       onTap: () => setSheet(() {
@@ -454,7 +460,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(b.category.icon, color: b.color, size: 26),
+                            _beverageIcon(b, 26),
                             const SizedBox(height: 4),
                             Text(
                               b.name,
@@ -502,7 +508,12 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                     final storage =
                         await ref.read(localStorageProvider.future);
                     await storage.insertDrinkEntry(entry);
+                    // 补录日凭「有饮水记录」自动计入签到，无需另写活跃天——
+                    // 这样删除该日全部记录后签到会正确回退
+                    // 全链刷新：当日明细/柱形图/月历/首页进度/连续签到/连续达标
                     ref.invalidate(todayEntriesProvider);
+                    ref.invalidate(checkinDaysProvider);
+                    ref.invalidate(streakProvider);
                     if (ctx.mounted) Navigator.pop(ctx);
                     if (mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -661,18 +672,15 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     );
   }
 
-  /// 彩色筛选按钮：选中「全部」→彩虹渐变圆；选中具体饮品→首页同款图标
+  /// 彩色筛选按钮：选中「全部」→彩虹渐变水滴；选中具体饮品→首页同款图标
   Widget _buildFilterButton() {
     if (_beverageFilter == '全部') {
       return GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: () => _showFilterSheet(),
-        child: Container(
-          width: 32,
-          height: 32,
-          decoration: const BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: _kRainbow,
-          ),
+        child: const CustomPaint(
+          size: Size(32, 32),
+          painter: _WaterDropPainter(),
         ),
       );
     }
@@ -870,6 +878,43 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
       ),
     );
   }
+}
+
+// ==================== 彩虹水滴按钮 ====================
+
+/// 彩虹渐变水滴（统计卡「全部」筛选按钮）：底部圆弧 + 顶部汇聚尖点，
+/// 填充 _kRainbow 三色纵向渐变
+class _WaterDropPainter extends CustomPainter {
+  const _WaterDropPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final r = size.width * 0.31;
+    final cy = size.height * 0.58;
+    final tipY = size.height * 0.08;
+    final path = Path()
+      ..moveTo(cx, tipY)
+      // 右侧流线：从尖点外凸弧线过渡到圆右侧
+      ..cubicTo(cx + r * 0.72, cy - r * 0.88, cx + r, cy - r * 0.48,
+          cx + r, cy)
+      // 底部半圆
+      ..arcTo(
+        Rect.fromCircle(center: Offset(cx, cy), radius: r),
+        0,
+        math.pi,
+        false,
+      )
+      // 左侧流线（对称）回尖点
+      ..cubicTo(cx - r, cy - r * 0.48, cx - r * 0.72, cy - r * 0.88,
+          cx, tipY)
+      ..close();
+    final paint = Paint()..shader = _kRainbow.createShader(Offset.zero & size);
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 // ==================== 顶部大徽章 ====================
@@ -1322,20 +1367,16 @@ class _CloseButton extends StatelessWidget {
   }
 }
 
-/// 带锁功能胶囊按钮（浅青背景）
-class _LockedPill extends StatelessWidget {
-  const _LockedPill({
+/// 功能胶囊按钮（浅青背景）
+class _ActionPill extends StatelessWidget {
+  const _ActionPill({
     required this.icon,
     required this.label,
     required this.onTap,
-    this.locked = true,
   });
   final IconData icon;
   final String label;
   final VoidCallback onTap;
-
-  /// false = 已是会员，隐藏锁图标
-  final bool locked;
 
   @override
   Widget build(BuildContext context) {
@@ -1351,10 +1392,6 @@ class _LockedPill extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (locked) ...[
-              const Icon(Icons.lock, size: 14, color: Color(0xFF6B6B70)),
-              const SizedBox(width: 6),
-            ],
             Icon(icon, size: 15, color: const Color(0xFF6B6B70)),
             const SizedBox(width: 4),
             Text(

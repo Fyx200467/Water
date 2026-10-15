@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show AssetManifest, rootBundle;
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../../settings/settings_flags.dart';
+
 /// SVG 矢量容器渲染组件
 ///
 /// containerId 约定：'svg:<文件名>'（不含扩展名），对应
@@ -150,6 +152,8 @@ void drawRisingBubbles(
   double sizeScale = 1.0,
   double baseAlpha = 0.16,
 }) {
+  // 「杯子里的动画」总开关关闭：全部粒子动画停画（液面波浪不受影响）
+  if (!SettingsFlags.instance.cupAnimations) return;
   double rnd(int i, int salt) {
     final v = math.sin((i + seed + 1) * 12.9898 + salt * 78.233) * 43758.5453;
     return v - v.floor();
@@ -252,6 +256,8 @@ void drawTeaLeaves(
   int count = 7,
   int seed = 13,
 }) {
+  // 「杯子里的动画」总开关关闭：茶叶停画
+  if (!SettingsFlags.instance.cupAnimations) return;
   final depth = bottom - top;
   if (depth <= 0) return;
   final zoneBottom = bottom - depth * 0.08; // 最深（贴近液底）

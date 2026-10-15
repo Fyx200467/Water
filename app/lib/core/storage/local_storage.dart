@@ -7,7 +7,6 @@ import 'package:sqflite/sqflite.dart';
 
 import '../../shared/models/animal_character.dart';
 import '../../shared/models/drink_entry.dart';
-import '../../shared/models/member_state.dart';
 import '../../shared/models/user_profile.dart';
 
 /// PRD §4.2 断网可写、联网同步
@@ -30,7 +29,6 @@ class LocalStorage {
   bool get _hasDb => _db != null;
 
   static const String _kProfileKey = 'user_profile';
-  static const String _kMemberKey = 'member_state';
   static const String _kDailyAnimalKey = 'daily_animal_id_';
   static const String _kLastResetDayKey = 'last_reset_day';
   static const String _kEntriesPrefix = 'entries_';
@@ -98,18 +96,6 @@ class LocalStorage {
     await prefs.setString(_kProfileKey, _encodeMap(profile.toMap()));
   }
 
-  // ---------- MemberState ----------
-
-  MemberState loadMember() {
-    final raw = prefs.getString(_kMemberKey);
-    if (raw == null) return MemberState.free();
-    return MemberState.fromMap(_decodeMap(raw));
-  }
-
-  Future<void> saveMember(MemberState state) async {
-    await prefs.setString(_kMemberKey, _encodeMap(state.toMap()));
-  }
-
   // ---------- 单位偏好（首次启动选择） ----------
 
   /// 返回 'ml' 或 'oz'，未设置返回 null（首次启动）
@@ -129,23 +115,6 @@ class LocalStorage {
     await prefs.setBool(_kWelcomeSeenKey, true);
   }
 
-  // ---------- 签到天数（当天打开过 App 即记录一天，不要求达标） ----------
-
-  static const String _kActiveDaysKey = 'active_days';
-
-  /// 记录某天为活跃日（App 启动时调用，重复记录自动去重）
-  Future<void> recordActiveDay(DateTime day) async {
-    final key = _dayKey(day);
-    final days = prefs.getStringList(_kActiveDaysKey) ?? const <String>[];
-    if (!days.contains(key)) {
-      await prefs.setStringList(_kActiveDaysKey, [...days, key]);
-    }
-  }
-
-  /// 全部活跃日（'yyyy-MM-dd' 字符串集合）
-  Set<String> loadActiveDayKeys() =>
-      (prefs.getStringList(_kActiveDaysKey) ?? const <String>[]).toSet();
-
   // ---------- 每日动物选择 ----------
 
   String? loadDailyAnimalId(DateTime day) {
@@ -157,14 +126,14 @@ class LocalStorage {
   }
 
   /// 自动选动物：当天未选过则按日期 hash 选一个
-  AnimalCharacter pickOrLoadDailyAnimal({required bool isMember}) {
+  AnimalCharacter pickOrLoadDailyAnimal() {
     final today = DateTime.now();
     final saved = loadDailyAnimalId(today);
     if (saved != null) {
       final match = AnimalCharacter.all.where((a) => a.id == saved).firstOrNull;
       if (match != null) return match;
     }
-    final pool = AnimalCharacter.availableFor(isMember: isMember);
+    final pool = AnimalCharacter.all;
     final idx = today.day % pool.length;
     final picked = pool[idx];
     saveDailyAnimalId(today, picked.id);
@@ -314,7 +283,7 @@ class LocalStorage {
   // ---------- 清除数据 ----------
 
   /// PRD §2.8 清除全部本地数据（设置页入口）
-  /// 饮水记录 + 档案 + 会员 + 提醒/音效/主题等全部偏好
+  /// 饮水记录 + 档案 + 提醒/音效/主题等全部偏好
   Future<void> clearAllData() async {
     if (_hasDb) {
       await _db!.delete('drink_entries');

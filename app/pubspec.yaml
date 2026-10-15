@@ -38,6 +38,7 @@ dependencies:
   # 网络（M5 起用）
   dio: ^5.7.0
   flutter_svg: ^2.3.0
+  share_plus: ^13.3.1
 
 dev_dependencies:
   flutter_test:
@@ -55,6 +56,7 @@ flutter:
     - assets/images/drinks/
     - assets/images/characters/
     - assets/images/containers/
+    - assets/images/tips/
 
 # sqlite3 钩子默认从 GitHub Releases 下载预编译库，当前网络直连超时，
 # 改走 gh-proxy 镜像（$RELEASE_TAG/$FILENAME 为占位符，由钩子替换）

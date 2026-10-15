@@ -11,6 +11,7 @@ import '../../../core/storage/providers.dart';
 import '../../../shared/models/beverage.dart';
 import '../../../shared/models/drink_entry.dart';
 import '../../home/providers/home_providers.dart';
+import '../../settings/settings_flags.dart';
 import '../providers/custom_beverage_provider.dart';
 import '../widgets/svg_container.dart';
 
@@ -68,74 +69,6 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
       ? Color.lerp(_drinkColor, const Color(0xFF5B4A2F), 0.6)!
       : _drinkColor;
 
-  /// 非会员锁定除水外的全部饮品（对标原版：仅水免费可记录）
-  bool get _beverageLocked =>
-      !ref.read(memberProvider).isValid && _beverage.id != 'water_pure';
-
-  /// 会员占位弹层：正式会员购买页后续接入（当前仅提示开通入口）
-  void _showMembershipSheet() {
-    showModalBottomSheet<void>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.fromLTRB(24, 28, 24, 36),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 64,
-              height: 64,
-              decoration: const BoxDecoration(
-                color: Color(0xFFE8F7FB),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.workspace_premium,
-                size: 34,
-                color: Color(0xFF3BB3DB),
-              ),
-            ),
-            const SizedBox(height: 14),
-            const Text(
-              '解锁全部饮品',
-              style: TextStyle(
-                color: Color(0xFF1C1C1E),
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 6),
-            const Text(
-              '开通会员后即可记录咖啡、果汁、奶茶等全部饮品',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Color(0xFF8E8E93), fontSize: 14),
-            ),
-            const SizedBox(height: 22),
-            SizedBox(
-              width: double.infinity,
-              height: 52,
-              child: FilledButton(
-                onPressed: () => Navigator.pop(ctx),
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF3BB3DB),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(26),
-                  ),
-                ),
-                child: const Text(
-                  '开通会员',
-                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   void initState() {
     super.initState();
@@ -146,15 +79,12 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
       orElse: () => Beverage.presets.first,
     );
     _volumes = [..._beverage.volumes]..sort();
-    // 初始档位 = 默认容量所在档；不在档位中（如红酒 150ml）时取首个 >= 默认容量的档
-    var idx = _volumes.indexOf(_beverage.defaultMl);
-    if (idx < 0) {
-      idx = _volumes.indexWhere((v) => v >= _beverage.defaultMl);
-      if (idx < 0) idx = _volumes.length - 1;
-    }
-    _cupMaxIdx = idx;
-    _selected = _beverage.defaultMl;
-    _pageCtrl = PageController(viewportFraction: 0.5, initialPage: idx);
+    // 打开即满杯：默认选中中间档位（水 5 档取中 300ml，其他 3 档取中 330ml），
+    // 液面 = 该档满杯（满杯时液面与杯口的安全间距由 Painter 保证）
+    _cupMaxIdx = (_volumes.length - 1) ~/ 2;
+    _selected = _volumes[_cupMaxIdx];
+    _pageCtrl = PageController(
+        viewportFraction: 0.5, initialPage: _cupMaxIdx);
     _waveCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1600),
@@ -179,15 +109,10 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
         ..sort();
       setState(() {
         _volumes = custom;
-        // 默认容量档可能已被覆盖，重新定位到 >= 默认容量的最小档
-        var i = _volumes.indexOf(_beverage.defaultMl);
-        if (i < 0) {
-          i = _volumes.indexWhere((v) => v >= _beverage.defaultMl);
-          if (i < 0) i = _volumes.length - 1;
-        }
-        _cupMaxIdx = i;
-        _selected = _beverage.defaultMl.clamp(10, _volumes.last);
-        _pageCtrl.jumpToPage(i);
+        // 打开即满杯：重新定位到中间档位
+        _cupMaxIdx = (_volumes.length - 1) ~/ 2;
+        _selected = _volumes[_cupMaxIdx];
+        _pageCtrl.jumpToPage(_cupMaxIdx);
       });
     } catch (_) {
       // 持久化数据异常时忽略，使用内置档位
@@ -255,7 +180,7 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
     if (mounted) Navigator.pop(context, true);
   }
 
-  /// 自定义量（会员功能）：下限固定 10ml，上限为当前饮品最大容量档；
+  /// 自定义量：下限固定 10ml，上限为当前饮品最大容量档；
   /// 确认后覆盖当前档位并永久持久化
   Future<void> _showCustomInput() async {
     final maxMl = _volumes.last;
@@ -391,8 +316,9 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
                     child: AnimatedBuilder(
                       animation: _pageCtrl,
                       builder: (ctx, _) {
-                        final page =
-                            _pageCtrl.hasClients ? (_pageCtrl.page ?? 0) : 0.0;
+                        // 首帧 position 尚未 attach（不触发通知）时回退当前档位，
+                        // 否则中间档永远灰显无选中态
+                        final page = _pageCtrl.page ?? _cupMaxIdx.toDouble();
                         return PageView.builder(
                           controller: _pageCtrl,
                           itemCount: _volumes.length,
@@ -437,24 +363,19 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        // 左侧：自定义量（会员功能：锁定态点击弹会员页）
+                        // 左侧：自定义量
                         _RoundIcon(
                           icon: Icons.apps,
                           label: '自定义',
                           color: _accentIconColor,
-                          locked: _beverageLocked,
-                          onTap: _beverageLocked
-                              ? _showMembershipSheet
-                              : _showCustomInput,
+                          onTap: _showCustomInput,
                         ),
-                        // 中间 "+ 饮品名" CTA（锁定饮品带锁，点击弹会员页）
+                        // 中间 "+ 饮品名" CTA
                         SizedBox(
                           width: 160,
                           height: 60,
                           child: ElevatedButton(
-                            onPressed: _beverageLocked
-                                ? _showMembershipSheet
-                                : _submit,
+                            onPressed: _submit,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: _drinkColor,
                               foregroundColor: _onDrinkColor,
@@ -471,10 +392,6 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
                               children: [
                                 const Text('+ '),
                                 Text(_beverage.name),
-                                if (_beverageLocked) ...[
-                                  const SizedBox(width: 6),
-                                  const Icon(Icons.lock, size: 18),
-                                ],
                               ],
                             ),
                           ),
@@ -518,22 +435,18 @@ class _CloseButton extends StatelessWidget {
   }
 }
 
-/// 圆形图标按钮 + 下方标签（locked 时右下角小锁徽章）
+/// 圆形图标按钮 + 下方标签
 class _RoundIcon extends StatelessWidget {
   const _RoundIcon({
     required this.icon,
     required this.onTap,
     required this.color,
     this.label,
-    this.locked = false,
   });
   final IconData icon;
   final VoidCallback onTap;
   final Color color;
   final String? label;
-
-  /// 会员专属功能锁定标记
-  final bool locked;
 
   @override
   Widget build(BuildContext context) {
@@ -550,28 +463,8 @@ class _RoundIcon extends StatelessWidget {
               color: color.withValues(alpha: 0.12),
               shape: BoxShape.circle,
             ),
-            child: Stack(
-              clipBehavior: Clip.none,
-              alignment: Alignment.center,
-              children: [
-                Icon(icon, color: color, size: 24),
-                if (locked)
-                  Positioned(
-                    right: -2,
-                    bottom: -2,
-                    child: Container(
-                      width: 16,
-                      height: 16,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF9E9E9E).withValues(alpha: 0.9),
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 1),
-                      ),
-                      child:
-                          const Icon(Icons.lock, size: 9, color: Colors.white),
-                    ),
-                  ),
-              ],
+            child: Center(
+              child: Icon(icon, color: color, size: 24),
             ),
           ),
           if (label != null) ...[
@@ -703,7 +596,9 @@ class _DrinkContainerPainter extends CustomPainter {
     // 4.5 白粥米粒（少量米粒悬浮在粥里，随时间缓慢浮动）：
     //     分布在满杯固定区间（15%~80% 液深），不随当前液量压缩；
     //     高于当前液面的米粒跳过（低液量时自然隐藏，与气泡同哲学）
-    if (beverageId == 'soup_porridge' && fillRatio > 0.04) {
+    if (beverageId == 'soup_porridge' &&
+        fillRatio > 0.04 &&
+        SettingsFlags.instance.cupAnimations) {
       final containerBottom = _containerBottomFraction * h;
       final fullDepth = containerBottom - fillTop;
       final rng = math.Random(7);

@@ -843,7 +843,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('清除全部数据？'),
         content: const Text(
-          '将删除所有饮水记录、个人档案、会员状态与设置，操作不可恢复。',
+          '将删除所有饮水记录、个人档案与设置，操作不可恢复。',
         ),
         actions: [
           TextButton(
@@ -868,7 +868,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     // 重置内存态（保留主题偏好）
     ref.invalidate(profileProvider);
-    ref.invalidate(memberProvider);
     ref.invalidate(todayEntriesProvider);
     ref.invalidate(dailyProgressProvider);
     ref.invalidate(dailyAnimalProvider);

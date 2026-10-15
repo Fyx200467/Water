@@ -109,20 +109,56 @@ final streakProvider = FutureProvider<StreakInfo>((ref) async {
   return StreakCalculator.compute(byDay, _goalOf(ref), today);
 });
 
-/// 签到天数：当天打开过 App 即记录一天（不要求饮水量达标）
-/// 从今天往前数连续活跃天数；今天正在运行 App 必然计入，至少为 1
-final checkinDaysProvider = FutureProvider<int>((ref) async {
+/// 签到日集合：当日有饮水记录(effectiveMl>0)的日子。
+/// 完全以饮水数据为准：无任何记录（如清除数据后）连续签到为 0，
+/// 今天喝下第一口即变 1；删除某天全部记录该日自动退出、实时回退。
+Future<Set<String>> _signinDayKeys(Ref ref) async {
+  ref.watch(todayEntriesProvider); // 补录/删除/新增记录后重算
   final storage = await ref.read(localStorageProvider.future);
-  await storage.recordActiveDay(DateTime.now()); // 打开 App 即记录今天
-  final active = storage.loadActiveDayKeys();
-  String key(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+  final now = DateTime.now();
+  final entries = await storage.loadEntriesForRange(
+    now.subtract(365.days),
+    DateTime(now.year, now.month, now.day + 1),
+  );
+  return {
+    for (final e in entries)
+      if (e.effectiveMl > 0)
+        '${e.drankAt.year}-${e.drankAt.month.toString().padLeft(2, '0')}-${e.drankAt.day.toString().padLeft(2, '0')}',
+  };
+}
+
+String _signinKey(DateTime d) =>
+    '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+/// 连续签到（当前连续没有断签的天数）：从今天往前数连续签到日；
+/// 今天还没有饮水记录则从昨天起数（昨天也没有则为 0）
+final checkinDaysProvider = FutureProvider<int>((ref) async {
+  final days = await _signinDayKeys(ref);
   var cursor = DateTime.now();
   var streak = 0;
-  while (active.contains(key(cursor))) {
+  while (days.contains(_signinKey(cursor))) {
     streak++;
     cursor = cursor.subtract(const Duration(days: 1));
   }
   return streak;
+});
+
+/// 最长连续签到（历史所有签到日里最长的一段连续天数，含当前段）
+final bestCheckinDaysProvider = FutureProvider<int>((ref) async {
+  final days = await _signinDayKeys(ref);
+  // 'yyyy-MM-dd' 字符串排序即日期序；相邻差一天则连续段 +1
+  var best = 0;
+  var run = 0;
+  DateTime? prev;
+  for (final k in days.toList()..sort()) {
+    final d = DateTime.parse(k);
+    run = (prev != null && d.difference(prev) == const Duration(days: 1))
+        ? run + 1
+        : 1;
+    if (run > best) best = run;
+    prev = d;
+  }
+  return best;
 });
 
 /// 近 365 天每日聚合（key = 当日零点），供历史页周/月图表本地聚合

@@ -537,16 +537,10 @@ class _ReminderSettingsScreenState
                 final id = entry.key;
                 final name = entry.value;
                 final selected = id == selectedSound;
-                final locked = id != 'bamboo';
                 return _soundItem(
                   name: name,
                   selected: selected,
-                  locked: locked,
                   onTap: () {
-                    if (locked) {
-                      _showSnack('会员功能开发中');
-                      return;
-                    }
                     ref
                         .read(reminderSoundProvider.notifier)
                         .set(id);
@@ -563,7 +557,6 @@ class _ReminderSettingsScreenState
   Widget _soundItem({
     required String name,
     required bool selected,
-    required bool locked,
     required VoidCallback onTap,
   }) {
     return GestureDetector(
@@ -605,24 +598,6 @@ class _ReminderSettingsScreenState
                         Icons.play_arrow,
                         color: Colors.white,
                         size: 12,
-                      ),
-                    ),
-                  ),
-                if (locked)
-                  Positioned(
-                    top: 0,
-                    right: 0,
-                    child: Container(
-                      width: 18,
-                      height: 18,
-                      decoration: const BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.lock,
-                        size: 10,
-                        color: _textSecondary,
                       ),
                     ),
                   ),
@@ -754,12 +729,11 @@ class _ReminderSettingsScreenState
       ),
       child: Column(
         children: _insertDividers([
-          // 1. 延后（锁定）
+          // 1. 延后
           _advancedRow(
             icon: Icons.history,
             title: '延后',
             subtitle: '长按通知可将你的提醒延后',
-            locked: true,
             trailingText: '无',
           ),
           // 2. 达到目标时停止
@@ -790,12 +764,11 @@ class _ReminderSettingsScreenState
             subtitle: '每次提醒都包含有关适当饮水益处的有趣事实',
             provider: waterFactsEnabledProvider,
           ),
-          // 6. 自定义信息（锁定）
+          // 6. 自定义信息
           _advancedRow(
             icon: Icons.edit_outlined,
             title: '自定义信息',
             subtitle: '提醒中的个人自定义文本',
-            locked: true,
             trailingText: '无',
           ),
           // 7. 快速添加
@@ -807,18 +780,15 @@ class _ReminderSettingsScreenState
     );
   }
 
-  /// 锁定/带箭头的高级设置行
+  /// 带箭头的高级设置行
   Widget _advancedRow({
     required IconData icon,
     required String title,
     required String subtitle,
-    required bool locked,
     String? trailingText,
   }) {
     return InkWell(
-      onTap: locked
-          ? () => _showSnack('会员功能开发中')
-          : () => _showSnack('功能开发中'),
+      onTap: () => _showSnack('功能开发中'),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         child: Row(
@@ -840,14 +810,6 @@ class _ReminderSettingsScreenState
                           fontSize: 16,
                         ),
                       ),
-                      if (locked) ...[
-                        const SizedBox(width: 6),
-                        const Icon(
-                          Icons.lock,
-                          size: 12,
-                          color: _textSecondary,
-                        ),
-                      ],
                     ],
                   ),
                   const SizedBox(height: 2),

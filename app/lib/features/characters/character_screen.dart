@@ -7,7 +7,6 @@ import 'character_catalog.dart';
 import 'character_collection_provider.dart';
 import 'character_data.dart';
 import 'current_character_provider.dart';
-import '../home/providers/home_providers.dart';
 
 /// 角色展示页：从底部滑出的独立全屏页面（不可拖拽关闭，只能点 X 返回）
 ///
@@ -28,8 +27,6 @@ class CharacterScreen extends ConsumerWidget {
     final collected =
         ref.watch(characterCollectionProvider).value?.collectedIds ??
             const <String>{'alpaca'};
-    // 会员可使用全部已点亮角色；非会员仅初始角色可用
-    final isMember = ref.watch(memberProvider).isValid;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.dark.copyWith(
@@ -65,22 +62,12 @@ class CharacterScreen extends ConsumerWidget {
                           category: cat,
                           currentChar: currentChar,
                           collectedIds: collected,
-                          isMember: isMember,
                           uploadedFilePaths: state.uploadedFilePaths,
                           onTapCharacter: (id) {
-                            final canUse =
-                                collected.contains(id) &&
-                                    (isMember || id == 'alpaca');
-                            if (canUse) {
+                            if (collected.contains(id)) {
                               ref
                                   .read(currentCharacterProvider.notifier)
                                   .select(id);
-                            } else if (collected.contains(id)) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('点亮的角色需要开通会员才能设为首页角色'),
-                                ),
-                              );
                             } else {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
@@ -343,7 +330,6 @@ class _CategorySection extends StatelessWidget {
     required this.category,
     required this.currentChar,
     required this.collectedIds,
-    required this.isMember,
     required this.uploadedFilePaths,
     required this.onTapCharacter,
   });
@@ -351,7 +337,6 @@ class _CategorySection extends StatelessWidget {
   final CharacterCategory category;
   final String currentChar;
   final Set<String> collectedIds;
-  final bool isMember;
   final Map<String, String> uploadedFilePaths;
   final ValueChanged<String> onTapCharacter;
 
@@ -424,8 +409,6 @@ class _CategorySection extends StatelessWidget {
                   animalId: id,
                   color: cat.color,
                   unlocked: collectedIds.contains(id),
-                  locked: collectedIds.contains(id) &&
-                      !(isMember || id == 'alpaca'),
                   selected: currentChar == id,
                   filePath: uploadedFilePaths[id],
                   onTap: () => onTapCharacter(id),
@@ -439,7 +422,6 @@ class _CategorySection extends StatelessWidget {
 }
 
 /// 角色网格卡片：分类色浅底 + CharacterArt 插画 + 点击切换首页角色
-/// locked = 已点亮但需会员才能使用（右下角小锁徽章）
 class _CharacterGridCard extends StatelessWidget {
   const _CharacterGridCard({
     required this.animalId,
@@ -447,7 +429,6 @@ class _CharacterGridCard extends StatelessWidget {
     required this.unlocked,
     required this.selected,
     required this.onTap,
-    this.locked = false,
     this.filePath,
   });
 
@@ -456,9 +437,6 @@ class _CharacterGridCard extends StatelessWidget {
   final bool unlocked;
   final bool selected;
   final VoidCallback onTap;
-
-  /// 已点亮但非会员：卡片仍带锁，不能设为首页角色
-  final bool locked;
 
   /// 后台上传素材的本地 SVG 路径（内置素材为 null）
   final String? filePath;
@@ -491,21 +469,6 @@ class _CharacterGridCard extends StatelessWidget {
                 ),
               ),
             ),
-            if (locked)
-              Positioned(
-                right: 4,
-                bottom: 4,
-                child: Container(
-                  width: 16,
-                  height: 16,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF9E9E9E).withValues(alpha: 0.85),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 1),
-                  ),
-                  child: const Icon(Icons.lock, size: 9, color: Colors.white),
-                ),
-              ),
           ],
         ),
       ),

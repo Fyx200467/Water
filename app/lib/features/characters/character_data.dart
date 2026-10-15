@@ -4,9 +4,8 @@ import 'package:flutter/material.dart';
 ///
 /// 资源位于 `assets/images/characters/<animalId>.svg`，由 iconfont 提供。
 /// 业务规则：
-/// - 默认只有羊驼卢娜是已解锁状态（非会员主页角色固定）
+/// - 默认只有羊驼卢娜是已解锁状态
 /// - 用户每日完成饮水目标后，可解锁一个新角色（次日点亮）
-/// - 主页角色切换需要会员资格，非会员只有羊驼卢娜
 class CharacterCategory {
   const CharacterCategory({
     required this.id,

@@ -10,8 +10,7 @@ import 'character_data.dart';
 /// 角色收集规则：
 /// - 计量 = 用户历史饮水总量（全部饮水记录的饮品体积之和）
 /// - 每累计 [collectMilestoneStepMl] 在「每日」分类中随机点亮一个未收集角色
-/// - 点亮 ≠ 解锁：点亮仅表示收集成功（卡片仍带锁），
-///   设为首页当日填充角色需要会员资格（初始角色 alpaca 除外）
+/// - 点亮即收集成功，可设为首页角色
 const collectMilestoneStepMl = 2000;
 
 /// 角色收集状态

@@ -55,10 +55,7 @@ class _DrinkInputSheetState extends ConsumerState<DrinkInputSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final member = ref.watch(memberProvider);
-    final beverages = Beverage.presets
-        .where((b) => !b.memberOnly || member.isValid)
-        .toList();
+    final beverages = Beverage.presets.toList();
 
     return SafeArea(
       child: Padding(
