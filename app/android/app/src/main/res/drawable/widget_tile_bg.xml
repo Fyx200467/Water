@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 饮料格底：灰底圆角（对标 App 预览卡右侧饮料格） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#F1F1F4" />
+    <corners android:radius="14dp" />
+</shape>

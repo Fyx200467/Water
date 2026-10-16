@@ -8,6 +8,8 @@ import '../../core/storage/providers.dart';
 import '../../shared/models/preferred_unit.dart';
 import '../../shared/models/user_profile.dart';
 import '../../shared/widgets/drink_illustration.dart';
+import '../drink/providers/custom_beverage_provider.dart';
+import '../home/challenge_sheet.dart' show challengeJoined;
 import '../home/providers/home_providers.dart';
 import '../reminder/reminder_providers.dart';
 import '../stats/providers/stats_providers.dart';
@@ -437,28 +439,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ],
             ),
           ),
-          // 右上角红色圆形角标
-          Positioned(
-            top: 10,
-            right: 10,
-            child: Container(
-              width: 22,
-              height: 22,
-              decoration: const BoxDecoration(
-                color: Colors.redAccent,
-                shape: BoxShape.circle,
-              ),
-              alignment: Alignment.center,
-              child: const Text(
-                '1',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ),
         ],
       ),
     );
@@ -862,7 +842,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
     if (ok != true || !mounted) return;
 
-    await NotificationService.cancelAll();
+    // 通知取消容错：个别 ROM 上插件初始化/取消可能抛异常，
+    // 不能让通知失败阻断数据清除（真机上已出现过「点了没反应」）
+    try {
+      await NotificationService.cancelAll();
+    } catch (_) {}
     final storage = await ref.read(localStorageProvider.future);
     await storage.clearAllData();
 
@@ -878,6 +862,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     ref.invalidate(dayEntriesForProvider);
     ref.invalidate(streakProvider);
     ref.invalidate(checkinDaysProvider);
+    ref.invalidate(customBeveragesProvider);
+    ref.invalidate(bestCheckinDaysProvider);
+    // 静态单例内存缓存同步复位：设置标志 + 限时挑战参加状态
+    SettingsFlags.instance.resetToDefaults();
+    challengeJoined.value = false;
+
+    // 同步桌面小组件：全部清零（此时 profile 已失效，目标显示回退由原生缺省处理）
+    await syncWidgetFromSettings(ref.read, todayMl: 0, goalMl: 0, streakDays: 0);
 
     if (mounted) context.go('/onboarding');
   }

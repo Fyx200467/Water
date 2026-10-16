@@ -285,9 +285,13 @@ class LocalStorage {
   /// PRD §2.8 清除全部本地数据（设置页入口）
   /// 饮水记录 + 档案 + 提醒/音效/主题等全部偏好
   Future<void> clearAllData() async {
-    if (_hasDb) {
-      await _db!.delete('drink_entries');
-    }
+    // DB 删除容错：个别 ROM/旧库可能抛异常，失败也不阻断
+    // prefs.clear()（双路存储下 prefs 一清，读取链路仍视为空库）
+    try {
+      if (_hasDb) {
+        await _db!.delete('drink_entries');
+      }
+    } catch (_) {}
     await prefs.clear();
   }
 

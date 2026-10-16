@@ -15,6 +15,7 @@ import '../drink/providers/custom_beverage_provider.dart';
 import '../drink/widgets/svg_container.dart';
 import '../home/providers/home_providers.dart';
 import '../onboarding/widgets/animal_silhouette.dart';
+import '../settings/widget_settings_screen.dart';
 import 'providers/stats_providers.dart';
 
 // 品牌色规范
@@ -366,6 +367,20 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                                   ref.invalidate(todayEntriesProvider);
                                   ref.invalidate(checkinDaysProvider);
                                   ref.invalidate(streakProvider);
+                                  // 同步桌面小组件：删除后从存储重算今日合计（
+                                  // todayEntriesProvider 已失效重载，直读存储才准确）
+                                  final todayEntries =
+                                      await storage.loadEntriesForDay(DateTime.now());
+                                  final streak =
+                                      await ref.read(checkinDaysProvider.future);
+                                  await syncWidgetFromSettings(
+                                    ref.read,
+                                    todayMl: todayEntries
+                                        .fold<int>(0, (s, e) => s + e.effectiveMl),
+                                    goalMl: ref.read(profileProvider)?.dailyGoalMl ??
+                                        2000,
+                                    streakDays: streak,
+                                  );
                                   setSheet(() => list.remove(e));
                                   if (mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
@@ -719,8 +734,8 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
               _BarData(
                 label: const ['日', '一', '二', '三', '四', '五', '六'][d.day.weekday % 7],
                 value: d.effectiveMl,
-                // 所有非零柱都标注数值（今天青色加粗、其他天灰色），避免误读为只有今天的数据
-                valueLabel: d.effectiveMl > 0 ? _fmtMl(d.effectiveMl) : null,
+                // 非零都标注数值：负数日显示 -xxxml（红色柱）
+                valueLabel: d.effectiveMl != 0 ? _fmtMl(d.effectiveMl) : null,
                 highlighted: _isToday(d.day),
               ),
           ],
@@ -761,7 +776,8 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
       var daysWith = 0;
       for (var day = start; day.isBefore(end); day = day.add(const Duration(days: 1))) {
         final dt = year[DateTime(day.year, day.month, day.day)];
-        if (dt != null && dt.effectiveMl > 0) {
+        // 负数日同样计入日均（map 只含有条目的日子）
+        if (dt != null) {
           sum += dt.effectiveMl;
           daysWith++;
         }
@@ -770,7 +786,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
       bars.add(_BarData(
         label: _weekLabel(start, isCurrent),
         value: avg,
-        valueLabel: isCurrent && avg > 0 ? '${(avg / 1000).toStringAsFixed(1)}升' : null,
+        valueLabel: isCurrent && avg != 0 ? '${(avg / 1000).toStringAsFixed(1)}升' : null,
         highlighted: isCurrent,
       ));
     }
@@ -791,7 +807,8 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
       var daysWith = 0;
       for (var day = m; day.isBefore(end); day = day.add(const Duration(days: 1))) {
         final dt = year[DateTime(day.year, day.month, day.day)];
-        if (dt != null && dt.effectiveMl > 0) {
+        // 负数日同样计入日均（map 只含有条目的日子）
+        if (dt != null) {
           sum += dt.effectiveMl;
           daysWith++;
         }
@@ -803,7 +820,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
       bars.add(_BarData(
         label: label,
         value: avg,
-        valueLabel: isCurrent && avg > 0 ? (avg / 1000).toStringAsFixed(1) : null,
+        valueLabel: isCurrent && avg != 0 ? (avg / 1000).toStringAsFixed(1) : null,
         highlighted: isCurrent,
       ));
     }
@@ -1111,7 +1128,8 @@ class _MonthCalendar extends StatelessWidget {
         selectedDate.day == day;
     // monthDataProvider 以月内 0 基索引为 key
     final dt = data[day - 1];
-    final hasRecord = dt != null && dt.effectiveMl > 0;
+    // 有饮水条目即点亮（不看正负）：净量为负的日子（负容量记录）同样算有记录
+    final hasRecord = dt != null && dt.count > 0;
 
     final Widget number = isToday
         ? Container(
@@ -1463,14 +1481,18 @@ class _BarChart extends StatelessWidget {
                 Column(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    // 柱顶值标签（今天的柱青色加粗，其他天灰色）
+                    // 柱顶值标签（负值红、今天青色加粗、其他天灰色）
                     if (b.valueLabel != null)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 4),
                         child: Text(
                           b.valueLabel!,
                           style: TextStyle(
-                            color: b.highlighted ? _kCyan : _kHintGray,
+                            color: b.value < 0
+                                ? const Color(0xFFE8446A)
+                                : b.highlighted
+                                    ? _kCyan
+                                    : _kHintGray,
                             fontSize: 11,
                             fontWeight: b.highlighted
                                 ? FontWeight.w700
@@ -1478,14 +1500,15 @@ class _BarChart extends StatelessWidget {
                           ),
                         ),
                       ),
-                    // 柱体：值为 0 不画（只保留轴标签，对标原版）
+                    // 柱体：值为 0 不画（只保留轴标签，对标原版）；
+                    // 负值（负容量记录/负日均）画红色柱，高度取绝对值
                     Container(
                       width: barWidth,
-                      height: b.value > 0
-                          ? (b.value / maxVal * 88).clamp(6.0, 88.0)
+                      height: b.value != 0
+                          ? (b.value.abs() / maxVal * 88).clamp(6.0, 88.0)
                           : 0.0,
                       decoration: BoxDecoration(
-                        color: _kCyan,
+                        color: b.value < 0 ? const Color(0xFFE8446A) : _kCyan,
                         borderRadius:
                             BorderRadius.circular(math.min(8.0, barWidth / 2)),
                       ),

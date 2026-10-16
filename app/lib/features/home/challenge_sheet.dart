@@ -302,136 +302,153 @@ class _ChallengeCardState extends State<ChallengeCard> {
 
   @override
   Widget build(BuildContext context) {
-    // 卡片强制正方形（宽 = 高）：内容顶对齐，多余空间留白在底部，
-    // 浅青容器随之一起向下延长
+    // 卡片强制正方形（宽 = 高）。内容以 359 逻辑宽（Pixel 6 基准）设计：
+    // 熊 + 文字 + 按钮整体放在参考坐标系里，经 FittedBox 等比缩放铺满
+    // 卡片（宽屏 1:1、窄屏整体缩小）。窄屏（如 vivo ≈308 逻辑宽）不再把
+    // 描述挤成 6 行短句、也不再把「查看挑战规则」挤出卡外，构图恒定
     return AspectRatio(
       aspectRatio: 1.0,
       child: Stack(
         // 溢出卡片的熊的部分直接裁剪掉（对标原版：熊贴卡右缘被切平）
         clipBehavior: Clip.hardEdge,
         children: [
-        // 底层：酒红背景（四角统一圆角 28，四边等高的圆角四边形）
-        Positioned.fill(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: _maroon,
-              borderRadius: BorderRadius.circular(28),
-            ),
-          ),
-        ),
-        // 中层：北极熊插画（右侧垂直居中、向左倾斜，压在背景上、文字下）
-        // 270px（1.8 倍）+ right 负值补偿 SVG 透明边距：熊贴住卡右缘被裁
-        Positioned(
-          top: 0,
-          bottom: 0,
-          right: -150,
-          child: Center(
-            child: Transform.rotate(
-              angle: -0.385, // 约 -22°：向左倾斜
-              child: SvgPicture.asset(
-                'assets/images/characters/polar_bear.svg',
-                width: 270,
-                height: 270,
-                fit: BoxFit.contain,
+          // 底层：酒红背景（四角统一圆角 28，四边等高的圆角四边形）
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: _maroon,
+                borderRadius: BorderRadius.circular(28),
               ),
             ),
           ),
-        ),
-        // 顶层：文字 + 按钮（压在熊上面）
-        Padding(
-          // 底部留白对标原版加大：卡向下加长，四角圆弧完整舒展
-          padding: const EdgeInsets.fromLTRB(24, 24, 24, 40),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                '31 天挑战',
-                style: TextStyle(
-                  color: _maroonSoft,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 8),
-              // 标题 = 挑战名称（字号较原版收小）
-              const Text(
-                '滴酒不沾的\n十月',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 28,
-                  fontWeight: FontWeight.w800,
-                  height: 1.2,
-                ),
-              ),
-              const SizedBox(height: 12),
-              // 描述：右侧避让大熊（熊视觉左缘≈160），文字收窄自动换行三行
-              const Padding(
-                padding: EdgeInsets.only(right: 190),
-                child: Text(
-                  '有效期：10 月 1 – 10 月 15。打破饮酒习惯.',
-                  style: TextStyle(
-                    color: _maroonDesc,
-                    fontSize: 13.5,
-                    height: 1.4,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 32),
-              // 立即开始按钮（居中，参加状态全局共享：详情页加入后回首页同步）
-              Center(
-                child: ValueListenableBuilder<bool>(
-                  valueListenable: challengeJoined,
-                  builder: (context, joined, _) => GestureDetector(
-                    onTap: joined ? null : () => joinChallenge(context),
-                    child: Container(
-                      height: 52,
-                      padding: const EdgeInsets.symmetric(horizontal: 34),
-                      decoration: BoxDecoration(
-                        color: joined
-                            ? const Color(0xFF23A06A)
-                            : const Color(0xFF1C1C22),
-                        borderRadius: BorderRadius.circular(26),
+          // 内容层：359×359 参考坐标系（熊在右、文字在左），FittedBox
+          // 等比缩放适配实际卡宽，避免窄屏内容溢出
+          Positioned.fill(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: SizedBox(
+                width: 359,
+                height: 359,
+                child: Stack(
+                  children: [
+                    // 北极熊插画（右侧垂直居中、向左倾斜，压在背景上、文字下）
+                    // 270px（1.8 倍）+ right 负值补偿 SVG 透明边距：熊贴住卡右缘被裁
+                    Positioned(
+                      top: 0,
+                      bottom: 0,
+                      right: -150,
+                      child: Center(
+                        child: Transform.rotate(
+                          angle: -0.385, // 约 -22°：向左倾斜
+                          child: SvgPicture.asset(
+                            'assets/images/characters/polar_bear.svg',
+                            width: 270,
+                            height: 270,
+                            fit: BoxFit.contain,
+                          ),
+                        ),
                       ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
+                    ),
+                    // 文字 + 按钮（压在熊上面）
+                    Padding(
+                      // 底部留白对标原版加大：卡向下加长，四角圆弧完整舒展
+                      padding: const EdgeInsets.fromLTRB(24, 24, 24, 40),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          if (joined) ...[
-                            const Icon(Icons.check_rounded,
-                                color: Colors.white, size: 20),
-                            const SizedBox(width: 8),
-                          ],
-                          Text(
-                            joined ? '挑战进行中' : '立即开始',
-                            style: const TextStyle(
+                          const Text(
+                            '31 天挑战',
+                            style: TextStyle(
+                              color: _maroonSoft,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          // 标题 = 挑战名称（字号较原版收小）
+                          const Text(
+                            '滴酒不沾的\n十月',
+                            style: TextStyle(
                               color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
+                              fontSize: 28,
+                              fontWeight: FontWeight.w800,
+                              height: 1.2,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          // 描述：右侧避让大熊（熊视觉左缘≈160），文字收窄自动换行三行
+                          const Padding(
+                            padding: EdgeInsets.only(right: 190),
+                            child: Text(
+                              '有效期：10 月 1 – 10 月 15。打破饮酒习惯.',
+                              style: TextStyle(
+                                color: _maroonDesc,
+                                fontSize: 13.5,
+                                height: 1.4,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 32),
+                          // 立即开始按钮（居中，参加状态全局共享：详情页加入后回首页同步）
+                          Center(
+                            child: ValueListenableBuilder<bool>(
+                              valueListenable: challengeJoined,
+                              builder: (context, joined, _) => GestureDetector(
+                                onTap: joined ? null : () => joinChallenge(context),
+                                child: Container(
+                                  height: 52,
+                                  padding: const EdgeInsets.symmetric(horizontal: 34),
+                                  decoration: BoxDecoration(
+                                    color: joined
+                                        ? const Color(0xFF23A06A)
+                                        : const Color(0xFF1C1C22),
+                                    borderRadius: BorderRadius.circular(26),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (joined) ...[
+                                        const Icon(Icons.check_rounded,
+                                            color: Colors.white, size: 20),
+                                        const SizedBox(width: 8),
+                                      ],
+                                      Text(
+                                        joined ? '挑战进行中' : '立即开始',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          // 查看挑战规则
+                          Center(
+                            child: GestureDetector(
+                              onTap: _showRules,
+                              child: const Text(
+                                '查看挑战规则',
+                                style: TextStyle(
+                                  color: _maroonSoft,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
                             ),
                           ),
                         ],
                       ),
                     ),
-                  ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 14),
-              // 查看挑战规则
-              Center(
-                child: GestureDetector(
-                  onTap: _showRules,
-                  child: const Text(
-                    '查看挑战规则',
-                    style: TextStyle(
-                      color: _maroonSoft,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
         ],
       ),
     );

@@ -112,7 +112,9 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
         // 打开即满杯：重新定位到中间档位
         _cupMaxIdx = (_volumes.length - 1) ~/ 2;
         _selected = _volumes[_cupMaxIdx];
-        _pageCtrl.jumpToPage(_cupMaxIdx);
+        // PageView 未 attach 时 jumpToPage 会断言崩溃；此时自定义档位
+        // 数量与内置一致 → 中间档 index 不变，initialPage 本就正确无需跳
+        if (_pageCtrl.hasClients) _pageCtrl.jumpToPage(_cupMaxIdx);
       });
     } catch (_) {
       // 持久化数据异常时忽略，使用内置档位
@@ -316,9 +318,12 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
                     child: AnimatedBuilder(
                       animation: _pageCtrl,
                       builder: (ctx, _) {
-                        // 首帧 position 尚未 attach（不触发通知）时回退当前档位，
-                        // 否则中间档永远灰显无选中态
-                        final page = _pageCtrl.page ?? _cupMaxIdx.toDouble();
+                        // page getter 在 PageView 未 attach 时会断言崩溃
+                        // （positions.isNotEmpty），必须用 hasClients 守卫；
+                        // 未 attach 时回退当前档位，保证中间档首帧即高亮
+                        final page = _pageCtrl.hasClients
+                            ? (_pageCtrl.page ?? _cupMaxIdx.toDouble())
+                            : _cupMaxIdx.toDouble();
                         return PageView.builder(
                           controller: _pageCtrl,
                           itemCount: _volumes.length,

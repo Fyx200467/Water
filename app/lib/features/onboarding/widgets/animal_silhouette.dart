@@ -22,6 +22,7 @@ class AnimalSilhouette extends StatefulWidget {
     this.size = 260,
     this.solidFillColor,
     this.fullArt = false,
+    this.phase,
   });
 
   final String animalId;
@@ -32,6 +33,10 @@ class AnimalSilhouette extends StatefulWidget {
   final Color? solidFillColor;
   /// true 时叠加全彩插画（五官可见）；false 时只有轮廓剪影+液体填充
   final bool fullArt;
+
+  /// 非空时定格波浪相位（0..1，供离屏渲染桌面小组件动画帧，不启动
+  /// 动画）；null 时正常循环播放水面波动动画
+  final double? phase;
 
   @override
   State<AnimalSilhouette> createState() => _AnimalSilhouetteState();
@@ -89,6 +94,25 @@ class _AnimalSilhouetteState extends State<AnimalSilhouette>
     );
   }
 
+  /// 构建液体填充层（wavePhase 为弧度制波浪相位；定格帧与循环动画共用）
+  Widget _buildLiquid(double wavePhase) {
+    // 彩色液体层：可以是原色 SVG（默认）或 solidFillColor（品牌色液体）
+    final liquidChild = widget.solidFillColor != null
+        ? _SolidLiquid(
+            size: widget.size,
+            color: widget.solidFillColor!,
+            art: _buildArt(grayscale: false),
+          )
+        : _buildArt(grayscale: false);
+    return ClipPath(
+      clipper: _LiquidSurfaceClipper(
+        fillRatio: widget.fillRatio,
+        phase: wavePhase,
+      ),
+      child: liquidChild,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final w = widget;
@@ -114,26 +138,14 @@ class _AnimalSilhouetteState extends State<AnimalSilhouette>
 
           // 2. 顶层：彩色液体填充（按 fillRatio 从底部裁剪，带波浪面）
           if (w.fillRatio > 0)
-            AnimatedBuilder(
-              animation: _wave,
-              builder: (ctx, _) {
-                // 彩色液体层：可以是原色 SVG（默认）或 solidFillColor（品牌色液体）
-                final liquidChild = w.solidFillColor != null
-                    ? _SolidLiquid(
-                        size: w.size,
-                        color: w.solidFillColor!,
-                        art: _buildArt(grayscale: false),
-                      )
-                    : _buildArt(grayscale: false);
-                return ClipPath(
-                  clipper: _LiquidSurfaceClipper(
-                    fillRatio: w.fillRatio,
-                    phase: _wave.value * math.pi * 2,
-                  ),
-                  child: liquidChild,
-                );
-              },
-            ),
+            if (w.phase != null)
+              // 定格相位：离屏渲染桌面小组件动画帧，不启动动画
+              _buildLiquid(w.phase! * math.pi * 2)
+            else
+              AnimatedBuilder(
+                animation: _wave,
+                builder: (ctx, _) => _buildLiquid(_wave.value * math.pi * 2),
+              ),
         ],
       ),
     );

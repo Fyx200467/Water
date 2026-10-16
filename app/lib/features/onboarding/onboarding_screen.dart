@@ -94,6 +94,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         children: [
           _GoalCalcScreen(
             genderLabel: _genderDisplayLabel,
+            genderSelected: _gender != null,
             weightSelected: _weightSelected,
             weightKg: _weight,
             activity: _activity,
@@ -425,6 +426,7 @@ class _SheetGrabber extends StatelessWidget {
 class _GoalCalcScreen extends StatefulWidget {
   const _GoalCalcScreen({
     required this.genderLabel,
+    required this.genderSelected,
     required this.weightSelected,
     required this.weightKg,
     required this.activity,
@@ -441,6 +443,10 @@ class _GoalCalcScreen extends StatefulWidget {
 
   /// 性别展示标签（怀孕/母乳喂养等），null = 未选择
   final String? genderLabel;
+
+  /// 性别是否已被用户选择（展示标签可能为 null，不能作为判断依据）
+  final bool genderSelected;
+
   final bool weightSelected;
   final double weightKg;
   final ActivityLevel activity;
@@ -480,6 +486,8 @@ class _GoalCalcScreenState extends State<_GoalCalcScreen>
 
   @override
   Widget build(BuildContext context) {
+    // 性别与体重均已选择才允许继续下一步
+    final canContinue = widget.genderSelected && widget.weightSelected;
     return Stack(
       children: [
         // 底层：水下动画背景（渐变水体 + 冰晶 + 气泡）
@@ -574,15 +582,26 @@ class _GoalCalcScreenState extends State<_GoalCalcScreen>
                       ),
                     ),
                     const Spacer(),
-                    // 底部"继续"按钮（白底青字）
+                    // 底部"继续"按钮（白底青字；性别与体重均已选择才可点击，
+                    // 未选完时置灰不可点）
                     SizedBox(
                       width: double.infinity,
                       height: 56,
                       child: ElevatedButton(
-                        onPressed: widget.onContinue,
+                        onPressed:
+                            canContinue ? widget.onContinue : null,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          foregroundColor: const Color(0xFF4DB8D8),
+                          backgroundColor: canContinue
+                              ? Colors.white
+                              : Colors.white.withValues(alpha: 0.5),
+                          foregroundColor: canContinue
+                              ? const Color(0xFF4DB8D8)
+                              : const Color(0xFF4DB8D8)
+                                  .withValues(alpha: 0.4),
+                          disabledBackgroundColor:
+                              Colors.white.withValues(alpha: 0.5),
+                          disabledForegroundColor: const Color(0xFF4DB8D8)
+                              .withValues(alpha: 0.4),
                           elevation: 0,
                           shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(28)),

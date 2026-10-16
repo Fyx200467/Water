@@ -29,6 +29,22 @@ class SettingsFlags extends ChangeNotifier {
   String get resetLabel =>
       '${resetHour.toString().padLeft(2, '0')}:${resetMinute.toString().padLeft(2, '0')}';
 
+  /// 清除全部数据时同步复位内存缓存：否则 prefs.clear() 后内存里仍是
+  /// 旧值，下次 save 会把清掉的设置原样写回
+  void resetToDefaults() {
+    trackCalories = true;
+    foodCalories = false;
+    resetHour = 0;
+    resetMinute = 0;
+    weekStart = 0;
+    dailyReview = true;
+    celebrateDay = true;
+    appSounds = true;
+    widgetSounds = true;
+    cupAnimations = true;
+    notifyListeners();
+  }
+
   Future<void> ensureLoaded() async {
     if (_loaded) return;
     _loaded = true;

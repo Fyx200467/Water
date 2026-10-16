@@ -250,7 +250,8 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
 
   /// 容量选择：3 个固定档位 + 自定义量
   Future<void> _editSize() async {
-    await showModalBottomSheet<void>(
+    // 固定档位点选 pop(int) 回传新容量；自定义量路径 pop 无返回值
+    final v = await showModalBottomSheet<int>(
       context: context,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
@@ -333,6 +334,7 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
         ),
       ),
     );
+    if (v != null) setState(() => _sizeMl = v);
   }
 
   /// 颜色选择：跳转全屏颜色选择页（预设色板 + 自定义滑杆）

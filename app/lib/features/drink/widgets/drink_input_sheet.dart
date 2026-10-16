@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../shared/models/beverage.dart';
 import '../../../shared/models/drink_entry.dart';
 import '../../home/providers/home_providers.dart';
+import '../../settings/widget_settings_screen.dart';
+import '../../stats/providers/stats_providers.dart';
 import '../services/hydration_calculator.dart';
 
 /// PRD §2.3 饮水彔入 BottomSheet
@@ -49,6 +51,17 @@ class _DrinkInputSheetState extends ConsumerState<DrinkInputSheet> {
       volumeMl: _volume,
     );
     await ref.read(todayEntriesProvider.notifier).add(entry);
+    // 成功入库后同步桌面小组件（今日合计 / 目标 / 连续签到）
+    // 连续天数用 .future 等待重算：新增记录会使 checkinDaysProvider 失效，
+    // 此时 valueOrNull 为 null（会误同步成 0）
+    final streak = await ref.read(checkinDaysProvider.future);
+    await syncWidgetFromSettings(
+      ref.read,
+      todayMl:
+          HydrationCalculator.sumEffective(ref.read(todayEntriesProvider)),
+      goalMl: ref.read(profileProvider)?.dailyGoalMl ?? 2000,
+      streakDays: streak,
+    );
     if (mounted) Navigator.pop(context);
   }
 

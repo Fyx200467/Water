@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 桌面小组件文字颜色（深浅由 Kotlin 按背景亮度动态覆盖） -->
+<resources>
+    <color name="widget_text_dark">#1C1C1E</color>
+    <color name="widget_text_gray">#9E9EA4</color>
+</resources>

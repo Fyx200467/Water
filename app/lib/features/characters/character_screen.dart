@@ -4,13 +4,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'character_art.dart';
 import 'character_catalog.dart';
-import 'character_collection_provider.dart';
 import 'character_data.dart';
 import 'current_character_provider.dart';
+import '../settings/widget_settings_screen.dart';
 
 /// 角色展示页：从底部滑出的独立全屏页面（不可拖拽关闭，只能点 X 返回）
 ///
-/// 头部固定（随机按钮 + 关闭 + 当前角色卡片 + 收集按钮 + 宣传横幅），
+/// 头部固定（随机按钮 + 关闭 + 当前角色卡片），
 /// 下方 12 个分类网格上下滚动，每个卡片用 CharacterArt 渲染：
 /// 已点亮显示彩色 SVG，未点亮显示灰色剪影（同张 SVG 用 ColorFilter 染灰）。
 class CharacterScreen extends ConsumerWidget {
@@ -23,10 +23,9 @@ class CharacterScreen extends ConsumerWidget {
     // 当前角色为后台上传素材时的本地 SVG 路径（内置素材为 null）
     final currentFilePath =
         catalog.asData?.value.uploadedFilePaths[currentChar];
-    // 收集状态：历史饮水量里程碑点亮的角色集合
-    final collected =
-        ref.watch(characterCollectionProvider).value?.collectedIds ??
-            const <String>{'alpaca'};
+    // 全解锁模式：所有角色均可直接选用（便于测试随意切换填充角色；
+    // 正式版恢复为 characterCollectionProvider 的里程碑解锁集合）
+    final collected = characters.keys.toSet();
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.dark.copyWith(
@@ -67,7 +66,11 @@ class CharacterScreen extends ConsumerWidget {
                             if (collected.contains(id)) {
                               ref
                                   .read(currentCharacterProvider.notifier)
-                                  .select(id);
+                                  .select(id)
+                                  .then((_) {
+                                // 切换角色即时同步桌面小组件（重渲染角色 PNG）
+                                syncWidgetFromSettings(ref.read);
+                              });
                             } else {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
@@ -166,12 +169,6 @@ class _HeaderBar extends StatelessWidget {
             filePath: currentFilePath,
             collectedCount: collectedCount,
           ),
-          const SizedBox(height: 10),
-          // 3. 收集角色按钮
-          const _CollectButton(),
-          const SizedBox(height: 10),
-          // 4. 宣传横幅
-          const _PromoBanner(),
         ],
       ),
     );
@@ -249,76 +246,6 @@ class _CurrentCharacterCard extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// 收集角色按钮（禁用态，带"0"徽章）
-class _CollectButton extends StatelessWidget {
-  const _CollectButton();
-
-  @override
-  Widget build(BuildContext context) {
-    return Opacity(
-      opacity: 0.6,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF2F2F7),
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.cake, size: 22, color: Color(0xFF1C1C1E)),
-            const SizedBox(width: 8),
-            const Text(
-              '收集角色',
-              style: TextStyle(
-                color: Color(0xFF1C1C1E),
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const Spacer(),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: const Color(0xFF8E8E93).withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Text(
-                '0',
-                style: TextStyle(
-                  color: Color(0xFF8E8E93),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// 蓝青色宣传横幅
-class _PromoBanner extends StatelessWidget {
-  const _PromoBanner();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFF5AC8FA),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: const Text(
-        '要分享到社交媒体？🤗 @waterllama_app 提及我们，我们将回复你！',
-        textAlign: TextAlign.center,
-        style: TextStyle(color: Colors.white, fontSize: 12, height: 1.4),
       ),
     );
   }

@@ -324,6 +324,10 @@ class _DrinkManageScreenState extends ConsumerState<DrinkManageScreen> {
     final ids = shown.map((b) => b.id).toList();
     final moved = ids.removeAt(oldIndex);
     if (moved == 'water_pure') return; // 水不参与排序（无把手，兜底）
+    // 末尾「折算说明」链接是 ReorderableListView 的最后一项（itemCount =
+    // shown.length + 1）：拖到它之下时 newIndex 最大可达 shown.length，
+    // 而 removeAt 后 ids 长度只剩 shown.length - 1，不钳制会插入越界红屏
+    if (newIndex > ids.length) newIndex = ids.length;
     ids.insert(newIndex, moved);
     // 水始终置顶（仅「所有」筛选时水在列表中）
     if (ids.contains('water_pure') && ids.first != 'water_pure') {

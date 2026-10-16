@@ -40,6 +40,9 @@ dependencies:
   flutter_svg: ^2.3.0
   share_plus: ^13.3.1
 
+  # Android 桌面小组件（Home Screen Widget）
+  home_widget: ^0.7.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

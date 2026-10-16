@@ -1,10 +1,17 @@
 import 'dart:convert';
+import 'dart:io';
+import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
+import 'package:home_widget/home_widget.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../core/storage/providers.dart';
+import '../../core/widget/home_widget_sync.dart';
 import '../characters/current_character_provider.dart';
 import '../drink/providers/custom_beverage_provider.dart';
 import '../drink/widgets/svg_container.dart';
@@ -25,8 +32,10 @@ import '../stats/providers/stats_providers.dart';
 // 5. 饮料 1/2/3 选择行（弹层选饮品 + 容量）
 // 6. 开关组：彩色饮料按钮 / 彩色字符层 / 遵循深色模式规则 /
 //    跳过日间模式 / 连续徽章
-// 7. 如何添加小组件行（说明弹层）
-// 8. 手表示意 + 说明文案
+// 7. 手表示意 + 说明文案
+//
+// 原则：本页只做小组件的「样式」设置（外观/内容），不提供添加/
+// 启停小组件等开关类功能——组件的添加与管理一律在系统桌面完成
 // ============================================================
 
 /// 小组件设置状态（持久化到 SharedPreferences）
@@ -45,7 +54,6 @@ class WidgetSettingsState {
     this.followDarkMode = true,
     this.skipDayMode = true,
     this.streakBadge = true,
-    this.mediumSize = true,
   });
 
   final int colorIndex; // 色板下标，-1 = 自定义色
@@ -61,7 +69,6 @@ class WidgetSettingsState {
   final bool followDarkMode; // 遵循深色模式规则
   final bool skipDayMode; // 跳过日间模式
   final bool streakBadge; // 连续徽章
-  final bool mediumSize; // 中 / 小 分段
 
   Color get themeColor => colorIndex >= 0
       ? widgetPalette[colorIndex]
@@ -81,7 +88,6 @@ class WidgetSettingsState {
     bool? followDarkMode,
     bool? skipDayMode,
     bool? streakBadge,
-    bool? mediumSize,
   }) =>
       WidgetSettingsState(
         colorIndex: colorIndex ?? this.colorIndex,
@@ -97,7 +103,6 @@ class WidgetSettingsState {
         followDarkMode: followDarkMode ?? this.followDarkMode,
         skipDayMode: skipDayMode ?? this.skipDayMode,
         streakBadge: streakBadge ?? this.streakBadge,
-        mediumSize: mediumSize ?? this.mediumSize,
       );
 
   Map<String, dynamic> _toMap() => {
@@ -111,7 +116,6 @@ class WidgetSettingsState {
         'followDarkMode': followDarkMode,
         'skipDayMode': skipDayMode,
         'streakBadge': streakBadge,
-        'mediumSize': mediumSize,
       };
 
   static WidgetSettingsState _fromMap(Map<String, dynamic> m) =>
@@ -129,7 +133,6 @@ class WidgetSettingsState {
         followDarkMode: m['followDarkMode'] as bool? ?? true,
         skipDayMode: m['skipDayMode'] as bool? ?? true,
         streakBadge: m['streakBadge'] as bool? ?? true,
-        mediumSize: m['mediumSize'] as bool? ?? true,
       );
 }
 
@@ -158,6 +161,8 @@ class WidgetSettingsNotifier extends StateNotifier<WidgetSettingsState> {
     state = next;
     final storage = await ref.read(localStorageProvider.future);
     await storage.prefs.setString(_kKey, jsonEncode(state._toMap()));
+    // 设置变化即时刷新桌面小组件（饮料格/主题色/徽章与预览卡保持一致）
+    syncWidgetFromSettings(ref.read);
   }
 }
 
@@ -221,8 +226,6 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
                           fontWeight: FontWeight.w800)),
                 ),
                 const SizedBox(height: 18),
-                _segmented(s),
-                const SizedBox(height: 14),
                 _previewCard(s),
                 const SizedBox(height: 14),
                 _paletteCard(s),
@@ -262,8 +265,6 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
                   value: s.streakBadge,
                   onChanged: (v) => _mutate((x) => x.copyWith(streakBadge: v)),
                 ),
-                const SizedBox(height: 10),
-                _helpRow(),
                 _sectionDivider(),
                 _watchMock(),
                 const SizedBox(height: 10),
@@ -303,46 +304,6 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
         ),
       );
 
-  /// 中/小 分段选择器（深色选中胶囊，平滑切换）
-  Widget _segmented(WidgetSettingsState s) => Container(
-        height: 46,
-        padding: const EdgeInsets.all(4),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF1F1F4),
-          borderRadius: BorderRadius.circular(23),
-        ),
-        child: Row(
-          children: [
-            _segment('中', s.mediumSize, () => _mutate((x) => x.copyWith(mediumSize: true))),
-            _segment('小', !s.mediumSize, () => _mutate((x) => x.copyWith(mediumSize: false))),
-          ],
-        ),
-      );
-
-  Widget _segment(String label, bool selected, VoidCallback onTap) =>
-      Expanded(
-        child: GestureDetector(
-          onTap: onTap,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOut,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: selected ? const Color(0xFF232B36) : Colors.transparent,
-              borderRadius: BorderRadius.circular(19),
-            ),
-            child: Text(
-              label,
-              style: TextStyle(
-                color: selected ? Colors.white : _textDark,
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ),
-      );
-
   // ---------------- 预览卡 ----------------
 
   Widget _previewCard(WidgetSettingsState s) {
@@ -350,7 +311,8 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
     final checkin = ref.watch(checkinDaysProvider).asData?.value ?? 0;
     final currentChar = ref.watch(currentCharacterProvider);
 
-    final goal = _goalLabel(progress.goalMl);
+    // 左上大字：当日饮水总量（实时绑定，与桌面小组件 goal_label 同源）
+    final volume = _goalLabel(progress.totalEffectiveMl);
     final percent = (progress.progress * 100).round();
     final fraction = progress.progress.clamp(0.0, 1.0).toDouble();
     // 选择了非默认白色主题时，预览卡背景染主题色
@@ -362,112 +324,19 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
     final onCard =
         themeColor.computeLuminance() > 0.55 ? _textDark : Colors.white;
     // 角色液体填充：直接复用首页同款 AnimalSilhouette（灰剪影 +
-    // 波浪液面动画）；液体固定品牌青水色，不随小组件主题色变化
+    // 波浪液面动画）；「彩色字符层」开启时液体跟随主题色，否则品牌青
     // （灰色剪影为组件内置 EBEBEB，与首页角色底色一致）
+    final liquidColor = widgetLiquidColor(s);
     Widget character(double size) => AnimalSilhouette(
           animalId: currentChar,
           fillRatio: fraction,
-          accentColor: const Color(0xFF4DB8D8),
-          solidFillColor: const Color(0xFF4DB8D8),
+          accentColor: liquidColor,
+          solidFillColor: liquidColor,
           size: size,
         );
 
-    if (!s.mediumSize) {
-      // 小：居中正方形卡（对标原版），单饮料半透明圆格（右下）
-      final b = _findBeverage(s.drink1);
-      return Center(
-        child: Container(
-          width: 188,
-          height: 188,
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: cardColor,
-            borderRadius: BorderRadius.circular(28),
-            border: Border.all(color: const Color(0xFFECECEF)),
-          ),
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              // 目标（左上）
-              Positioned(
-                left: 2,
-                top: 0,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(goal,
-                        style: TextStyle(
-                            color: onCard,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800)),
-                    Text('$percent%',
-                        style: TextStyle(
-                            color: onCard.withValues(alpha: 0.65),
-                            fontSize: 11)),
-                  ],
-                ),
-              ),
-              // 角色（大剪影，居右下）
-              Positioned(
-                right: 0,
-                bottom: 0,
-                child: character(142),
-              ),
-              // 连续徽章（左下，半透明白）
-              if (s.streakBadge)
-                Positioned(
-                  left: 0,
-                  bottom: 6,
-                  child: Container(
-                    width: 36,
-                    height: 36,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.5),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Text('$checkin',
-                        style: TextStyle(
-                            color: onCard,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w800)),
-                  ),
-                ),
-              // 饮料圆格（右下，半透明白 + 图标 + 容量）
-              Positioned(
-                right: 2,
-                bottom: 2,
-                child: Container(
-                  width: 58,
-                  height: 58,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.5),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: Center(child: _drinkThumb(b, 22))),
-                      const SizedBox(height: 2),
-                      Text('${s.volOf(b)}ml',
-                          style: TextStyle(
-                              color: onCard,
-                              fontSize: 9,
-                              fontWeight: FontWeight.w700)),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    // 中：全宽卡，角色居中偏右，饮料格右侧竖排
+    // 全宽卡，角色居中偏右，饮料格右侧竖排（唯一固定样式，对标竞品
+    // 「柠檬喝水」：单一布局强制不变，跨厂商/iOS 观感一致）
     final drinks = [
       _findBeverage(s.drink1),
       _findBeverage(s.drink2),
@@ -490,7 +359,7 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(goal,
+                Text(volume,
                     style: TextStyle(
                         color: onCard,
                         fontSize: 20,
@@ -720,17 +589,15 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
   // ---------------- 饮料选择行 ----------------
 
   List<Widget> _drinkRows(WidgetSettingsState s) => [
-        // 小组件只有 1 个饮料位（标题「饮料」），中组件有 3 个（饮料 1/2/3）
-        _drinkRow(s.mediumSize ? '饮料 1' : '饮料', s.drink1, s.vol1,
+        // 唯一固定样式：3 个饮料位（饮料 1/2/3）
+        _drinkRow('饮料 1', s.drink1, s.vol1,
             (id, ml) => _mutate((x) => x.copyWith(drink1: id, vol1: ml))),
-        if (s.mediumSize) ...[
-          const SizedBox(height: 10),
-          _drinkRow('饮料 2', s.drink2, s.vol2,
-              (id, ml) => _mutate((x) => x.copyWith(drink2: id, vol2: ml))),
-          const SizedBox(height: 10),
-          _drinkRow('饮料 3', s.drink3, s.vol3,
-              (id, ml) => _mutate((x) => x.copyWith(drink3: id, vol3: ml))),
-        ],
+        const SizedBox(height: 10),
+        _drinkRow('饮料 2', s.drink2, s.vol2,
+            (id, ml) => _mutate((x) => x.copyWith(drink2: id, vol2: ml))),
+        const SizedBox(height: 10),
+        _drinkRow('饮料 3', s.drink3, s.vol3,
+            (id, ml) => _mutate((x) => x.copyWith(drink3: id, vol3: ml))),
       ];
 
   Widget _drinkRow(
@@ -938,70 +805,6 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
           ],
         ),
       );
-
-  Widget _helpRow() => InkWell(
-        onTap: _showHelpSheet,
-        borderRadius: BorderRadius.circular(18),
-        child: Container(
-          height: 58,
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          decoration: BoxDecoration(
-            color: _cardBg,
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: Row(
-            children: [
-              const Text('如何添加小组件',
-                  style: TextStyle(
-                      color: _textDark,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700)),
-              const Spacer(),
-              const Icon(Icons.chevron_right,
-                  color: Color(0xFFC7C7CC), size: 22),
-            ],
-          ),
-        ),
-      );
-
-  void _showHelpSheet() {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Center(
-                child: Text('如何添加小组件',
-                    style: TextStyle(
-                        color: _textDark,
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800)),
-              ),
-              const SizedBox(height: 16),
-              ...const [
-                Text('1. 长按主屏幕空白区域，进入编辑模式',
-                    style: TextStyle(color: _textDark, fontSize: 14, height: 1.8)),
-                Text('2. 点击左上角「+」搜索喝水羊驼',
-                    style: TextStyle(color: _textDark, fontSize: 14, height: 1.8)),
-                Text('3. 选择「中」或「小」尺寸',
-                    style: TextStyle(color: _textDark, fontSize: 14, height: 1.8)),
-                Text('4. 点击「添加小组件」完成',
-                    style: TextStyle(color: _textDark, fontSize: 14, height: 1.8)),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 
   // ---------------- 自定义颜色 ----------------
 
@@ -1279,6 +1082,249 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
                   fontWeight: FontWeight.w700)),
         ],
       );
+}
+
+// ============================================================
+// 桌面小组件数据组装（与预览卡同构）
+// ============================================================
+
+/// Provider 泛型读取签名：兼容 Ref.read / WidgetRef.read 的 tear-off
+typedef Reader = T Function<T>(ProviderListenable<T> provider);
+
+/// 桌面小组件液体波浪动画帧数：一次渲染 16 个相位帧（0..15/16）写盘，
+/// 小组件内 ViewFlipper 在 launcher 进程内自动轮播（100ms/帧 ≈ 10fps，
+/// 周期 1.6s，与 App 内 1400ms 波浪周期观感一致且平滑）—— 动画不依赖
+/// App 存活，退后台/被杀后桌面液体仍持续流动
+const int kWidgetFrameCount = 16;
+
+/// 渲染防并发：连续快速录入时合并请求，正在渲染期间的新请求只置
+/// pending 标记，结束后补渲一次（避免两个 16 帧循环交错冲突）
+bool _framesRendering = false;
+bool _framesPending = false;
+
+/// 离屏渲染 8 帧波浪相位角色并推送小组件刷新（与 App 内同款
+/// AnimalSilhouette：灰剪影 + 液体填充/达标全彩）。
+/// 相位只影响液体波面：0% 灰剪影 / 达标全彩时 8 帧画面一致，
+/// 轮播无可见变化、无额外开销
+Future<void> renderWidgetCharacterFrames(
+  Reader read, {
+  Color liquidColor = const Color(0xFF4DB8D8),
+}) async {
+  if (_framesRendering) {
+    _framesPending = true;
+    return;
+  }
+  _framesRendering = true;
+  try {
+    await _renderFramesOnce(read, liquidColor: liquidColor);
+  } finally {
+    _framesRendering = false;
+  }
+  if (_framesPending) {
+    _framesPending = false;
+    return renderWidgetCharacterFrames(read, liquidColor: liquidColor);
+  }
+}
+
+Future<void> _renderFramesOnce(
+  Reader read, {
+  required Color liquidColor,
+}) async {
+  try {
+    final progress = read(dailyProgressProvider);
+    final characterId = read(currentCharacterProvider);
+    for (var i = 0; i < kWidgetFrameCount; i++) {
+      final key = 'character_frame_$i';
+      var path = await HomeWidget.renderFlutterWidget(
+        AnimalSilhouette(
+          animalId: characterId,
+          fillRatio: progress.progress.clamp(0.0, 1.0),
+          accentColor: liquidColor,
+          solidFillColor: liquidColor,
+          size: 128,
+          phase: i / kWidgetFrameCount,
+          fullArt: progress.isComplete,
+        ),
+        key: key,
+        logicalSize: const ui.Size(128, 128),
+        pixelRatio: 3,
+      );
+      path ??= await HomeWidget.getWidgetData<String>(key);
+      if (path != null && path.isNotEmpty) {
+        // 先写全 8 帧文件，末尾统一 updateWidget：launcher 解码发生在
+        // RemoteViews 应用时，不会读到半写图像
+        await HomeWidget.saveWidgetData<String>(key, path);
+      }
+    }
+    await HomeWidget.updateWidget(
+      name: 'WaterLlamaWidgetProvider',
+      androidName: 'WaterLlamaWidgetProvider',
+    );
+  } catch (_) {
+    // 帧渲染失败静默跳过（下次数据变化同步时自动补上）
+  }
+}
+
+/// 同步防交错：连续快速改设置时合并请求（渲染/写键交错会产生脏数据）
+bool _syncBusy = false;
+bool _syncPending = false;
+
+/// 组装小组件数据并刷新：饮料格/主题色/徽章/格底色来自小组件设置
+/// （与预览卡同构）；今日合计/目标/连续天数默认读当前状态，
+/// 可用参数覆盖（清除数据等重置场景）
+Future<void> syncWidgetFromSettings(
+  Reader read, {
+  int? todayMl,
+  int? goalMl,
+  int? streakDays,
+}) async {
+  if (_syncBusy) {
+    _syncPending = true;
+    return;
+  }
+  _syncBusy = true;
+  try {
+    await _syncWidgetFromSettingsOnce(read,
+        todayMl: todayMl, goalMl: goalMl, streakDays: streakDays);
+  } finally {
+    _syncBusy = false;
+  }
+  if (_syncPending) {
+    _syncPending = false;
+    return syncWidgetFromSettings(read);
+  }
+}
+
+/// 液体填充色：「彩色字符层」开启且有非白主题色时液体跟随主题色，
+/// 否则保持品牌青（预览卡与桌面帧同规则）
+Color widgetLiquidColor(WidgetSettingsState s) {
+  final colorful =
+      s.colorIndex != 0 || (s.colorIndex == -1 && s.customColor != null);
+  if (s.colorfulCharacter && colorful) return s.themeColor;
+  return const Color(0xFF4DB8D8);
+}
+
+Future<void> _syncWidgetFromSettingsOnce(
+  Reader read, {
+  int? todayMl,
+  int? goalMl,
+  int? streakDays,
+}) async {
+  try {
+    final s = read(widgetSettingsProvider);
+    final progress = read(dailyProgressProvider);
+    // 数据文本/饮料格先行推送（不等帧渲染，录入后桌面数字即时更新）
+    final slots = [(s.drink1, s.vol1), (s.drink2, s.vol2), (s.drink3, s.vol3)];
+    final customs = read(customBeveragesProvider);
+    final all = [...Beverage.presets, ...customs];
+    final drinks = <WidgetDrinkData>[];
+    for (final (id, vol) in slots) {
+      final b = all.firstWhere((x) => x.id == id, orElse: () => all.first);
+      drinks.add(WidgetDrinkData(
+          ml: vol, name: b.name, iconFile: await _rasterizeDrinkIcon(b)));
+    }
+    // 主题色：选了非白色（含自定义色）才染底，白/未选保持默认白底；
+    // 「遵循深色模式规则」开启且系统处于深色时强制深色底白字
+    final colorful =
+        s.colorIndex != 0 || (s.colorIndex == -1 && s.customColor != null);
+    final systemDark = WidgetsBinding
+            .instance.platformDispatcher.platformBrightness ==
+        Brightness.dark;
+    final themeColor = s.followDarkMode && systemDark
+        ? const Color(0xFF1C1C22)
+        : (colorful ? s.themeColor : null);
+    await syncHomeWidget(
+      todayMl: todayMl ?? progress.totalEffectiveMl,
+      goalMl: goalMl ?? progress.goalMl,
+      streakDays: streakDays ?? read(checkinDaysProvider).asData?.value ?? 0,
+      themeColor: themeColor,
+      showStreak: s.streakBadge,
+      tileColor: s.colorfulButtons
+          ? (themeColor ?? s.themeColor).toARGB32()
+          : -1,
+      drinks: drinks,
+    );
+    // 角色动画帧随后渲染补推（与 App 内首页同款 AnimalSilhouette 8 帧
+    // 波浪相位，ViewFlipper 轮播实现持续动画；液体色按彩色字符层规则）
+    await renderWidgetCharacterFrames(read, liquidColor: widgetLiquidColor(s));
+  } catch (_) {
+    // 小组件同步失败不影响主流程
+  }
+}
+
+/// 光栅化饮品图标为 PNG（RemoteViews 不支持 SVG；规则与预览卡 _drinkThumb
+/// 一致：容器剪影按包围盒 92% 居中 + srcIn 染色，预设插画 contain 不染色）
+Future<File?> _rasterizeDrinkIcon(Beverage b, {int dim = 96}) async {
+  try {
+    final String assetPath;
+    final Color? tint;
+    if (isSvgContainer(b.containerId)) {
+      assetPath = svgContainerAsset(b.containerId!);
+      tint = b.color;
+    } else {
+      final illustId = b.id.startsWith('custom_')
+          ? (b.templateId ?? Beverage.fallbackIllustration(b.category))
+          : b.id;
+      assetPath = 'assets/images/drinks/$illustId.svg';
+      tint = null;
+    }
+    final info = await vg.loadPicture(SvgAssetLoader(assetPath), null);
+    final rec = ui.PictureRecorder();
+    final canvas = ui.Canvas(rec);
+    final box = Offset.zero & Size.square(dim.toDouble());
+    if (tint == null) {
+      // 预设插画：contain 等比居中
+      final s = math.min(dim / info.size.width, dim / info.size.height);
+      canvas.translate(
+        dim / 2 - info.size.width / 2 * s,
+        dim / 2 - info.size.height / 2 * s,
+      );
+      canvas.scale(s);
+      canvas.drawPicture(info.picture);
+    } else {
+      // 容器剪影：图形包围盒 92% 等比居中（与 SvgContainerIcon 同规则）再整体染色
+      canvas.saveLayer(box, ui.Paint());
+      final m =
+          await loadSvgArtMetrics(b.containerId!, info.picture, info.size);
+      final bounds = m?.bounds;
+      if (bounds == null || bounds.width <= 0 || bounds.height <= 0) {
+        canvas.scale(dim / info.size.width, dim / info.size.height);
+        canvas.drawPicture(info.picture);
+      } else {
+        const targetFactor = 0.92;
+        final s = math.min(
+          dim * targetFactor / bounds.width,
+          dim * targetFactor / bounds.height,
+        );
+        canvas.translate(
+          dim / 2 - (bounds.left + bounds.width / 2) * s,
+          dim / 2 - (bounds.top + bounds.height / 2) * s,
+        );
+        canvas.scale(s);
+        canvas.drawPicture(info.picture);
+      }
+      canvas.drawRect(
+        box,
+        ui.Paint()
+          ..color = tint
+          ..blendMode = BlendMode.srcIn,
+      );
+      canvas.restore();
+    }
+    final image = await rec.endRecording().toImage(dim, dim);
+    final data = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
+    info.picture.dispose();
+    if (data == null) return null;
+    final dir = await getApplicationSupportDirectory();
+    final file = File('${dir.path}${Platform.pathSeparator}home_widget'
+        '${Platform.pathSeparator}icon_${b.id}.png');
+    await file.create(recursive: true);
+    await file.writeAsBytes(data.buffer.asUint8List());
+    return file;
+  } catch (_) {
+    return null;
+  }
 }
 
 // StateNotifier 内访问 storage 的辅助（避开构造参数改动）

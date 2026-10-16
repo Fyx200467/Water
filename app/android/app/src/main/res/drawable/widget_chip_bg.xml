@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 小尺寸小组件专用：半透明白圆片（连续徽章/饮料圆格共用）
+     「彩色饮料按钮」开启时经 setColorFilter 染成 50% 透明度主题色 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="#80FFFFFF" />
+</shape>

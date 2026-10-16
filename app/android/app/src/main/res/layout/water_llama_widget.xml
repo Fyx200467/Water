@@ -1,0 +1,386 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 桌面小组件布局：对标 App 内「小组件」设置页预览卡（中尺寸）
+     左上目标容量+百分比 / 右侧角色插画 / 左下连续徽章圆 / 右列饮料格
+     主题色背景通过 widget_bg_img 的 setColorFilter 动态染色 -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="0dp">
+
+    <!-- 背景层：白色圆角块，代码可染成用户选择的主题色 -->
+    <ImageView
+        android:id="@id/widget_bg_img"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:src="@drawable/widget_bg"
+        android:scaleType="fitXY"
+        android:contentDescription="@null" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="horizontal"
+        android:padding="12dp"
+        android:gravity="center_vertical">
+
+        <!-- 左列：目标（上）+ 徽章（下） -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@id/widget_goal"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:textSize="18sp"
+                android:maxLines="1"
+                android:textStyle="bold"
+                android:textColor="@color/widget_text_dark"
+                android:text="2.5升" />
+
+            <TextView
+                android:id="@id/widget_percent"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="12sp"
+                android:textColor="@color/widget_text_gray"
+                android:text="0%" />
+
+            <!-- 弹性空隙把徽章推到底部（Space 不在 RemoteViews 允许列表，
+                 部分 OEM launcher 会 InflateException，改用 LinearLayout 占位） -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:orientation="vertical" />
+
+            <FrameLayout
+                android:id="@id/widget_streak_badge"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:layout_marginBottom="4dp">
+
+                <ImageView
+                    android:layout_width="38dp"
+                    android:layout_height="38dp"
+                    android:src="@drawable/widget_badge_bg"
+                    android:contentDescription="@null" />
+
+                <TextView
+                    android:id="@id/widget_streak"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:gravity="center"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/widget_text_dark"
+                    android:text="0" />
+            </FrameLayout>
+        </LinearLayout>
+
+        <!-- 角色：底部对齐（与预览卡一致），放大到 104dp 贴合预览卡占比。
+             双层结构：
+             1. widget_character 静态层（默认图 / 无帧数据时的单图回退）
+             2. widget_character_flipper 液体动画层：launcher 进程内自动
+                轮播 8 帧波浪相位图（App 不在前台也持续动画） -->
+        <FrameLayout
+            android:layout_width="104dp"
+            android:layout_height="match_parent">
+
+            <ImageView
+                android:id="@id/widget_character"
+                android:layout_width="104dp"
+                android:layout_height="104dp"
+                android:layout_gravity="bottom|center_horizontal"
+                android:scaleType="fitCenter"
+                android:src="@drawable/widget_alpaca"
+                android:contentDescription="@null" />
+
+            <ViewFlipper
+                android:id="@id/widget_character_flipper"
+                android:layout_width="104dp"
+                android:layout_height="104dp"
+                android:layout_gravity="bottom|center_horizontal"
+                android:autoStart="true"
+                android:flipInterval="100"
+                android:visibility="invisible">
+
+                <ImageView
+                    android:id="@id/widget_char_f0"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="fitCenter"
+                    android:contentDescription="@null" />
+                <ImageView
+                    android:id="@id/widget_char_f1"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="fitCenter"
+                    android:contentDescription="@null" />
+                <ImageView
+                    android:id="@id/widget_char_f2"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="fitCenter"
+                    android:contentDescription="@null" />
+                <ImageView
+                    android:id="@id/widget_char_f3"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="fitCenter"
+                    android:contentDescription="@null" />
+                <ImageView
+                    android:id="@id/widget_char_f4"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="fitCenter"
+                    android:contentDescription="@null" />
+                <ImageView
+                    android:id="@id/widget_char_f5"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="fitCenter"
+                    android:contentDescription="@null" />
+                <ImageView
+                    android:id="@id/widget_char_f6"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="fitCenter"
+                    android:contentDescription="@null" />
+                <ImageView
+                    android:id="@id/widget_char_f7"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="fitCenter"
+                    android:contentDescription="@null" />
+                <ImageView
+                    android:id="@id/widget_char_f8"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="fitCenter"
+                    android:contentDescription="@null" />
+                <ImageView
+                    android:id="@id/widget_char_f9"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="fitCenter"
+                    android:contentDescription="@null" />
+                <ImageView
+                    android:id="@id/widget_char_f10"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="fitCenter"
+                    android:contentDescription="@null" />
+                <ImageView
+                    android:id="@id/widget_char_f11"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="fitCenter"
+                    android:contentDescription="@null" />
+                <ImageView
+                    android:id="@id/widget_char_f12"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="fitCenter"
+                    android:contentDescription="@null" />
+                <ImageView
+                    android:id="@id/widget_char_f13"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="fitCenter"
+                    android:contentDescription="@null" />
+                <ImageView
+                    android:id="@id/widget_char_f14"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="fitCenter"
+                    android:contentDescription="@null" />
+                <ImageView
+                    android:id="@id/widget_char_f15"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="fitCenter"
+                    android:contentDescription="@null" />
+            </ViewFlipper>
+        </FrameLayout>
+
+        <!-- 右列：饮料格竖排 -->
+        <LinearLayout
+            android:id="@id/widget_drinks"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:gravity="center_vertical"
+            android:layout_marginStart="6dp">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_marginEnd="8dp">
+
+                    <TextView
+                        android:id="@id/widget_d1_ml"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="end"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/widget_text_dark"
+                        android:text="250ml" />
+
+                    <TextView
+                        android:id="@id/widget_d1_name"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="end"
+                        android:textSize="10sp"
+                        android:textColor="@color/widget_text_gray"
+                        android:text="" />
+                </LinearLayout>
+
+                <FrameLayout
+                    android:id="@id/widget_d1_btn"
+                    android:layout_width="42dp"
+                    android:layout_height="42dp">
+
+                    <!-- 底色独立成 ImageView：RemoteViews 才能按彩色饮料按钮开关染色 -->
+                    <ImageView
+                        android:id="@id/widget_d1_tile"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:src="@drawable/widget_tile_bg"
+                        android:contentDescription="@null" />
+
+                    <ImageView
+                        android:id="@id/widget_d1_icon"
+                        android:layout_width="30dp"
+                        android:layout_height="30dp"
+                        android:layout_gravity="center"
+                        android:scaleType="fitCenter"
+                        android:contentDescription="@null" />
+                </FrameLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginTop="6dp">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_marginEnd="8dp">
+
+                    <TextView
+                        android:id="@id/widget_d2_ml"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="end"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/widget_text_dark"
+                        android:text="" />
+
+                    <TextView
+                        android:id="@id/widget_d2_name"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="end"
+                        android:textSize="10sp"
+                        android:textColor="@color/widget_text_gray"
+                        android:text="" />
+                </LinearLayout>
+
+                <FrameLayout
+                    android:id="@id/widget_d2_btn"
+                    android:layout_width="42dp"
+                    android:layout_height="42dp">
+
+                    <ImageView
+                        android:id="@id/widget_d2_tile"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:src="@drawable/widget_tile_bg"
+                        android:contentDescription="@null" />
+
+                    <ImageView
+                        android:id="@id/widget_d2_icon"
+                        android:layout_width="30dp"
+                        android:layout_height="30dp"
+                        android:layout_gravity="center"
+                        android:scaleType="fitCenter"
+                        android:contentDescription="@null" />
+                </FrameLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginTop="6dp">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_marginEnd="8dp">
+
+                    <TextView
+                        android:id="@id/widget_d3_ml"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="end"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/widget_text_dark"
+                        android:text="" />
+
+                    <TextView
+                        android:id="@id/widget_d3_name"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="end"
+                        android:textSize="10sp"
+                        android:textColor="@color/widget_text_gray"
+                        android:text="" />
+                </LinearLayout>
+
+                <FrameLayout
+                    android:id="@id/widget_d3_btn"
+                    android:layout_width="42dp"
+                    android:layout_height="42dp">
+
+                    <ImageView
+                        android:id="@id/widget_d3_tile"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:src="@drawable/widget_tile_bg"
+                        android:contentDescription="@null" />
+
+                    <ImageView
+                        android:id="@id/widget_d3_icon"
+                        android:layout_width="30dp"
+                        android:layout_height="30dp"
+                        android:layout_gravity="center"
+                        android:scaleType="fitCenter"
+                        android:contentDescription="@null" />
+                </FrameLayout>
+            </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 桌面小组件用到的 view id（布局与 Kotlin RemoteViews 共享） -->
+<resources>
+    <item type="id" name="widget_root" />
+    <item type="id" name="widget_bg_img" />
+    <item type="id" name="widget_goal" />
+    <item type="id" name="widget_percent" />
+    <item type="id" name="widget_streak" />
+    <item type="id" name="widget_streak_badge" />
+    <item type="id" name="widget_character" />
+    <item type="id" name="widget_character_flipper" />
+    <item type="id" name="widget_char_f0" />
+    <item type="id" name="widget_char_f1" />
+    <item type="id" name="widget_char_f2" />
+    <item type="id" name="widget_char_f3" />
+    <item type="id" name="widget_char_f4" />
+    <item type="id" name="widget_char_f5" />
+    <item type="id" name="widget_char_f6" />
+    <item type="id" name="widget_char_f7" />
+    <item type="id" name="widget_char_f8" />
+    <item type="id" name="widget_char_f9" />
+    <item type="id" name="widget_char_f10" />
+    <item type="id" name="widget_char_f11" />
+    <item type="id" name="widget_char_f12" />
+    <item type="id" name="widget_char_f13" />
+    <item type="id" name="widget_char_f14" />
+    <item type="id" name="widget_char_f15" />
+    <item type="id" name="widget_drinks" />
+    <item type="id" name="widget_d1_ml" />
+    <item type="id" name="widget_d1_name" />
+    <item type="id" name="widget_d1_icon" />
+    <item type="id" name="widget_d2_ml" />
+    <item type="id" name="widget_d2_name" />
+    <item type="id" name="widget_d2_icon" />
+    <item type="id" name="widget_d3_ml" />
+    <item type="id" name="widget_d3_name" />
+    <item type="id" name="widget_d3_icon" />
+    <item type="id" name="widget_d1_tile" />
+    <item type="id" name="widget_d2_tile" />
+    <item type="id" name="widget_d3_tile" />
+    <item type="id" name="widget_d1_btn" />
+    <item type="id" name="widget_d2_btn" />
+    <item type="id" name="widget_d3_btn" />
+</resources>

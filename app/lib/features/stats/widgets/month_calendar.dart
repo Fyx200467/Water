@@ -56,7 +56,8 @@ class MonthCalendar extends StatelessWidget {
     final theme = Theme.of(context);
     final total = dayTotals[d];
     final isToday = _isToday(d);
-    final hasRecord = total != null && total.volumeMl > 0;
+    // 有饮水条目即点亮（不看正负）：负容量记录的日子同样算有记录
+    final hasRecord = total != null;
     final complete = total?.complete ?? false;
 
     final Color bg;

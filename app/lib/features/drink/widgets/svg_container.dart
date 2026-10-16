@@ -22,6 +22,17 @@ String svgContainerAsset(String id) =>
     'assets/images/containers/${id.substring(4)}.svg';
 
 /// 运行时枚举 assets/images/containers/ 下全部 SVG 容器 id（按文件名排序）
+///
+/// 隐藏名单：设计不合格/与已有图标重复的容器，不在图标选择页出现
+/// （2026-10 用户指定移除：条纹果汁瓶 / 斜吸管外带杯 / 粗把手马克杯 /
+/// 冒热气茶杯）。文件保留在资产里，避免历史饮品 containerId 悬空
+const Set<String> kHiddenContainerIds = {
+  'svg:bottle',
+  'svg:water_cup',
+  'svg:water_cup_1',
+  'svg:water_cup_2',
+};
+
 Future<List<String>> loadSvgContainerIds() async {
   try {
     final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
@@ -30,6 +41,7 @@ Future<List<String>> loadSvgContainerIds() async {
         .listAssets()
         .where((a) => a.startsWith(prefix) && a.endsWith('.svg'))
         .map((a) => 'svg:${a.substring(prefix.length, a.length - 4)}')
+        .where((id) => !kHiddenContainerIds.contains(id))
         .toList()
       ..sort();
     return ids;
@@ -328,6 +340,19 @@ class _SvgContainerIconState extends State<SvgContainerIcon> {
     _load();
   }
 
+  @override
+  void didUpdateWidget(SvgContainerIcon oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 容器 id 变化必须重载（如编辑页选择新容器后同位置元素复用旧 State），
+    // 否则 _load 的「已加载即跳过」守卫会一直显示旧容器剪影
+    if (oldWidget.containerId != widget.containerId) {
+      _info = null;
+      _metrics = null;
+      _failed = false;
+      _load();
+    }
+  }
+
   Future<void> _load() async {
     if (_info != null || _failed) return;
     try {
@@ -470,6 +495,18 @@ class _SvgContainerFillState extends State<SvgContainerFill> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _load();
+  }
+
+  @override
+  void didUpdateWidget(SvgContainerFill oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 容器 id 变化必须重载（同 SvgContainerIcon：列表复用元素时防旧图残留）
+    if (oldWidget.containerId != widget.containerId) {
+      _info = null;
+      _metrics = null;
+      _failed = false;
+      _load();
+    }
   }
 
   Future<void> _load() async {

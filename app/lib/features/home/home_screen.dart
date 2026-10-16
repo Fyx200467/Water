@@ -4,15 +4,19 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:home_widget/home_widget.dart';
 
 import '../../shared/models/beverage.dart';
+import '../../shared/models/drink_entry.dart';
 import '../../shared/widgets/drink_illustration.dart';
+import '../settings/widget_settings_screen.dart';
 import '../characters/character_art.dart';
 import '../characters/character_catalog.dart';
 import '../characters/character_data.dart';
 import '../characters/character_screen.dart';
 import '../characters/current_character_provider.dart';
 import '../drink/providers/custom_beverage_provider.dart';
+import '../drink/services/hydration_calculator.dart';
 import '../drink/widgets/svg_container.dart';
 import '../drink/screens/add_drink_screen.dart';
 import '../drink/screens/drink_manage_screen.dart';
@@ -52,6 +56,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   bool _isLit = false;
   Timer? _litTimer;
 
+  /// 冷启动小组件刷新计时器（延迟 1 秒，等 provider 完成首次加载）
+  Timer? _widgetSyncTimer;
+
+  /// 小组件点击事件订阅（热启动 onNewIntent 转发）
+  StreamSubscription<Uri?>? _widgetClickSub;
+
   /// 挑战面板滚动联动：滚动位置 + 「酒红卡『31 天挑战』已滚入视口」状态
   final ScrollController _scrollCtrl = ScrollController();
   final ValueNotifier<bool> _challengeCompact = ValueNotifier(false);
@@ -60,11 +70,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   void initState() {
     super.initState();
     _scrollCtrl.addListener(_onScroll);
+    // 冷启动延迟 1 秒同步一次桌面小组件
+    _widgetSyncTimer = Timer(const Duration(seconds: 1), _syncHomeWidget);
+    // 桌面小组件饮料格点击快速录入（冷启动 URI + 热启动事件流）
+    HomeWidget.initiallyLaunchedFromHomeWidget()
+        .then((uri) => _handleWidgetLaunch(uri));
+    _widgetClickSub = HomeWidget.widgetClicked.listen(_handleWidgetLaunch);
   }
 
   @override
   void dispose() {
     _litTimer?.cancel();
+    _widgetSyncTimer?.cancel();
+    _widgetClickSub?.cancel();
     _scrollCtrl.removeListener(_onScroll);
     _scrollCtrl.dispose();
     _challengeCompact.dispose();
@@ -77,6 +95,65 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   /// 常驻露出 42 → 标签顶入视口时 offset≈26.4，取 28
   void _onScroll() {
     _challengeCompact.value = _scrollCtrl.offset > 28;
+  }
+
+  /// 冷启动同步桌面小组件：读取今日合计 / 目标 / 连续签到并推送刷新
+  Future<void> _syncHomeWidget() async {
+    if (!mounted) return;
+    final goalMl = ref.read(profileProvider)?.dailyGoalMl ?? 2000;
+    final todayMl =
+        HydrationCalculator.sumEffective(ref.read(todayEntriesProvider));
+    final streak = await ref.read(checkinDaysProvider.future);
+    if (!mounted) return;
+    await syncWidgetFromSettings(
+      ref.read,
+      todayMl: todayMl,
+      goalMl: goalMl,
+      streakDays: streak,
+    );
+  }
+
+  /// 处理小组件饮料格点击：`waterllama://quick-add?slot={1..3}`
+  void _handleWidgetLaunch(Uri? uri) {
+    if (uri == null || uri.host != 'quick-add') return;
+    final slot = int.tryParse(uri.queryParameters['slot'] ?? '');
+    if (slot == null || slot < 1 || slot > 3) return;
+    _quickAddFromWidget(slot);
+  }
+
+  /// 小组件快速录入：按槽位映射小组件设置的饮品与容量，
+  /// 走与手动录入完全相同的 DrinkEntry.create 折算管线
+  Future<void> _quickAddFromWidget(int slot) async {
+    if (!mounted) return;
+    final s = ref.read(widgetSettingsProvider);
+    // 三个槽位固定映射小组件设置的饮品与容量
+    final (String id, int vol) = switch (slot) {
+      1 => (s.drink1, s.vol1),
+      2 => (s.drink2, s.vol2),
+      _ => (s.drink3, s.vol3),
+    };
+    if (vol <= 0) return;
+    final customs = ref.read(customBeveragesProvider);
+    final all = [...Beverage.presets, ...customs];
+    final b = all.firstWhere((x) => x.id == id, orElse: () => all.first);
+    final entry = DrinkEntry.create(beverage: b, volumeMl: vol);
+    await ref.read(todayEntriesProvider.notifier).add(entry);
+    final streak = await ref.read(checkinDaysProvider.future);
+    if (!mounted) return;
+    await syncWidgetFromSettings(
+      ref.read,
+      todayMl: HydrationCalculator.sumEffective(ref.read(todayEntriesProvider)),
+      goalMl: ref.read(profileProvider)?.dailyGoalMl ?? 2000,
+      streakDays: streak,
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('已通过桌面小组件录入 ${b.name} ${vol}ml'),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   /// 触发角色点亮：取消上一次计时器，进入点亮态，2 秒后自动恢复

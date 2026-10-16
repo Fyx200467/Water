@@ -49,6 +49,9 @@ class _AppIconScreenState extends ConsumerState<AppIconScreen> {
   static const _kKey = 'app_icon_selection';
   static const _textDark = Color(0xFF1C1C1E);
 
+  /// 原生图标切换通道：MainActivity 已注册同名 MethodChannel
+  static const _channel = MethodChannel('app.icon.switcher');
+
   String? _selected; // 选中图标 id
 
   @override
@@ -60,13 +63,31 @@ class _AppIconScreenState extends ConsumerState<AppIconScreen> {
   Future<void> _load() async {
     final storage = await ref.read(localStorageProvider.future);
     final saved = storage.prefs.getString(_kKey);
-    if (saved != null && mounted) setState(() => _selected = saved);
+    // 未主动选择过时默认选中图标页第一个（与桌面默认图标保持一致）
+    if (mounted) setState(() => _selected = saved ?? 'char_alpaca_0');
   }
 
   Future<void> _select(String id) async {
     setState(() => _selected = id);
     final storage = await ref.read(localStorageProvider.future);
     await storage.prefs.setString(_kKey, id);
+    // 真实切换桌面图标：启用对应 activity-alias、停用当前别名
+    // （部分 ROM 会在数秒内刷新桌面，期间图标可能短暂消失）
+    try {
+      await _channel.invokeMethod<void>(
+          'setIcon', {'alias': 'com.waterllama.water_llama.AppIcon_$id'});
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('已应用，桌面图标将稍后自动更新')),
+        );
+      }
+    } on PlatformException {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('应用失败，请重试')),
+        );
+      }
+    }
   }
 
   @override

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/storage/providers.dart';
@@ -6,6 +8,24 @@ import '../../../shared/models/drink_entry.dart';
 import '../../../shared/models/preferred_unit.dart';
 import '../../../shared/models/user_profile.dart';
 import '../../drink/services/hydration_calculator.dart';
+import '../../settings/widget_settings_screen.dart';
+import '../../stats/providers/stats_providers.dart';
+
+/// 数据变更源头推送：当日记录/目标变化后即时刷新桌面小组件
+/// （不依赖各页面手动调用，避免遗漏导致小组件数据滞后）
+Future<void> pushHomeWidget(Ref ref) async {
+  try {
+    final streak = await ref.read(checkinDaysProvider.future);
+    await syncWidgetFromSettings(
+      ref.read,
+      todayMl: HydrationCalculator.sumEffective(ref.read(todayEntriesProvider)),
+      goalMl: ref.read(profileProvider)?.dailyGoalMl ?? 2000,
+      streakDays: streak,
+    );
+  } catch (_) {
+    // 小组件推送失败不影响录入主流程
+  }
+}
 
 /// PRD §2.1 用户档案
 final profileProvider = StateNotifierProvider<ProfileNotifier, UserProfile?>((ref) {
@@ -35,6 +55,7 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
     if (cur == null) return;
     final next = cur.copyWith(dailyGoalMl: newGoal.clamp(1000, 5000));
     await save(next);
+    unawaited(pushHomeWidget(ref));
   }
 }
 
@@ -90,12 +111,14 @@ class TodayEntriesNotifier extends StateNotifier<List<DrinkEntry>> {
     final storage = await ref.read(localStorageProvider.future);
     await storage.insertDrinkEntry(entry);
     await _load();
+    unawaited(pushHomeWidget(ref));
   }
 
   Future<void> remove(String clientId) async {
     final storage = await ref.read(localStorageProvider.future);
     await storage.softDeleteEntry(clientId);
     await _load();
+    unawaited(pushHomeWidget(ref));
   }
 }
 

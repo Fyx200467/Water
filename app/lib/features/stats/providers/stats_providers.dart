@@ -109,9 +109,10 @@ final streakProvider = FutureProvider<StreakInfo>((ref) async {
   return StreakCalculator.compute(byDay, _goalOf(ref), today);
 });
 
-/// 签到日集合：当日有饮水记录(effectiveMl>0)的日子。
-/// 完全以饮水数据为准：无任何记录（如清除数据后）连续签到为 0，
-/// 今天喝下第一口即变 1；删除某天全部记录该日自动退出、实时回退。
+/// 签到日集合：当日有任何饮水记录的日子（不管正负容量，与月历点亮
+/// 「有条目即点亮」规则一致）。完全以饮水数据为准：无任何记录
+/// （如清除数据后）连续签到为 0，今天喝下第一口即变 1；
+/// 删除某天全部记录该日自动退出、实时回退。
 Future<Set<String>> _signinDayKeys(Ref ref) async {
   ref.watch(todayEntriesProvider); // 补录/删除/新增记录后重算
   final storage = await ref.read(localStorageProvider.future);
@@ -122,8 +123,7 @@ Future<Set<String>> _signinDayKeys(Ref ref) async {
   );
   return {
     for (final e in entries)
-      if (e.effectiveMl > 0)
-        '${e.drankAt.year}-${e.drankAt.month.toString().padLeft(2, '0')}-${e.drankAt.day.toString().padLeft(2, '0')}',
+      '${e.drankAt.year}-${e.drankAt.month.toString().padLeft(2, '0')}-${e.drankAt.day.toString().padLeft(2, '0')}',
   };
 }
 
@@ -131,10 +131,15 @@ String _signinKey(DateTime d) =>
     '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
 /// 连续签到（当前连续没有断签的天数）：从今天往前数连续签到日；
-/// 今天还没有饮水记录则从昨天起数（昨天也没有则为 0）
+/// 今天还没有饮水记录则从昨天起数（昨天累计照常显示，不断签；
+/// 今天喝下第一口即 +1；昨天也没有记录才是 0）
 final checkinDaysProvider = FutureProvider<int>((ref) async {
   final days = await _signinDayKeys(ref);
-  var cursor = DateTime.now();
+  final now = DateTime.now();
+  // 今天未签到不断签：起点退到昨天，保留已有连续链
+  var cursor = days.contains(_signinKey(now))
+      ? now
+      : now.subtract(const Duration(days: 1));
   var streak = 0;
   while (days.contains(_signinKey(cursor))) {
     streak++;
