@@ -46,7 +46,8 @@ class HomeScreen extends ConsumerStatefulWidget {
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends ConsumerState<HomeScreen> {
+class _HomeScreenState extends ConsumerState<HomeScreen>
+    with WidgetsBindingObserver {
   // 品牌色规范
   static const _brandCyan = Color(0xFF4DB8D8);
   static const _hintGray = Color(0xFF8E8E93);
@@ -69,6 +70,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _scrollCtrl.addListener(_onScroll);
     // 冷启动延迟 1 秒同步一次桌面小组件
     _widgetSyncTimer = Timer(const Duration(seconds: 1), _syncHomeWidget);
@@ -80,6 +82,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _litTimer?.cancel();
     _widgetSyncTimer?.cancel();
     _widgetClickSub?.cancel();
@@ -87,6 +90,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     _scrollCtrl.dispose();
     _challengeCompact.dispose();
     super.dispose();
+  }
+
+  /// 回前台重载当日记录：小组件饮品格后台录入（独立 isolate 写库、
+  /// 不拉起 App）后，进程存活期间的内存态需要追平
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ref.read(todayEntriesProvider.notifier).refresh();
+    }
   }
 
   /// 滚动联动：酒红卡内「31 天挑战」标签滚入视口 → 露出条切换紧凑态
@@ -247,6 +259,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ? SvgContainerIcon(
                     containerId: b.containerId!,
                     color: b.color,
+                    fillRatio: 0.7, // 液体风格：液体占杯身 70%
                   )
                 : b.id.startsWith('custom_')
                     ? Icon(b.icon, size: 30, color: b.color)

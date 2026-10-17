@@ -364,45 +364,31 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
                   const SizedBox(height: 8),
                   // 4. 底部按钮组
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 4, 24, 16),
+                    padding: const EdgeInsets.fromLTRB(24, 4, 24, 30),
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        // 左侧：自定义量
-                        _RoundIcon(
-                          icon: Icons.apps,
-                          label: '自定义',
-                          color: _accentIconColor,
-                          onTap: _showCustomInput,
-                        ),
-                        // 中间 "+ 饮品名" CTA
-                        SizedBox(
-                          width: 160,
-                          height: 60,
-                          child: ElevatedButton(
-                            onPressed: _submit,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: _drinkColor,
-                              foregroundColor: _onDrinkColor,
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(
-                                  borderRadius:
-                                      BorderRadius.circular(30)),
-                              textStyle: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w600),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Text('+ '),
-                                Text(_beverage.name),
-                              ],
+                        // 左侧：自定义量（Expanded 等宽包裹，保证 CTA 严格居中）
+                        Expanded(
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: _RoundIcon(
+                              icon: Icons.apps,
+                              label: '自定义',
+                              color: _accentIconColor,
+                              onTap: _showCustomInput,
                             ),
                           ),
                         ),
-                        // 右侧：与左侧图标等宽的占位，保持 CTA 居中
-                        const SizedBox(width: 50),
+                        // 中间 "+ 饮品名" CTA（InspiraUI ShimmerButton 流光效果）
+                        _ShimmerCtaButton(
+                          color: _drinkColor,
+                          foreground: _onDrinkColor,
+                          label: _beverage.name,
+                          onTap: _submit,
+                        ),
+                        // 右侧空 Expanded：与左侧等宽 → CTA 恒为屏幕水平居中
+                        const Expanded(child: SizedBox.shrink()),
                       ],
                     ),
                   ),
@@ -415,6 +401,148 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
       ),
     );
   }
+}
+
+/// 加量页 CTA：InspiraUI ShimmerButton 移植
+/// 亮光只从按钮边缘的细环透出（内层实心面盖住中心，对应 Web 版
+/// 内层 span 的 border: var(--cut) + bg-clip-padding 结构），
+/// 旋转的 SweepGradient 光段绕轮廓转圈（对应 conic-gradient 旋转）
+class _ShimmerCtaButton extends StatefulWidget {
+  const _ShimmerCtaButton({
+    required this.color,
+    required this.foreground,
+    required this.label,
+    required this.onTap,
+  });
+
+  final Color color;
+  final Color foreground;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  State<_ShimmerCtaButton> createState() => _ShimmerCtaButtonState();
+}
+
+class _ShimmerCtaButtonState extends State<_ShimmerCtaButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 3000),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: widget.onTap,
+      child: SizedBox(
+        width: 136,
+        height: 50,
+        child: AnimatedBuilder(
+          animation: _ctrl,
+          builder: (ctx, _) => CustomPaint(
+            painter: _ShimmerCtaPainter(
+              progress: _ctrl.value,
+              face: widget.color,
+            ),
+            child: Center(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '+ ',
+                    style: TextStyle(
+                      color: widget.foreground,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  Flexible(
+                    child: Text(
+                      widget.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: widget.foreground,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 边缘流光绘制：按钮整体为纯饮品色（无边框感），
+/// 流光只画在边缘 2px 环带（外轮廓减内层面的差集）里，
+/// SweepGradient 亮段绕中心旋转 → 白光沿轮廓滑过，其余时刻不可见
+class _ShimmerCtaPainter extends CustomPainter {
+  _ShimmerCtaPainter({required this.progress, required this.face});
+
+  final double progress; // 0~1 一个绕圈周期
+  final Color face; // 按钮面色（饮品色）
+
+  static const _cut = 2.0; // 边缘环带厚度（Web 版 shimmerSize 2px）
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final outer = Offset.zero & size;
+    final outerRrect = RRect.fromRectAndRadius(
+      outer,
+      Radius.circular(size.height / 2),
+    );
+
+    // 1. 整个按钮实心饮品色
+    canvas.drawRRect(outerRrect, Paint()..color = face);
+
+    // 2. 环带区域 = 外轮廓 - 内层（内缩 cut 的圆角矩形）
+    final outerPath = Path()..addRRect(outerRrect);
+    final facePath = Path()
+      ..addRRect(RRect.fromRectAndRadius(
+        outer.deflate(_cut),
+        Radius.circular(size.height / 2 - _cut),
+      ));
+    final rimPath =
+        Path.combine(PathOperation.difference, outerPath, facePath);
+
+    // 3. 亮段只在环带内可见：绕中心旋转，经过处即沿轮廓滑动的白光
+    canvas.save();
+    canvas.clipPath(rimPath);
+    final angle = progress * 2 * math.pi;
+    final glint = Paint()
+      ..shader = SweepGradient(
+        startAngle: 0,
+        endAngle: 2 * math.pi,
+        colors: [
+          Colors.white.withValues(alpha: 0),
+          Colors.white.withValues(alpha: 0),
+          Colors.white.withValues(alpha: 0.9),
+          Colors.white.withValues(alpha: 0),
+          Colors.white.withValues(alpha: 0),
+        ],
+        stops: const [0.0, 0.42, 0.5, 0.58, 1.0],
+        transform: GradientRotation(angle),
+      ).createShader(outer.inflate(24));
+    canvas.drawRect(outer.inflate(24), glint);
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_ShimmerCtaPainter oldDelegate) =>
+      oldDelegate.progress != progress || oldDelegate.face != face;
 }
 
 /// 灰色圆形关闭按钮

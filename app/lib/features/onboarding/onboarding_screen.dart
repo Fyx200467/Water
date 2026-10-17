@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -31,6 +32,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 
   /// 当前性别展示值（未选时返回 null，选项卡仅显示「性别」）
   String? get _genderDisplayLabel => _gender == null ? null : _genderLabel;
+
+  /// 体重展示值（固定 kg）
+  String get _weightDisplay => '${_weight.round()}kg';
   double _weight = 60; // 默认体重(kg)，未选时用此默认值参与计算
   bool _weightSelected = false; // 体重卡片是否已被用户点选过
   ActivityLevel _activity = ActivityLevel.medium; // 默认中等强度（已选中）
@@ -96,7 +100,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             genderLabel: _genderDisplayLabel,
             genderSelected: _gender != null,
             weightSelected: _weightSelected,
-            weightKg: _weight,
+            weightDisplay: _weightSelected ? _weightDisplay : null,
             activity: _activity,
             temp: _temp,
             customGoal: _customGoal,
@@ -162,82 +166,23 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     );
   }
 
+  /// 体重录入：滚轮底部弹窗（数字轮 kg + 高亮带 + 蓝青色「完成」胶囊）
   void _showWeightSheet(BuildContext context) {
-    double temp = _weight;
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF7F6FB),
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheet) => Padding(
-          padding: EdgeInsets.fromLTRB(
-              20, 16, 20, 20 + MediaQuery.of(ctx).viewInsets.bottom),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _SheetGrabber(),
-              const Text('体重',
-                  style: TextStyle(
-                      color: _textDark,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700)),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: Slider(
-                      value: temp,
-                      min: 30,
-                      max: 150,
-                      divisions: 120,
-                      label: '${temp.round()} kg',
-                      onChanged: (v) => setSheet(() => temp = v),
-                    ),
-                  ),
-                  SizedBox(
-                    width: 80,
-                    child: Text('${temp.round()} kg',
-                        textAlign: TextAlign.end,
-                        style: const TextStyle(color: _textDark, fontSize: 16)),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('取消'),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () {
-                        setState(() {
-                          _weight = temp;
-                          _weightSelected = true;
-                        });
-                        Navigator.pop(ctx);
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _brandCyan,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(24)),
-                      ),
-                      child: const Text('确定'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
+      builder: (_) => _WeightWheelSheet(
+        initialKg: _weight,
+        onDone: (kg) {
+          setState(() {
+            _weight = kg;
+            _weightSelected = true;
+          });
+        },
       ),
     );
   }
@@ -419,16 +364,211 @@ class _SheetGrabber extends StatelessWidget {
   }
 }
 
+// ============================ 体重滚轮选择弹层 ============================
+
+/// 滚轮体重选择弹层（对标原版：kg 数字轮，选中行深色大字 +
+/// 浅灰高亮带 + 上下渐隐，底部「完成」胶囊随页面水色）
+class _WeightWheelSheet extends StatefulWidget {
+  const _WeightWheelSheet({required this.initialKg, required this.onDone});
+
+  final double initialKg;
+  final void Function(double kg) onDone;
+
+  @override
+  State<_WeightWheelSheet> createState() => _WeightWheelSheetState();
+}
+
+class _WeightWheelSheetState extends State<_WeightWheelSheet> {
+  static const _sheetBg = Color(0xFFF7F6FB);
+  static const _accentCyan = Color(0xFF4DB8D8); // 与信息录入页水色一致
+  static const _inkDark = Color(0xFF171A26);
+  static const _inkGray = Color(0xFF3A3F52);
+  static const double _itemExtent = 56;
+
+  static const int _kMin = 30, _kMax = 200; // kg 范围
+
+  late int _numSel; // 数字轮当前下标
+  late double _kg;
+  late final FixedExtentScrollController _numCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _kg = widget.initialKg.clamp(_kMin.toDouble(), _kMax.toDouble());
+    _numSel = _kg.round() - _kMin;
+    _numCtrl = FixedExtentScrollController(initialItem: _numSel);
+  }
+
+  @override
+  void dispose() {
+    _numCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onNumChanged(int i) {
+    if (i == _numSel) return;
+    HapticFeedback.selectionClick();
+    setState(() {
+      _numSel = i;
+      _kg = (_kMin + i).toDouble();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 10),
+          // 顶部拖把（浅底上用稍深的灰）
+          Center(
+            child: Container(
+              width: 48,
+              height: 5,
+              decoration: BoxDecoration(
+                color: const Color(0xFFE0E0E8),
+                borderRadius: BorderRadius.circular(2.5),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          const Text(
+            '体重',
+            style: TextStyle(
+                color: _inkDark, fontSize: 20, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 8),
+          // 滚轮区：高亮带垫底 + kg 数字轮 + 上下渐隐遮罩
+          SizedBox(
+            height: _itemExtent * 5,
+            width: double.infinity,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                // 选中行浅灰高亮带
+                Positioned(
+                  left: 36,
+                  right: 36,
+                  child: Container(
+                    height: 66,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEBEBF0),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                ),
+                _buildWheel(
+                  childCount: _kMax - _kMin + 1,
+                  controller: _numCtrl,
+                  selectedIndex: _numSel,
+                  onSelectedItemChanged: _onNumChanged,
+                  textOf: (i) => '${_kMin + i}',
+                ),
+                // 上下渐隐：用弹层底色渐变盖住滚出高亮带的数字
+                _fadeEdge(top: true),
+                _fadeEdge(top: false),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          // 「完成」胶囊（背景色跟随信息录入页的水色）
+          ElevatedButton(
+            onPressed: () {
+              widget.onDone(_kg);
+              Navigator.of(context).pop();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _accentCyan,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(180, 54),
+              elevation: 0,
+              shape: const StadiumBorder(),
+              textStyle: const TextStyle(
+                  fontSize: 18, fontWeight: FontWeight.w700),
+            ),
+            child: const Text('完成'),
+          ),
+          const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+
+  /// 顶部/底部同色渐隐遮罩（不拦截滚动手势）
+  Widget _fadeEdge({required bool top}) {
+    return Positioned(
+      left: 0,
+      right: 0,
+      top: top ? 0 : null,
+      bottom: top ? null : 0,
+      child: IgnorePointer(
+        child: Container(
+          height: 80,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: top ? Alignment.topCenter : Alignment.bottomCenter,
+              end: top ? Alignment.bottomCenter : Alignment.topCenter,
+              colors: [_sheetBg, _sheetBg.withValues(alpha: 0)],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 滚轮：选中行深色大字，按与选中位的距离递减透明度
+  Widget _buildWheel({
+    required int childCount,
+    required FixedExtentScrollController controller,
+    required int selectedIndex,
+    required ValueChanged<int> onSelectedItemChanged,
+    required String Function(int) textOf,
+  }) {
+    return ListWheelScrollView.useDelegate(
+      controller: controller,
+      itemExtent: _itemExtent,
+      diameterRatio: 2.2,
+      perspective: 0.001, // 合法下限：柱面曲率接近零，保持竖列齐直（对标原版）
+      physics: const FixedExtentScrollPhysics(),
+      onSelectedItemChanged: onSelectedItemChanged,
+      childDelegate: ListWheelChildBuilderDelegate(
+        childCount: childCount,
+        builder: (ctx, i) {
+          final dist = (i - selectedIndex).abs();
+          final isSel = dist == 0;
+          final opacity =
+              isSel ? 1.0 : dist == 1 ? 0.42 : dist == 2 ? 0.18 : 0.06;
+          return Center(
+            child: Opacity(
+              opacity: opacity,
+              child: Text(
+                textOf(i),
+                style: TextStyle(
+                  fontSize: isSel ? 28 : 21,
+                  fontWeight: isSel ? FontWeight.w700 : FontWeight.w500,
+                  color: isSel ? _inkDark : _inkGray,
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
 // ============================ 第 1 步：目标计算（用户初始化信息，水下动画场景） ============================
 
 /// 复用「常见目标」页的水下动画背景（冰晶缓旋浮动 + 气泡生灭），
-/// 布局对标原版初始化页：白底选项卡 + 底部白色「继续」按钮
+/// 布局对标原版初始化页：白胶囊选项卡 + 底部白色「继续」按钮
 class _GoalCalcScreen extends StatefulWidget {
   const _GoalCalcScreen({
     required this.genderLabel,
     required this.genderSelected,
     required this.weightSelected,
-    required this.weightKg,
+    required this.weightDisplay,
     required this.activity,
     required this.temp,
     required this.customGoal,
@@ -448,7 +588,9 @@ class _GoalCalcScreen extends StatefulWidget {
   final bool genderSelected;
 
   final bool weightSelected;
-  final double weightKg;
+
+  /// 体重展示值（如 "62kg"），null = 未选择（选项卡只显示箭头）
+  final String? weightDisplay;
   final ActivityLevel activity;
   final GoalTemperature temp;
   final int? customGoal;
@@ -483,6 +625,13 @@ class _GoalCalcScreenState extends State<_GoalCalcScreen>
     _anim.dispose();
     super.dispose();
   }
+
+  /// 运动强度展示值（对标原版「中等运动量」文案）
+  static String _activityAmountLabel(ActivityLevel a) => switch (a) {
+        ActivityLevel.low => '低运动量',
+        ActivityLevel.medium => '中等运动量',
+        ActivityLevel.high => '高运动量',
+      };
 
   @override
   Widget build(BuildContext context) {
@@ -537,36 +686,35 @@ class _GoalCalcScreenState extends State<_GoalCalcScreen>
                       ),
                     ),
                     const SizedBox(height: 18),
-                    // 4 张白底选项卡（性别/体重带左右轻微颤动）
+                    // 4 张白胶囊选项卡（左深色标签 + 右蓝色值与箭头；
+                    // 性别/体重带左右轻微颤动）
                     PillSway(
                       t: t,
                       phase: 0.0,
-                      child: _WhitePill(
+                      child: _OptionCapsule(
                         label: '性别',
                         value: widget.genderLabel,
                         onTap: widget.onGenderTap,
                       ),
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 12),
                     PillSway(
                       t: t,
                       phase: math.pi,
-                      child: _WhitePill(
+                      child: _OptionCapsule(
                         label: '体重',
-                        value: widget.weightSelected
-                            ? '${widget.weightKg.round()}kg'
-                            : null,
+                        value: widget.weightDisplay,
                         onTap: widget.onWeightTap,
                       ),
                     ),
-                    const SizedBox(height: 10),
-                    _WhitePill(
-                      label: widget.activity.label,
-                      value: widget.activity.description,
+                    const SizedBox(height: 12),
+                    _OptionCapsule(
+                      label: '运动强度',
+                      value: _activityAmountLabel(widget.activity),
                       onTap: widget.onActivityTap,
                     ),
-                    const SizedBox(height: 10),
-                    _WhitePill(
+                    const SizedBox(height: 12),
+                    _OptionCapsule(
                       label: '温度',
                       value: widget.temp.label,
                       onTap: widget.onTempTap,
@@ -623,9 +771,10 @@ class _GoalCalcScreenState extends State<_GoalCalcScreen>
   }
 }
 
-/// 白底选项卡（对标原版初始化页：白底深字 + 右侧灰色箭头）
-class _WhitePill extends StatelessWidget {
-  const _WhitePill({
+/// 白胶囊选项卡（对标原版：白色全圆角行卡 + 左深色粗体标签 +
+/// 右侧水色值与箭头贴右对齐；value 为 null 时只显示箭头）
+class _OptionCapsule extends StatelessWidget {
+  const _OptionCapsule({
     required this.label,
     required this.onTap,
     this.value,
@@ -634,33 +783,46 @@ class _WhitePill extends StatelessWidget {
   final String? value;
   final VoidCallback onTap;
 
+  /// 值/箭头颜色：跟随信息录入页的水下背景色
+  static const _waterAccent = Color(0xFF4DB8D8);
+
   @override
   Widget build(BuildContext context) {
-    final hasValue = value != null && value!.isNotEmpty;
     return Material(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(32),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(32),
         child: Container(
-          height: 50,
-          padding: const EdgeInsets.symmetric(horizontal: 16),
+          height: 64,
+          padding: const EdgeInsets.symmetric(horizontal: 20),
           child: Row(
             children: [
-              Expanded(
-                child: Text(
-                  hasValue ? '$label · $value' : label,
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Color(0xFF171A26),
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const Spacer(),
+              if (value != null) ...[
+                Text(
+                  value!,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    color: Color(0xFF1C1C1E),
-                    fontSize: 15,
-                    fontWeight: FontWeight.w500,
+                    color: _waterAccent,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-              ),
-              const Icon(Icons.chevron_right, color: Color(0xFF8E8E93)),
+                const SizedBox(width: 6),
+              ],
+              const Icon(Icons.chevron_right,
+                  color: _waterAccent, size: 24),
             ],
           ),
         ),

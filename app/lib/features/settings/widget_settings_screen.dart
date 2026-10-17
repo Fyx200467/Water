@@ -138,12 +138,16 @@ class WidgetSettingsState {
 
 class WidgetSettingsNotifier extends StateNotifier<WidgetSettingsState> {
   WidgetSettingsNotifier(this.ref) : super(const WidgetSettingsState()) {
-    _load();
+    loaded = _load();
   }
 
   final Ref ref;
 
   static const _kKey = 'widget_settings';
+
+  /// 磁盘加载完成信号：加载完成前 state 是默认值（milk_juice 等），
+  /// 冷启动小组件同步必须先等它，否则会把默认饮料格推上桌面
+  late final Future<void> loaded;
 
   Future<void> _load() async {
     final storage = await ref.read(localStorageProvider.future);
@@ -1156,13 +1160,16 @@ Future<void> _renderFramesOnce(
         await HomeWidget.saveWidgetData<String>(key, path);
       }
     }
-    await HomeWidget.updateWidget(
-      name: 'WaterLlamaWidgetProvider',
-      androidName: 'WaterLlamaWidgetProvider',
-    );
   } catch (_) {
     // 帧渲染失败静默跳过（下次数据变化同步时自动补上）
   }
+  // updateWidget 必须无条件执行：小组件后台录入跑在 headless 引擎里，
+  // 帧渲染必然抛错（无 implicitView），若 updateWidget 放在 try 内则
+  // 会被跳过——数据虽已写入但桌面 RemoteViews 不重绘，数字永远不更新
+  await HomeWidget.updateWidget(
+    name: 'WaterLlamaWidgetProvider',
+    androidName: 'WaterLlamaWidgetProvider',
+  );
 }
 
 /// 同步防交错：连续快速改设置时合并请求（渲染/写键交错会产生脏数据）
@@ -1211,6 +1218,10 @@ Future<void> _syncWidgetFromSettingsOnce(
   int? streakDays,
 }) async {
   try {
+    // 冷启动竞态防护：等小组件设置与自定义饮品都从磁盘加载完成再读
+    // （此前 1s 定时器同步可能跑在加载前，用默认饮料格覆盖桌面）
+    await read(widgetSettingsProvider.notifier).loaded;
+    await read(customBeveragesProvider.notifier).loaded;
     final s = read(widgetSettingsProvider);
     final progress = read(dailyProgressProvider);
     // 数据文本/饮料格先行推送（不等帧渲染，录入后桌面数字即时更新）
@@ -1283,7 +1294,11 @@ Future<File?> _rasterizeDrinkIcon(Beverage b, {int dim = 96}) async {
       canvas.drawPicture(info.picture);
     } else {
       // 容器剪影：图形包围盒 92% 等比居中（与 SvgContainerIcon 同规则）再整体染色
+      // 变换只作用于剪影绘制：srcIn 染色矩形必须在恒等坐标系铺满整个
+      // saveLayer（box 尺寸是缩放后的 viewBox 单位，若带着 92% 缩放画，
+      // 矩形只落在 viewBox 左上角、剪影完全染不上色 → 黑色剪影）
       canvas.saveLayer(box, ui.Paint());
+      canvas.save();
       final m =
           await loadSvgArtMetrics(b.containerId!, info.picture, info.size);
       final bounds = m?.bounds;
@@ -1303,6 +1318,7 @@ Future<File?> _rasterizeDrinkIcon(Beverage b, {int dim = 96}) async {
         canvas.scale(s);
         canvas.drawPicture(info.picture);
       }
+      canvas.restore();
       canvas.drawRect(
         box,
         ui.Paint()

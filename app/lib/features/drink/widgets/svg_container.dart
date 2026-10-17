@@ -313,17 +313,29 @@ void drawTeaLeaves(
 /// 按图形包围盒归一化渲染——各源文件留白差异大（有的图形铺满画框、
 /// 有的四周大量留白），固定 contain 会导致视觉大小不一致；统一把
 /// 图形包围盒等比缩放至盒子的 92% 并居中，与预设插画的占空比对齐
+///
+/// fillRatio 非空时渲染「液体风格」（编辑页预览同款）：
+/// 空杯剪影染 emptyColor，液体从液位线染到杯底（液面与杯口沿留
+/// 5% 气隙，与 SvgContainerFill 同规则），整体按剪影 alpha 裁剪
 class SvgContainerIcon extends StatefulWidget {
   const SvgContainerIcon({
     super.key,
     required this.containerId,
     required this.color,
     this.size = 52,
+    this.fillRatio,
+    this.emptyColor,
   });
 
   final String containerId;
   final Color color;
   final double size;
+
+  /// 液体占杯身比例 0~1（null = 纯剪影整体染色）
+  final double? fillRatio;
+
+  /// 空杯部分颜色（液体风格用，默认浅灰 #E9E9EB，与动态液体容器一致）
+  final Color? emptyColor;
 
   @override
   State<SvgContainerIcon> createState() => _SvgContainerIconState();
@@ -395,7 +407,10 @@ class _SvgContainerIconState extends State<SvgContainerIcon> {
         picture: info.picture,
         viewBox: info.size,
         bounds: _metrics?.bounds,
+        bodyTop: _metrics?.bodyTop,
         color: widget.color,
+        fillRatio: widget.fillRatio,
+        emptyColor: widget.emptyColor,
       ),
     );
   }
@@ -406,28 +421,41 @@ class _SvgIconPainter extends CustomPainter {
     required this.picture,
     required this.viewBox,
     required this.bounds,
+    required this.bodyTop,
     required this.color,
+    this.fillRatio,
+    this.emptyColor,
   });
 
   final ui.Picture picture;
   final Size viewBox;
   final Rect? bounds;
+  final double? bodyTop; // 杯口沿 y（viewBox 坐标，液体风格定位液面用）
   final Color color;
+  final double? fillRatio; // null = 纯剪影；非空 = 液体风格
+  final Color? emptyColor;
 
   @override
   void paint(Canvas canvas, Size size) {
-    canvas.saveLayer(Offset.zero & size, Paint());
-    canvas.save();
+    final fr = fillRatio;
+    if (fr == null) {
+      _paintSolid(canvas, size);
+    } else {
+      _paintLiquid(canvas, size, fr);
+    }
+  }
+
+  /// 剪影绘制（调用方需自行 save/restore）：包围盒等比 contain-fit
+  /// 至盒子的 92% 居中；无度量时退化为非等比铺满
+  void _drawSilhouette(Canvas canvas, Size size) {
     final b = bounds;
     if (b == null || b.width <= 0 || b.height <= 0) {
-      // 无度量：退化为非等比铺满
       canvas.scale(
         size.width / viewBox.width,
         size.height / viewBox.height,
       );
       canvas.drawPicture(picture);
     } else {
-      // 图形包围盒等比 contain-fit 到盒子的 92%，居中
       const targetFactor = 0.92;
       final s = math.min(
         size.width * targetFactor / b.width,
@@ -440,6 +468,34 @@ class _SvgIconPainter extends CustomPainter {
       canvas.scale(s);
       canvas.drawPicture(picture);
     }
+  }
+
+  /// 液位线 y（icon 像素空间）：与 SvgContainerFill 同规则——
+  /// 液面顶 = 杯口沿 + 5% 盒高气隙，液面按 fillRatio 在
+  /// [液面顶, 图形底部] 区间内插值；无度量时按画框比例兜底
+  double _levelY(Size size, double fr) {
+    final b = bounds;
+    final bt = bodyTop;
+    if (b == null || b.width <= 0 || b.height <= 0 || bt == null) {
+      return size.height * (1 - fr.clamp(0.0, 1.0));
+    }
+    const targetFactor = 0.92;
+    final s = math.min(
+      size.width * targetFactor / b.width,
+      size.height * targetFactor / b.height,
+    );
+    final ty = size.height / 2 - (b.top + b.height / 2) * s;
+    final bottomPx = b.bottom * s + ty;
+    final liquidTopPx = bt * s + ty + size.height * 0.05;
+    return liquidTopPx +
+        (1 - fr.clamp(0.0, 1.0)) * (bottomPx - liquidTopPx);
+  }
+
+  /// 纯剪影：整体染色
+  void _paintSolid(Canvas canvas, Size size) {
+    canvas.saveLayer(Offset.zero & size, Paint());
+    canvas.save();
+    _drawSilhouette(canvas, size);
     canvas.restore();
     // 整体染色（restore 后画，矩形不受图标变换影响）
     canvas.drawRect(
@@ -451,8 +507,46 @@ class _SvgIconPainter extends CustomPainter {
     canvas.restore();
   }
 
+  /// 液体风格：空杯染 emptyColor + 液体层染饮品色，按剪影 alpha 裁剪
+  void _paintLiquid(Canvas canvas, Size size, double fr) {
+    final empty = emptyColor ?? const Color(0xFFE9E9EB);
+    // 1. 空杯：剪影整体染浅灰
+    canvas.saveLayer(Offset.zero & size, Paint());
+    canvas.save();
+    _drawSilhouette(canvas, size);
+    canvas.restore();
+    canvas.drawRect(
+      Offset.zero & size,
+      Paint()
+        ..color = empty
+        ..blendMode = BlendMode.srcIn,
+    );
+    canvas.restore();
+
+    // 2. 液体：液位线以下矩形染饮品色，再按剪影 alpha 蒙版裁剪进杯形
+    final level = _levelY(size, fr);
+    canvas.saveLayer(Offset.zero & size, Paint());
+    canvas.drawRect(
+      Rect.fromLTRB(0, level, size.width, size.height),
+      Paint()..color = color,
+    );
+    canvas.saveLayer(
+      Offset.zero & size,
+      Paint()..blendMode = BlendMode.dstIn,
+    );
+    canvas.save();
+    _drawSilhouette(canvas, size);
+    canvas.restore();
+    canvas.restore();
+    canvas.restore();
+  }
+
   @override
-  bool shouldRepaint(_SvgIconPainter oldDelegate) => oldDelegate.color != color;
+  bool shouldRepaint(_SvgIconPainter oldDelegate) =>
+      oldDelegate.color != color ||
+      oldDelegate.fillRatio != fillRatio ||
+      oldDelegate.emptyColor != emptyColor ||
+      oldDelegate.bodyTop != bodyTop;
 }
 
 /// 动态液体容器：灰底空杯剪影 + 液体（波面/气泡）按 SVG alpha 蒙版填充

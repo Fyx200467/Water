@@ -43,6 +43,12 @@ dependencies:
   # Android 桌面小组件（Home Screen Widget）
   home_widget: ^0.7.0
 
+dependency_overrides:
+  # 本地接管 home_widget：updateWidget 改为直接同步调用 provider.onUpdate
+  # （不经广播），规避 vivo 等厂商 ROM 对后台应用广播的延迟/丢弃
+  home_widget:
+    path: third_party/home_widget
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -60,6 +66,7 @@ flutter:
     - assets/images/characters/
     - assets/images/containers/
     - assets/images/tips/
+    - assets/icons/menu/
 
 # sqlite3 钩子默认从 GitHub Releases 下载预编译库，当前网络直连超时，
 # 改走 gh-proxy 镜像（$RELEASE_TAG/$FILENAME 为占位符，由钩子替换）

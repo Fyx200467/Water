@@ -35,9 +35,13 @@ final profileProvider = StateNotifierProvider<ProfileNotifier, UserProfile?>((re
 class ProfileNotifier extends StateNotifier<UserProfile?> {
   ProfileNotifier(this.ref, {UserProfile? initial}) : super(initial) {
     // 仅当未预加载时才异步读取（避免覆盖 main.dart 预加载的初始值）
-    if (initial == null) _load();
+    loaded = initial == null ? _load() : Future<void>.value();
   }
   final Ref ref;
+
+  /// 磁盘加载完成信号：完成前 state 为 null。小组件后台录入回调若不
+  /// 等待它，目标值会走 2000 兜底 → 桌面百分比虚高（如 56% vs App 53%）
+  late final Future<void> loaded;
 
   Future<void> _load() async {
     final storage = await ref.read(localStorageProvider.future);
@@ -113,6 +117,10 @@ class TodayEntriesNotifier extends StateNotifier<List<DrinkEntry>> {
     await _load();
     unawaited(pushHomeWidget(ref));
   }
+
+  /// 回前台时重载当日记录：小组件后台录入（不拉起 App）在独立 isolate
+  /// 直接写库，进程存活期间内存态会滞后，靠这里追平
+  Future<void> refresh() => _load();
 
   Future<void> remove(String clientId) async {
     final storage = await ref.read(localStorageProvider.future);

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/notification/notification_service.dart';
@@ -56,6 +57,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   void initState() {
     super.initState();
     SettingsFlags.instance.ensureLoaded();
+    _loadSelectedAppIcon();
+  }
+
+  /// 载入当前选中的 App 图标 id（供「App 图标」行小图标动态显示；
+  /// 进入选择页换图标后由 selectedAppIcon 通知实时刷新）
+  Future<void> _loadSelectedAppIcon() async {
+    final storage = await ref.read(localStorageProvider.future);
+    selectedAppIcon.value ??=
+        storage.prefs.getString(kAppIconSelectionKey) ?? kDefaultAppIconId;
   }
 
   @override
@@ -91,30 +101,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       '功能',
                       [
                         _settingRow(
-                          icon: Icons.local_drink,
-                          iconBg: const Color(0xFFA8E6CF),
-                          iconColor: const Color(0xFF2E7D32),
+                          iconAsset: 'edit_drink.svg',
                           title: '添加/编辑饮料',
                           onTap: () => context.push('/drink/manage'),
                         ),
                         _settingRow(
-                          icon: Icons.dashboard,
-                          iconBg: const Color(0xFFB4D7F0),
-                          iconColor: const Color(0xFF1976D2),
+                          iconAsset: 'widget.svg',
                           title: '小组件',
                           onTap: () => Navigator.of(context).push(
                             MaterialPageRoute(
                                 builder: (_) => const WidgetSettingsScreen()),
                           ),
                         ),
-                        _settingRow(
-                          icon: Icons.pets,
-                          iconBg: const Color(0xFFFFE082),
-                          iconColor: const Color(0xFF5D4037),
-                          title: 'App 图标',
-                          onTap: () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                                builder: (_) => const AppIconScreen()),
+                        // 「App 图标」行：左侧小图标动态显示当前选中的桌面图标
+                        ListenableBuilder(
+                          listenable: selectedAppIcon,
+                          builder: (ctx, _) => _settingRow(
+                            leading: const AppIconPreview(size: 30),
+                            title: 'App 图标',
+                            onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                  builder: (_) => const AppIconScreen()),
+                            ),
                           ),
                         ),
                       ],
@@ -128,9 +136,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         ListenableBuilder(
                           listenable: SettingsFlags.instance,
                           builder: (ctx, _) => _settingRow(
-                            icon: Icons.restart_alt,
-                            iconBg: const Color(0xFFFFB6C1),
-                            iconColor: const Color(0xFFAD1457),
+                            iconAsset: 'reset_time.svg',
                             title: '一天中的重置时间',
                             trailingText: SettingsFlags.instance.resetLabel,
                             onTap: () => Navigator.of(context).push(
@@ -142,9 +148,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         ListenableBuilder(
                           listenable: SettingsFlags.instance,
                           builder: (ctx, _) => _settingRow(
-                            icon: Icons.local_fire_department,
-                            iconBg: const Color(0xFFFFD93D),
-                            iconColor: const Color(0xFFE65100),
+                            iconAsset: 'calories.svg',
                             title: '卡路里',
                             trailingText:
                                 SettingsFlags.instance.trackCalories
@@ -157,18 +161,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           ),
                         ),
                         _settingRow(
-                          icon: Icons.straighten,
-                          iconBg: const Color(0xFFFFF3B0),
-                          iconColor: const Color(0xFFF57F17),
+                          iconAsset: 'measure_unit.svg',
                           title: '测量单位',
                           trailingText:
                               ref.watch(preferredUnitProvider).symbol,
                           onTap: () => _showUnitPicker(),
                         ),
                         _settingRow(
-                          icon: Icons.tune,
-                          iconBg: const Color(0xFFD4BBFF),
-                          iconColor: const Color(0xFF6A1B9A),
+                          iconAsset: 'app_sound.svg',
                           title: 'App、声音、动画',
                           onTap: () => Navigator.of(context).push(
                             MaterialPageRoute(
@@ -176,16 +176,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           ),
                         ),
                         _settingRow(
-                          icon: Icons.favorite,
-                          iconBg: const Color(0xFFFF2D55),
-                          iconColor: Colors.white,
+                          iconAsset: 'health.svg',
                           title: '"健康"同步',
                           trailingText: '连接',
                         ),
                         _settingRow(
-                          icon: Icons.watch,
-                          iconBg: const Color(0xFFFFCCAA),
-                          iconColor: const Color(0xFFD84315),
+                          iconAsset: 'watch.svg',
                           title: '手表',
                         ),
                       ],
@@ -197,9 +193,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       '',
                       [
                         _settingRow(
-                          icon: Icons.cloud,
-                          iconBg: const Color(0xFF5AC8FA),
-                          iconColor: Colors.white,
+                          iconAsset: 'cloud_backup.svg',
                           title: '云备份',
                         ),
                       ],
@@ -353,29 +347,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ],
               ),
             ),
-            // 蓝色闹钟插画
-            Container(
-              width: 58,
-              height: 58,
-              decoration: const BoxDecoration(
-                color: Color(0xFF4FC3F7),
-                shape: BoxShape.circle,
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: const [
-                  Icon(Icons.alarm, color: Colors.white, size: 22),
-                  Text(
-                    '09:00',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            // 提醒图标（自带青色圆底的完整插画，替代原蓝色闹钟圆）
+            SvgPicture.asset('assets/icons/menu/reminder.svg',
+                width: 58, height: 58),
           ],
         ),
       ),
@@ -490,11 +464,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     return out;
   }
 
+  /// 菜单页彩色 SVG 图标（图标自带配色，30×30 直接渲染，无底色块）
+  Widget _menuIcon(String asset) =>
+      SvgPicture.asset('assets/icons/menu/$asset', width: 30, height: 30);
+
   /// 通用设置行：左图标(带圆角背景) + 标题 + 右侧值/箭头
+  ///
+  /// 图标三选一优先级：leading（自定义组件，如 App 图标动态预览）>
+  /// iconAsset（菜单页彩色 SVG）> icon+iconBg（Material 图标 + 底色块）
   Widget _settingRow({
-    required IconData icon,
-    required Color iconBg,
+    IconData? icon,
+    Color? iconBg,
     Color? iconColor,
+    String? iconAsset,
+    Widget? leading,
     required String title,
     String? trailingText,
     bool showArrow = true,
@@ -508,16 +491,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         child: Row(
           children: [
-            // 图标背景块
-            Container(
-              width: 30,
-              height: 30,
-              decoration: BoxDecoration(
-                color: iconBg,
-                borderRadius: BorderRadius.circular(8),
+            if (leading != null)
+              leading
+            else if (iconAsset != null)
+              _menuIcon(iconAsset)
+            else
+              // 图标背景块
+              Container(
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(
+                  color: iconBg ?? _textSecondary,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, color: iconColor ?? Colors.white, size: 18),
               ),
-              child: Icon(icon, color: iconColor ?? Colors.white, size: 18),
-            ),
             const SizedBox(width: 14),
             Expanded(
               child: Text(

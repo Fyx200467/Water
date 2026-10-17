@@ -86,7 +86,12 @@ class _DrinkIconScreenState extends State<DrinkIconScreen> {
             child: Center(
               child: SvgContainerIcon(
                 containerId: id,
+                // 液体风格（编辑页预览同款）：液体占杯身 70%，
+                // 选中 = 饮品色液体 + 浅灰空杯；未选中 = 深浅两档灰
                 color: selected ? widget.color : _silhouetteGray,
+                emptyColor:
+                    selected ? null : const Color(0xFFF4F4F8),
+                fillRatio: 0.7,
                 size: 64,
               ),
             ),

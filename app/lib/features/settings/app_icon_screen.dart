@@ -38,6 +38,79 @@ const List<String> _iconCharacters = [
   'parrot', 'duck', 'hedgehog',
 ];
 
+/// 选中图标持久化键（设置页「App 图标」行同步读取）
+const kAppIconSelectionKey = 'app_icon_selection';
+
+/// 未主动选择过的默认图标（图标页第一个，与桌面默认图标一致）
+const kDefaultAppIconId = 'char_alpaca_0';
+
+/// 当前选中的 App 图标 id（全局通知：设置页行内小图标跟随变化）
+final ValueNotifier<String?> selectedAppIcon = ValueNotifier<String?>(null);
+
+/// 图标清单：角色插画变体（各角色 × 各底色）+ 扁平杯/水滴图形变体。
+/// 提为顶层函数：设置页「App 图标」行需要按 id 反查预览数据
+List<AppIconEntry> buildAppIconCatalog() => [
+      for (var i = 0; i < _iconCharacters.length; i++)
+        for (var j = 0; j < _iconBgs.length; j++)
+          AppIconEntry(
+            id: 'char_${_iconCharacters[i]}_$j',
+            svg: 'assets/images/characters/${_iconCharacters[i]}.svg',
+            bg: _iconBgs[j],
+          ),
+      const AppIconEntry(
+          id: 'glyph_drop_light',
+          bg: Color(0xFFF7F7F9),
+          glyph: Icons.water_drop,
+          glyphColor: Color(0xFF35B5D6)),
+      const AppIconEntry(
+          id: 'glyph_cup_light',
+          bg: Color(0xFFF7F7F9),
+          glyph: Icons.local_drink,
+          glyphColor: Color(0xFFE5605C)),
+      const AppIconEntry(
+          id: 'glyph_drop_dark',
+          bg: Color(0xFF1C1C22),
+          glyph: Icons.water_drop,
+          glyphColor: Color(0xFF35B5D6)),
+      const AppIconEntry(
+          id: 'glyph_cup_dark',
+          bg: Color(0xFF1C1C22),
+          glyph: Icons.local_drink,
+          glyphColor: Color(0xFF4DB8D8)),
+    ];
+
+/// App 图标小预览（设置页「App 图标」行左侧）：按当前选中 id 渲染
+/// 迷你圆角方块图标，进选择页换图标后行内实时跟随
+class AppIconPreview extends StatelessWidget {
+  const AppIconPreview({super.key, required this.size, this.id});
+
+  final double size;
+
+  /// 覆盖 id（调试用）；缺省读全局 selectedAppIcon，再回退默认第一枚
+  final String? id;
+
+  @override
+  Widget build(BuildContext context) {
+    final catalog = buildAppIconCatalog();
+    final selId = id ?? selectedAppIcon.value ?? kDefaultAppIconId;
+    final e = catalog.firstWhere((x) => x.id == selId,
+        orElse: () => catalog.first);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(size * 0.28),
+      child: Container(
+        width: size,
+        height: size,
+        color: e.bg,
+        alignment: Alignment.center,
+        padding: e.svg != null ? EdgeInsets.all(size * 0.08) : EdgeInsets.zero,
+        child: e.svg != null
+            ? SvgPicture.asset(e.svg!, fit: BoxFit.contain)
+            : Icon(e.glyph, color: e.glyphColor, size: size * 0.62),
+      ),
+    );
+  }
+}
+
 class AppIconScreen extends ConsumerStatefulWidget {
   const AppIconScreen({super.key});
 
@@ -46,7 +119,6 @@ class AppIconScreen extends ConsumerStatefulWidget {
 }
 
 class _AppIconScreenState extends ConsumerState<AppIconScreen> {
-  static const _kKey = 'app_icon_selection';
   static const _textDark = Color(0xFF1C1C1E);
 
   /// 原生图标切换通道：MainActivity 已注册同名 MethodChannel
@@ -62,15 +134,19 @@ class _AppIconScreenState extends ConsumerState<AppIconScreen> {
 
   Future<void> _load() async {
     final storage = await ref.read(localStorageProvider.future);
-    final saved = storage.prefs.getString(_kKey);
+    final saved = storage.prefs.getString(kAppIconSelectionKey);
     // 未主动选择过时默认选中图标页第一个（与桌面默认图标保持一致）
-    if (mounted) setState(() => _selected = saved ?? 'char_alpaca_0');
+    if (mounted) {
+      setState(() => _selected = saved ?? kDefaultAppIconId);
+      selectedAppIcon.value ??= _selected;
+    }
   }
 
   Future<void> _select(String id) async {
     setState(() => _selected = id);
+    selectedAppIcon.value = id; // 设置页「App 图标」行小图标实时跟随
     final storage = await ref.read(localStorageProvider.future);
-    await storage.prefs.setString(_kKey, id);
+    await storage.prefs.setString(kAppIconSelectionKey, id);
     // 真实切换桌面图标：启用对应 activity-alias、停用当前别名
     // （部分 ROM 会在数秒内刷新桌面，期间图标可能短暂消失）
     try {
@@ -95,37 +171,7 @@ class _AppIconScreenState extends ConsumerState<AppIconScreen> {
     final dark = MediaQuery.platformBrightnessOf(context) == Brightness.dark;
     final pageBg = dark ? const Color(0xFF0E0E10) : Colors.white;
 
-    // 图标清单：角色插画变体 + 扁平杯/水滴图形变体
-    final icons = <_AppIconEntry>[
-      for (var i = 0; i < _iconCharacters.length; i++)
-        for (var j = 0; j < _iconBgs.length; j++)
-          _AppIconEntry(
-            id: 'char_${_iconCharacters[i]}_$j',
-            svg: 'assets/images/characters/${_iconCharacters[i]}.svg',
-            bg: _iconBgs[j],
-          ),
-      // 扁平水滴/杯图标（浅色底 + 深色底，对标原版末尾的杯/水滴块）
-      const _AppIconEntry(
-          id: 'glyph_drop_light',
-          bg: Color(0xFFF7F7F9),
-          glyph: Icons.water_drop,
-          glyphColor: Color(0xFF35B5D6)),
-      const _AppIconEntry(
-          id: 'glyph_cup_light',
-          bg: Color(0xFFF7F7F9),
-          glyph: Icons.local_drink,
-          glyphColor: Color(0xFFE5605C)),
-      const _AppIconEntry(
-          id: 'glyph_drop_dark',
-          bg: Color(0xFF1C1C22),
-          glyph: Icons.water_drop,
-          glyphColor: Color(0xFF35B5D6)),
-      const _AppIconEntry(
-          id: 'glyph_cup_dark',
-          bg: Color(0xFF1C1C22),
-          glyph: Icons.local_drink,
-          glyphColor: Color(0xFF4DB8D8)),
-    ];
+    final icons = buildAppIconCatalog();
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: dark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
@@ -198,8 +244,9 @@ class _AppIconScreenState extends ConsumerState<AppIconScreen> {
   }
 }
 
-class _AppIconEntry {
-  const _AppIconEntry({
+/// 图标网格条目数据
+class AppIconEntry {
+  const AppIconEntry({
     required this.id,
     required this.bg,
     this.svg,
@@ -224,7 +271,7 @@ class _IconTile extends StatelessWidget {
     required this.onTap,
   });
 
-  final _AppIconEntry entry;
+  final AppIconEntry entry;
   final bool selected;
   final bool dark;
   final VoidCallback onTap;

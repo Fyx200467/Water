@@ -1,7 +1,10 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../characters/character_data.dart';
 import '../home/providers/home_providers.dart';
 import 'unit_selection_sheet.dart';
 import 'widgets/animal_silhouette.dart';
@@ -9,10 +12,14 @@ import 'widgets/selling_points_carousel.dart';
 
 /// PRD 对标 §开屏体验：欢迎页
 ///
-/// 动画时间线（v4）：
-/// 1. 0~16s 羊驼→熊猫→老虎 依次轮换 + 慢速顺序填色（每只 5s）
-/// 2. 16~25s 横向轮播滑动（左滑入右滑出，每只 2s）
-/// 3. 25s+ 触发持续全屏礼炮雨 + 顶部饮料杯定格为水滴
+/// 动画时间线（v7）：
+/// 1. 阵容随机：每次冷启动从 6 个收集分类（每日/可爱/人/家/蔬果/植物）
+///    各随机抽取 1 个角色，共 6 只登场
+/// 2. 0~30s 依次轮换 + 慢速顺序填色（每只 5s）
+/// 3. 30~42s 巨轮弧线轮播（对标 InspiraUI TestimonialSlider）：整体速度
+///    由 easeInOutCubic 主导——慢起加速、临近结束自然减速，恰好停在
+///    最后一只上（与礼炮定格帧一致，无跳变）
+/// 4. 42s+ 触发持续全屏礼炮雨 + 角色定格
 ///          用户点击"开始使用"→ 弹出单位选择 → 进入 onboarding
 class WelcomeScreen extends ConsumerStatefulWidget {
   const WelcomeScreen({super.key});
@@ -24,42 +31,46 @@ class WelcomeScreen extends ConsumerStatefulWidget {
 class _WelcomeScreenState extends ConsumerState<WelcomeScreen>
     with TickerProviderStateMixin {
   late final AnimationController _master;
-  late final AnimationController _carousel; // 横向轮播
   bool _confettiStarted = false;
-  bool _carouselActive = false;
 
   static const _accent = Color(0xFF4DB8D8);
 
-  static const _animals = <String>['octopus', 'panda', 'llama'];
+  /// 登场阵容：每个收集分类随机抽 1 个角色（实例创建时抽取一次，
+  /// 本次会话内填色轮换与弧线轮播共用同一阵容）
+  final List<String> _animals = _pickRandomCast();
 
-  static const _tInitialEnd = 16.0; // 初始轮换结束（每只 5s）
-  static const _tCarouselEnd = 25.0; // 轮播结束 → 礼炮
+  static List<String> _pickRandomCast() {
+    final rnd = math.Random();
+    return [
+      for (final cat in characterCategories)
+        cat.characterIds[rnd.nextInt(cat.characterIds.length)],
+    ];
+  }
+
   static const _tFillPerAnimal = 5.0; // 每只填色 5s
+  static const _tCarouselPerAnimal = 2.0; // 轮播每只 2s
+
+  double get _tInitialEnd => _animals.length * _tFillPerAnimal; // 初始轮换结束
+  double get _tCarouselEnd =>
+      _tInitialEnd + _animals.length * _tCarouselPerAnimal; // 轮播结束 → 礼炮
 
   @override
   void initState() {
     super.initState();
+    // 总时长 = 轮换 + 轮播 + 4s 礼炮定格缓冲
+    final totalSec = (_tCarouselEnd + 4).round();
     _master = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 30),
+      duration: Duration(seconds: totalSec),
     )..forward();
-    _carousel = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 2), // 每只 2s
-    );
 
     _master.addListener(_onMasterTick);
   }
 
   void _onMasterTick() {
     final t = _master.value * _master.duration!.inSeconds;
-    if (t >= _tInitialEnd && !_carouselActive) {
-      _carouselActive = true;
-      _carousel.repeat();
-    }
     if (t >= _tCarouselEnd && !_confettiStarted) {
       _confettiStarted = true;
-      _carousel.stop();
       // ConfettiRain widget 内部自带 controller，只需 setState 让 active=true
       setState(() {});
     }
@@ -69,7 +80,6 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen>
   void dispose() {
     _master.removeListener(_onMasterTick);
     _master.dispose();
-    _carousel.dispose();
     super.dispose();
   }
 
@@ -148,7 +158,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen>
   /// 动物层：初始轮换 → 轮播滑动 → 礼炮定格
   Widget _buildAnimalLayer() {
     return AnimatedBuilder(
-      animation: Listenable.merge([_master, _carousel]),
+      animation: _master,
       builder: (ctx, _) {
         final t = _master.value * _master.duration!.inSeconds;
 
@@ -161,8 +171,8 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen>
           );
         }
 
-        if (_carouselActive) {
-          return _buildCarousel();
+        if (t >= _tInitialEnd) {
+          return _buildCarousel(t);
         }
 
         return _buildInitialRotation(t);
@@ -170,57 +180,91 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen>
     );
   }
 
-  /// 横向轮播（左滑入右滑出）
-  Widget _buildCarousel() {
-    // _carousel.value: 0→1 一个循环
-    // 把它映射到 _animals.length 次循环
-    final cycleProgress = _carousel.value * _animals.length;
-    final currentIndex = cycleProgress.floor() % _animals.length;
-    final nextIndex = (currentIndex + 1) % _animals.length;
-    final slideProgress = cycleProgress - cycleProgress.floor();
+  /// 巨轮弧线轮播（对标 InspiraUI TestimonialSlider）：
+  /// 动物骑在巨大圆盘边缘，如摩天轮转动——当前只在弧顶居中，下一只
+  /// 沿弧线从右侧屏幕边缘升起，当前只向左侧屏幕边缘沉走淡出。
+  /// 舞台为全屏宽，可见角窗按屏幕宽度反推：θ_edge = asin(半屏宽 / R)。
+  ///
+  /// 速度设计：轮盘进度由主时间轴驱动，全程套 easeInOutCubic——
+  /// 起步慢（与静止的填色轮换无缝衔接）→ 中段加速 → 末段自然减速，
+  /// 总进度恰好一整圈（N 格），最终停在最后一只（与礼炮定格帧一致）。
+  /// 几何：弧顶为原点，槽位角 θ 处的坐标 x=R·sinθ, y=R·(1-cosθ)
+  Widget _buildCarousel(double masterT) {
+    const slotAngle = 36 * math.pi / 180; // 相邻槽位角间隔
+    const radius = 520.0; // 轮盘半径
 
-    // 当前动物从 0 向右滑出（+280），下一只从左滑入（-280→0）
-    final curOffset = slideProgress * 280;
-    final nextOffset = (1 - slideProgress) * -280;
+    // 可见角窗：动物越过屏幕边缘 60px 后才完全淡出，避免边缘处"半空消失"
+    final screenW = MediaQuery.sizeOf(context).width;
+    final maxAngle =
+        math.asin(math.min(screenW / 2 + 60, radius - 1) / radius);
 
-    return SizedBox(
-      width: 300,
-      height: 300,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Transform.translate(
-            offset: Offset(curOffset, 0),
-            child: Opacity(
-              opacity: 1 - slideProgress * 0.5,
-              child: AnimalSilhouette(
-                key: ValueKey('carousel_$currentIndex'),
-                animalId: _animals[currentIndex],
-                fillRatio: 1.0,
-                accentColor: _accent,
-                size: 300,
-              ),
-            ),
-          ),
-          Transform.translate(
-            offset: Offset(nextOffset, 0),
-            child: Opacity(
-              opacity: 0.5 + slideProgress * 0.5,
-              child: AnimalSilhouette(
-                key: ValueKey('carousel_$nextIndex'),
-                animalId: _animals[nextIndex],
-                fillRatio: 1.0,
-                accentColor: _accent,
-                size: 300,
-              ),
-            ),
-          ),
-        ],
+    // 轮播窗口内的时间进度 → 全程缓动 → 轮盘格进度
+    // 起点 -1：轮换结束时最后一只正在弧顶，起转瞬间无跳变；
+    // 终点 N-1：整整转过 N 格后恰好落在最后一只上，速度归零自然停住
+    final tCar =
+        (masterT - _tInitialEnd).clamp(0.0, _tCarouselEnd - _tInitialEnd);
+    final f = Curves.easeInOutCubic
+        .transform(tCar / (_tCarouselEnd - _tInitialEnd));
+    final cp = -1.0 + f * _animals.length;
+
+    return ClipRect(
+      child: SizedBox(
+        width: screenW,
+        height: 300,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            for (var i = 0; i < _animals.length; i++)
+              _arcAnimal(i, cp, slotAngle, radius, maxAngle),
+          ],
+        ),
       ),
     );
   }
 
-  /// 初始轮换（3 只动物依次登场、慢速填色）
+  /// 第 i 只动物在轮盘上的姿态：rel 为相对轮盘进度的槽位偏移
+  /// （活动位 0；负 = 已越过弧顶向左下沉，正 = 右侧待升顶）
+  Widget _arcAnimal(
+    int i,
+    double cp,
+    double slotAngle,
+    double radius,
+    double maxAngle,
+  ) {
+    final n = _animals.length;
+    var rel = (i - cp) % n; // Dart 的 % 恒非负
+    if (rel > n / 2) rel -= n; // 折算到 (-n/2, n/2]，保证跨循环连续
+    final angle = rel * slotAngle;
+    final d = angle.abs();
+    if (d > maxAngle) return const SizedBox.shrink();
+    // 淡入淡出只发生在屏幕边缘附近：弧顶半窗内全亮，越过之后线性淡出
+    const fadeInZone = 0.55;
+    final opacity = d <= maxAngle * fadeInZone
+        ? 1.0
+        : (1 - (d - maxAngle * fadeInZone) / (maxAngle * (1 - fadeInZone)))
+            .clamp(0.0, 1.0);
+    if (opacity <= 0.01) return const SizedBox.shrink();
+    final x = radius * math.sin(angle);
+    final y = radius * (1 - math.cos(angle));
+    return Transform.translate(
+      offset: Offset(x, y),
+      child: Transform.scale(
+        scale: 1.0 - 0.3 * (d / maxAngle), // 离弧顶越远越小
+        child: Opacity(
+          opacity: opacity,
+          child: AnimalSilhouette(
+            key: ValueKey('arc_$i'),
+            animalId: _animals[i],
+            fillRatio: 1.0,
+            accentColor: _accent,
+            size: 300,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 初始轮换（N 只动物依次登场、慢速填色；除最后一只外依次退场）
   Widget _buildInitialRotation(double t) {
     return SizedBox(
       width: 300,
@@ -228,9 +272,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen>
       child: Stack(
         alignment: Alignment.center,
         children: [
-          _slot(0, t),
-          _slot(1, t),
-          _slot(2, t),
+          for (var i = 0; i < _animals.length; i++) _slot(i, t),
         ],
       ),
     );
@@ -238,34 +280,29 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen>
 
   Widget _slot(int index, double t) {
     final animal = _animals[index];
+    final isLast = index == _animals.length - 1;
     final startT = index * _tFillPerAnimal;
     final endT = (index + 1) * _tFillPerAnimal;
-    final enterDur = 0.6;
+    const enterDur = 0.6;
     final fillStart = startT + enterDur;
     final fillEnd = endT - 0.6;
     final exitStart = endT;
     final exitEnd = endT + 0.8;
 
+    final enter = _seg(t, startT, startT + enterDur);
+    final fill = _seg(t, fillStart, fillEnd);
+    // 最后一只不退场：填完色停留到轮播阶段接管
+    final exit = isLast ? 0.0 : _seg(t, exitStart, exitEnd);
+
     double offset;
     double opacity;
-    double fill;
 
     if (index == 0) {
-      fill = _seg(t, fillStart, fillEnd);
-      final exit = _seg(t, exitStart, exitEnd);
       offset = exit * 280;
       opacity = 1 - exit;
-    } else if (index == 1) {
-      final enter = _seg(t, startT, startT + enterDur);
-      final exit = _seg(t, exitStart, exitEnd);
-      fill = _seg(t, fillStart, fillEnd);
+    } else {
       offset = (1 - enter) * -280 + exit * 280;
       opacity = (t < startT) ? 0 : (1 - exit);
-    } else {
-      final enter = _seg(t, startT, startT + enterDur);
-      fill = _seg(t, fillStart, fillEnd);
-      offset = (1 - enter) * -280;
-      opacity = (t < startT) ? 0 : 1;
     }
 
     if (opacity <= 0.01) return const SizedBox.shrink();

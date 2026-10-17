@@ -1,10 +1,15 @@
+import 'dart:io' show Platform;
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:home_widget/home_widget.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
 import 'app/app.dart';
 import 'features/settings/settings_flags.dart';
+import 'features/settings/widget_background.dart';
 
 /// PRD §1.3 前端层入口
 /// M1：脚手架；M2：首页养成核心 + 饮水录入；M3：统计 + 提醒 + 设置
@@ -25,5 +30,10 @@ void main() {
   SettingsFlags.instance.ensureLoaded();
   // 统计页 DateFormat 使用 zh 语言环境，需预载符号表
   initializeDateFormatting('zh');
+  // 小组件饮料格后台录入回调：注册后点按饮品格由广播在 headless 引擎
+  // 内直接写库刷新桌面，无需启动 App（仅 Android 有桌面小组件）
+  if (!kIsWeb && Platform.isAndroid) {
+    registerHomeWidgetBackgroundCallback();
+  }
   runApp(const ProviderScope(child: WaterLlamaApp()));
 }

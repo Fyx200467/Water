@@ -9,12 +9,16 @@ import '../../../shared/models/beverage.dart';
 /// 自定义饮品列表（持久化到 SharedPreferences，供首页快捷栏 / 加量页 / 管理页共用）
 class CustomBeverageListNotifier extends StateNotifier<List<Beverage>> {
   CustomBeverageListNotifier(this.ref) : super(const []) {
-    _load();
+    loaded = _load();
   }
 
   final Ref ref;
 
   static const _kKey = 'custom_beverages';
+
+  /// 磁盘加载完成信号：完成前 state 是空列表，小组件同步若不等待，
+  /// 自定义饮品槽位会查不到（回退到 all.first）并推错图标/名称
+  late final Future<void> loaded;
 
   Future<void> _load() async {
     final storage = await ref.read(localStorageProvider.future);
@@ -218,12 +222,41 @@ class HomeDrinksNotifier extends StateNotifier<HomeDrinksState> {
     return o;
   }
 
+  /// 完整顺序 = 已持久化 order + 未登记 id（内置预设 + 当前自定义）按声明序追加。
+  /// 全新安装时 order 为空，所有内置饮品仅靠渲染层 missing 兜底展示；
+  /// 若开关只对 order 内 id 分区，新开启的饮品会错误地跳到已开启组之上。
+  /// 任何变更前先并入，保证分区/排序对全量饮品生效
+  List<String> _mergedOrder() {
+    final known = state.order.toSet();
+    final missing = [
+      ...Beverage.presets.map((b) => b.id),
+      ...ref.read(customBeveragesProvider).map((b) => b.id),
+    ].where((id) => !known.contains(id));
+    return [...state.order, ...missing];
+  }
+
+  /// 稳定分区：已开启饮品整体排在已关闭之前（各自保持相对顺序，水固定首位）。
+  /// 每次开关后调用，保证「关闭的饮品不会出现在已开启的前面」，
+  /// 同时修复历史数据中关闭饮品插在已开启之前的错位
+  List<String> _partitioned(List<String> order, Set<String> hidden) {
+    final enabled = <String>[];
+    final disabled = <String>[];
+    for (final id in order) {
+      if (id == 'water_pure') continue;
+      (hidden.contains(id) ? disabled : enabled).add(id);
+    }
+    return ['water_pure', ...enabled, ...disabled];
+  }
+
   /// 新饮品登记为默认隐藏（仅进 hidden 集合，管理页开关默认关闭，
   /// 用户开启后经 setVisible 正常进入 order 参与排序）
   Future<void> registerHidden(String id) async {
     if (id == 'water_pure' || state.hidden.contains(id)) return;
+    // 未登记饮品并入 order（新饮品入列尾），分区/展示口径一致
+    final order = _mergedOrder();
+    if (!order.contains(id)) order.add(id);
     state = HomeDrinksState(
-      order: state.order,
+      order: order,
       hidden: {...state.hidden, id},
     );
     await _save();
@@ -240,21 +273,15 @@ class HomeDrinksNotifier extends StateNotifier<HomeDrinksState> {
     } else {
       h.add(id);
     }
-    final order = [...state.order];
-    if (!order.contains(id)) order.add(id);
+    final order = _mergedOrder();
     order.remove(id);
-    if (visible) {
-      // 升序：插入到最后一个已开启饮品之后（水固定首位，从其后面开始找）
-      var insertAt = 1;
-      for (var i = 1; i < order.length; i++) {
-        if (!h.contains(order[i])) insertAt = i + 1;
-      }
-      order.insert(insertAt, id);
-    } else {
-      // 降序：掉落末尾
-      order.add(id);
-    }
-    state = HomeDrinksState(order: _normalized(order), hidden: h);
+    order.add(id);
+    // 开启 → 落到已开启组末位；关闭 → 落到已关闭组末位。
+    // 分区保证已开启整体在已关闭之前（含历史错位修复）
+    state = HomeDrinksState(
+      order: _normalized(_partitioned(order, h)),
+      hidden: h,
+    );
     await _save();
   }
 }

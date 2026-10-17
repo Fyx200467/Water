@@ -38,6 +38,21 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/water_llama_widget_info"/>
         </receiver>
+        <!-- home_widget 后台录入链路（插件要求宿主手动声明）：
+             饮品格点按 → HomeWidgetBackgroundReceiver 广播 →
+             HomeWidgetBackgroundService(headless Dart 引擎) 执行录入回调，
+             全程不启动 App UI。exported=false：仅本应用 PendingIntent 可达 -->
+        <receiver
+            android:name="es.antonborri.home_widget.HomeWidgetBackgroundReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="es.antonborri.home_widget.action.BACKGROUND"/>
+            </intent-filter>
+        </receiver>
+        <service
+            android:name="es.antonborri.home_widget.HomeWidgetBackgroundService"
+            android:permission="android.permission.BIND_JOB_SERVICE"
+            android:exported="false"/>
         <!-- 默认桌面图标别名（LAUNCHER 唯一入口；App 内切换图标=启用对应别名并停用当前别名）
              默认即图标页第一个（天蓝底羊驼），用户未主动更换时桌面显示它 -->
         <activity-alias

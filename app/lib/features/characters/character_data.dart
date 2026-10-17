@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// 角色数据：41 个动物角色 + 12 个收集分类
+/// 角色数据：90 个角色 + 6 个收集分类
 ///
 /// 资源位于 `assets/images/characters/<animalId>.svg`，由 iconfont 提供。
 /// 业务规则：
@@ -96,8 +96,6 @@ final characters = <String, CharacterInfo>{
   'person_04': CharacterInfo(id: 'person_04', displayName: '人物 04'),
   'person_06': CharacterInfo(id: 'person_06', displayName: '人物 06'),
   'person_07': CharacterInfo(id: 'person_07', displayName: '人物 07'),
-  'person_11': CharacterInfo(id: 'person_11', displayName: '人物 11'),
-  'person_15': CharacterInfo(id: 'person_15', displayName: '人物 15'),
   'zannet_01': CharacterInfo(id: 'zannet_01', displayName: '人物 01'),
   'zannet_02': CharacterInfo(id: 'zannet_02', displayName: '人物 02'),
   'zannet_04': CharacterInfo(id: 'zannet_04', displayName: '人物 03'),
@@ -113,22 +111,10 @@ final characters = <String, CharacterInfo>{
   'discussion': CharacterInfo(id: 'discussion', displayName: '讨论'),
   'shopping_girl': CharacterInfo(id: 'shopping_girl', displayName: '购物女孩'),
 
-  // 像素
-  'pixel_rabbit': CharacterInfo(id: 'pixel_rabbit', displayName: '像素兔子'),
-  'pixel_dog': CharacterInfo(id: 'pixel_dog', displayName: '像素小狗'),
-  'pixel_pig': CharacterInfo(id: 'pixel_pig', displayName: '像素小猪'),
-  'pixel_cat': CharacterInfo(id: 'pixel_cat', displayName: '像素小猫'),
-  'pixel_chick': CharacterInfo(id: 'pixel_chick', displayName: '像素小鸡'),
-  'pixel_polar_bear': CharacterInfo(id: 'pixel_polar_bear', displayName: '像素白熊'),
-  'pixel_tiger': CharacterInfo(id: 'pixel_tiger', displayName: '像素老虎'),
-  'pixel_frog': CharacterInfo(id: 'pixel_frog', displayName: '像素青蛙'),
-
   // 可爱
-  'excited': CharacterInfo(id: 'excited', displayName: '兴奋'),
   'comfort': CharacterInfo(id: 'comfort', displayName: '安慰'),
   'greeting': CharacterInfo(id: 'greeting', displayName: '打招呼'),
   'inspired': CharacterInfo(id: 'inspired', displayName: '振奋'),
-  'joyful': CharacterInfo(id: 'joyful', displayName: '欢快'),
   'delighted': CharacterInfo(id: 'delighted', displayName: '欣喜'),
   'pensive': CharacterInfo(id: 'pensive', displayName: '沉思'),
   'content': CharacterInfo(id: 'content', displayName: '满足'),
@@ -141,22 +127,6 @@ final characters = <String, CharacterInfo>{
   'poodle': CharacterInfo(id: 'poodle', displayName: '小贵宾'),
   'homesick_rabbit': CharacterInfo(id: 'homesick_rabbit', displayName: '想家兔兔'),
   'sleepy_cat': CharacterInfo(id: 'sleepy_cat', displayName: '瞌睡喵'),
-  'longtail_cat': CharacterInfo(id: 'longtail_cat', displayName: '长尾巴猫咪'),
-
-  // 抽象
-  'envelope': CharacterInfo(id: 'envelope', displayName: '信封'),
-  'star': CharacterInfo(id: 'star', displayName: '星星'),
-  'abstract_cup': CharacterInfo(id: 'abstract_cup', displayName: '抽象杯子'),
-  'camera': CharacterInfo(id: 'camera', displayName: '相机'),
-  'daily_icons': CharacterInfo(id: 'daily_icons', displayName: '日常图标'),
-  'shopping_bag': CharacterInfo(id: 'shopping_bag', displayName: '购物袋'),
-
-  // 杯子
-  'cola_bottle': CharacterInfo(id: 'cola_bottle', displayName: '可乐瓶子'),
-  'coffee_cup': CharacterInfo(id: 'coffee_cup', displayName: '咖啡杯'),
-  'baby_bottle': CharacterInfo(id: 'baby_bottle', displayName: '奶瓶'),
-  'cup': CharacterInfo(id: 'cup', displayName: '杯子'),
-  'bottle': CharacterInfo(id: 'bottle', displayName: '瓶子'),
 
   // 植物
   'flower_bunch': CharacterInfo(id: 'flower_bunch', displayName: '一小撮花'),
@@ -193,54 +163,34 @@ final characterCategories = <CharacterCategory>[
     name: '可爱',
     color: const Color(0xFF5AC8FA),
     characterIds: const [
-      'excited', 'comfort', 'greeting', 'inspired',
-      'joyful', 'delighted', 'pensive', 'content',
+      'comfort', 'greeting', 'inspired',
+      'delighted', 'pensive', 'content',
     ],
   ),
-  // 3. 像素（精美插画）
-  CharacterCategory(
-    id: 'pixel',
-    name: '像素',
-    color: const Color(0xFF8E8E93),
-    characterIds: const [
-      'pixel_rabbit', 'pixel_dog', 'pixel_pig', 'pixel_cat',
-      'pixel_chick', 'pixel_polar_bear', 'pixel_tiger', 'pixel_frog',
-    ],
-  ),
-  // 4. 人（精美插画）
+  // 3. 人（精美插画）
   CharacterCategory(
     id: 'people',
     name: '人',
     color: const Color(0xFFE0528C),
     characterIds: const [
-      'person_04', 'person_06', 'person_07', 'person_11', 'person_15',
+      'person_04', 'person_06', 'person_07',
       'zannet_01', 'zannet_02', 'zannet_04', 'zannet_07', 'zannet_11',
       'raise_cup', 'cartoon_person', 'eating_pizza', 'sofa_snacks',
       'sofa_drink', 'delivery_rider',
       'bride', 'discussion', 'shopping_girl',
     ],
   ),
-  // 5. 抽象（精美插画）
-  CharacterCategory(
-    id: 'abstract',
-    name: '抽象',
-    color: const Color(0xFF6B6FD7),
-    characterIds: const [
-      'envelope', 'star', 'abstract_cup', 'camera',
-      'daily_icons', 'shopping_bag',
-    ],
-  ),
-  // 6. 家（精美插画）
+  // 4. 家（精美插画）
   CharacterCategory(
     id: 'home',
     name: '家',
     color: const Color(0xFF34C759),
     characterIds: const [
       'orange_cat', 'silly_dog', 'pet', 'corgi', 'poodle',
-      'homesick_rabbit', 'sleepy_cat', 'longtail_cat',
+      'homesick_rabbit', 'sleepy_cat',
     ],
   ),
-  // 7. 蔬果（精美插画）
+  // 5. 蔬果（精美插画）
   CharacterCategory(
     id: 'fruits',
     name: '蔬果',
@@ -251,16 +201,7 @@ final characterCategories = <CharacterCategory>[
       'persimmon', 'watermelon_smile', 'cherry', 'cherry_pair',
     ],
   ),
-  // 8. 杯子（精美插画）
-  CharacterCategory(
-    id: 'cups',
-    name: '杯子',
-    color: const Color(0xFF007AFF),
-    characterIds: const [
-      'cola_bottle', 'coffee_cup', 'baby_bottle', 'cup', 'bottle',
-    ],
-  ),
-  // 9. 植物（精美插画）
+  // 6. 植物（精美插画）
   CharacterCategory(
     id: 'plants',
     name: '植物',

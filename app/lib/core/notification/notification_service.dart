@@ -36,16 +36,48 @@ class NotificationService {
 
   ///PRD §2.4 按设置重排全部提醒（先取消再排）
   /// times 为 "HH:mm" 列表；dnd 窗口内的时间不排（免打扰）
+  /// intervalMinutes 非空时额外排一组「每隔 N 分钟」的每日重复提醒
+  ///（17.x periodicallyShow 只支持固定枚举间隔，故按间隔铺全天槽位）
   static Future<void> reschedule({
     required bool enabled,
     required List<String> times,
     required String message,
     String? dndStart, // "HH:mm" or null
     String? dndEnd,
+    int? intervalMinutes,
   }) async {
     await _ensureInit();
     await _plugin.cancelAll();
     if (!enabled) return;
+
+    if (intervalMinutes != null && intervalMinutes > 0) {
+      final details = NotificationDetails(
+        android: AndroidNotificationDetails(
+          'interval_reminder',
+          '间隔喝水提醒',
+          channelDescription: '每隔固定时间提醒你喝水',
+          importance: Importance.high,
+          priority: Priority.high,
+          styleInformation: BigTextStyleInformation(message),
+        ),
+      );
+      final step = intervalMinutes.clamp(15, 720);
+      for (var m = 0; m < 1440; m += step) {
+        final hour = m ~/ 60, minute = m % 60;
+        if (_inDnd(hour, minute, dndStart, dndEnd)) continue;
+        await _plugin.zonedSchedule(
+          20000 + m, // 槽位唯一 id（按当日分钟数）
+          '该喝水啦',
+          message,
+          _nextInstanceOf(hour, minute),
+          details,
+          androidScheduleMode: AndroidScheduleMode.inexact,
+          uiLocalNotificationDateInterpretation:
+              UILocalNotificationDateInterpretation.absoluteTime,
+          matchDateTimeComponents: DateTimeComponents.time,
+        );
+      }
+    }
 
     for (final t in times) {
       final parts = t.split(':');

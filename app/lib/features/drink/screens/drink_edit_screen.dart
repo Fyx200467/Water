@@ -624,6 +624,7 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
                           : SvgContainerIcon(
                               containerId: _containerId!,
                               color: _liquidColor,
+                              fillRatio: 0.7, // 液体风格：液体占杯身 70%
                               size: 30,
                             ),
                       onTap: _editIcon,

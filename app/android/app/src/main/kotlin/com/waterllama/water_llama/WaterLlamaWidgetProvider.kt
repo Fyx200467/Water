@@ -10,6 +10,7 @@ import android.graphics.Color
 import android.net.Uri
 import android.view.View
 import android.widget.RemoteViews
+import es.antonborri.home_widget.HomeWidgetBackgroundIntent
 import es.antonborri.home_widget.HomeWidgetLaunchIntent
 import es.antonborri.home_widget.HomeWidgetPlugin
 import es.antonborri.home_widget.HomeWidgetProvider
@@ -162,17 +163,16 @@ class WaterLlamaWidgetProvider : HomeWidgetProvider() {
             }
         }
 
-        // 点击整卡打开应用主界面；点击饮料格带 URI 快速录入对应饮品
-        // （home_widget 约定 action=HOME_WIDGET_LAUNCH_ACTION，Dart 侧经
-        // initiallyLaunchedFromHomeWidget / widgetClicked 收到 data）
+        // 点击整卡打开应用主界面；点击饮料格发后台广播：插件在 headless
+        // Dart 引擎里执行录入回调直接写库并刷新小组件，App UI 不拉起
+        // （Dart 侧回调经 HomeWidget.registerInteractivityCallback 注册）
         val launch = HomeWidgetLaunchIntent.getActivity(context, MainActivity::class.java)
         views.setOnClickPendingIntent(R.id.widget_root, launch)
         for (i in 1..3) {
             views.setOnClickPendingIntent(
                 btnId(i),
-                HomeWidgetLaunchIntent.getActivity(
+                HomeWidgetBackgroundIntent.getBroadcast(
                     context,
-                    MainActivity::class.java,
                     Uri.parse("waterllama://quick-add?slot=$i")
                 )
             )
