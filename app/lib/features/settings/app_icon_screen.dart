@@ -33,9 +33,6 @@ const List<String> _iconCharacters = [
   'alpaca', 'sheep', 'rabbit',
   'fox', 'corgi', 'orange_cat',
   'sleepy_cat', 'silly_dog', 'poodle',
-  'husky', 'polar_bear', 'red_squirrel',
-  'whale', 'dolphin', 'turtle',
-  'parrot', 'duck', 'hedgehog',
 ];
 
 /// 选中图标持久化键（设置页「App 图标」行同步读取）
@@ -47,7 +44,7 @@ const kDefaultAppIconId = 'char_alpaca_0';
 /// 当前选中的 App 图标 id（全局通知：设置页行内小图标跟随变化）
 final ValueNotifier<String?> selectedAppIcon = ValueNotifier<String?>(null);
 
-/// 图标清单：角色插画变体（各角色 × 各底色）+ 扁平杯/水滴图形变体。
+/// 图标清单：角色插画变体（各角色 × 各底色）。
 /// 提为顶层函数：设置页「App 图标」行需要按 id 反查预览数据
 List<AppIconEntry> buildAppIconCatalog() => [
       for (var i = 0; i < _iconCharacters.length; i++)
@@ -57,31 +54,38 @@ List<AppIconEntry> buildAppIconCatalog() => [
             svg: 'assets/images/characters/${_iconCharacters[i]}.svg',
             bg: _iconBgs[j],
           ),
+      // 图标库水滴系列（实心满铺，预览缩至格子一半对齐桌面观感）
       const AppIconEntry(
-          id: 'glyph_drop_light',
+          id: 'glyph2_drop0',
+          svg: 'assets/images/icons/drop0.svg',
           bg: Color(0xFFF7F7F9),
-          glyph: Icons.water_drop,
-          glyphColor: Color(0xFF35B5D6)),
+          svgScale: 0.5),
       const AppIconEntry(
-          id: 'glyph_cup_light',
+          id: 'glyph2_drop1',
+          svg: 'assets/images/icons/drop1.svg',
           bg: Color(0xFFF7F7F9),
-          glyph: Icons.local_drink,
-          glyphColor: Color(0xFFE5605C)),
+          svgScale: 0.5),
       const AppIconEntry(
-          id: 'glyph_drop_dark',
-          bg: Color(0xFF1C1C22),
-          glyph: Icons.water_drop,
-          glyphColor: Color(0xFF35B5D6)),
+          id: 'glyph2_drop4',
+          svg: 'assets/images/icons/drop4.svg',
+          bg: Color(0xFFF7F7F9),
+          svgScale: 0.5),
       const AppIconEntry(
-          id: 'glyph_cup_dark',
-          bg: Color(0xFF1C1C22),
-          glyph: Icons.local_drink,
-          glyphColor: Color(0xFF4DB8D8)),
+          id: 'glyph2_drop5',
+          svg: 'assets/images/icons/drop5.svg',
+          bg: Color(0xFFF7F7F9),
+          svgScale: 0.5),
+      const AppIconEntry(
+          id: 'glyph2_drop6',
+          svg: 'assets/images/icons/drop6.svg',
+          bg: Color(0xFFF7F7F9),
+          svgScale: 0.5),
     ];
 
-/// App 图标小预览（设置页「App 图标」行左侧）：按当前选中 id 渲染
-/// 迷你圆角方块图标，进选择页换图标后行内实时跟随
-class AppIconPreview extends StatelessWidget {
+/// App 图标小预览（设置页「App 图标」行左侧）：监听全局选中值实时跟随，
+/// 冷启动从持久化恢复上次选择（此前直接读 value 不监听，切换后不刷新，
+/// 且未进过图标页时永远显示默认图标）
+class AppIconPreview extends ConsumerStatefulWidget {
   const AppIconPreview({super.key, required this.size, this.id});
 
   final double size;
@@ -90,23 +94,56 @@ class AppIconPreview extends StatelessWidget {
   final String? id;
 
   @override
+  ConsumerState<AppIconPreview> createState() => _AppIconPreviewState();
+}
+
+class _AppIconPreviewState extends ConsumerState<AppIconPreview> {
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final storage = await ref.read(localStorageProvider.future);
+    final saved = storage.prefs.getString(kAppIconSelectionKey);
+    // ??= 不覆盖图标页已写入的运行时选择，仅补冷启动的初值；
+    // 已移除的图标 id 不回填，走默认回退
+    if (saved != null &&
+        mounted &&
+        buildAppIconCatalog().any((e) => e.id == saved)) {
+      selectedAppIcon.value ??= saved;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final catalog = buildAppIconCatalog();
-    final selId = id ?? selectedAppIcon.value ?? kDefaultAppIconId;
-    final e = catalog.firstWhere((x) => x.id == selId,
-        orElse: () => catalog.first);
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(size * 0.28),
-      child: Container(
-        width: size,
-        height: size,
-        color: e.bg,
-        alignment: Alignment.center,
-        padding: e.svg != null ? EdgeInsets.all(size * 0.08) : EdgeInsets.zero,
-        child: e.svg != null
-            ? SvgPicture.asset(e.svg!, fit: BoxFit.contain)
-            : Icon(e.glyph, color: e.glyphColor, size: size * 0.62),
-      ),
+    return ValueListenableBuilder<String?>(
+      valueListenable: selectedAppIcon,
+      builder: (context, value, _) {
+        final catalog = buildAppIconCatalog();
+        final selId = widget.id ?? value ?? kDefaultAppIconId;
+        final e = catalog.firstWhere((x) => x.id == selId,
+            orElse: () => catalog.first);
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(widget.size * 0.28),
+          child: Container(
+            width: widget.size,
+            height: widget.size,
+            color: e.bg,
+            alignment: Alignment.center,
+            padding: e.svg != null
+                ? EdgeInsets.all(widget.size * 0.08)
+                : EdgeInsets.zero,
+            child: e.svg != null
+                ? Transform.scale(
+                    scale: e.svgScale,
+                    child: SvgPicture.asset(e.svg!, fit: BoxFit.contain))
+                : Icon(e.glyph, color: e.glyphColor,
+                    size: widget.size * 0.58),
+          ),
+        );
+      },
     );
   }
 }
@@ -135,9 +172,11 @@ class _AppIconScreenState extends ConsumerState<AppIconScreen> {
   Future<void> _load() async {
     final storage = await ref.read(localStorageProvider.future);
     final saved = storage.prefs.getString(kAppIconSelectionKey);
-    // 未主动选择过时默认选中图标页第一个（与桌面默认图标保持一致）
+    // 已持久化的选择可能已被从清单移除（图标精简），失效则回默认
+    final valid = saved != null &&
+        buildAppIconCatalog().any((e) => e.id == saved);
     if (mounted) {
-      setState(() => _selected = saved ?? kDefaultAppIconId);
+      setState(() => _selected = valid ? saved : kDefaultAppIconId);
       selectedAppIcon.value ??= _selected;
     }
   }
@@ -147,14 +186,15 @@ class _AppIconScreenState extends ConsumerState<AppIconScreen> {
     selectedAppIcon.value = id; // 设置页「App 图标」行小图标实时跟随
     final storage = await ref.read(localStorageProvider.future);
     await storage.prefs.setString(kAppIconSelectionKey, id);
-    // 真实切换桌面图标：启用对应 activity-alias、停用当前别名
-    // （部分 ROM 会在数秒内刷新桌面，期间图标可能短暂消失）
+    // 真实切换桌面图标：原生侧先暂存，等离开应用（回桌面）的瞬间才
+    // 应用——立刻应用会停用正在运行的 LAUNCHER 别名，系统随即结束
+    // 当前 Activity，看起来就像切个图标把 app 弄退出了
     try {
       await _channel.invokeMethod<void>(
           'setIcon', {'alias': 'com.waterllama.water_llama.AppIcon_$id'});
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('已应用，桌面图标将稍后自动更新')),
+          const SnackBar(content: Text('已选择，返回桌面后生效')),
         );
       }
     } on PlatformException {
@@ -252,6 +292,7 @@ class AppIconEntry {
     this.svg,
     this.glyph,
     this.glyphColor,
+    this.svgScale = 1.0,
   });
 
   final String id;
@@ -261,6 +302,10 @@ class AppIconEntry {
   final String? svg;
   final IconData? glyph;
   final Color? glyphColor;
+
+  /// 预览缩放（满铺 SVG 用于水滴等留白极少的图：0.5 = 缩到格子一半，
+  /// 与桌面矢量前景 44% 的实际观感对齐）
+  final double svgScale;
 }
 
 class _IconTile extends StatelessWidget {
@@ -296,8 +341,12 @@ class _IconTile extends StatelessWidget {
                     ? const EdgeInsets.all(6)
                     : EdgeInsets.zero,
                 child: e.svg != null
-                    ? SvgPicture.asset(e.svg!, fit: BoxFit.contain)
-                    : Icon(e.glyph, color: e.glyphColor, size: 46),
+                    ? Transform.scale(
+                        scale: e.svgScale,
+                        child: SvgPicture.asset(e.svg!, fit: BoxFit.contain))
+                    // 字形 ~57%：与桌面观感一致（前景占画布 44%，OriginOS
+                    // 蒙版显示画布 ~75% → 桌面视觉占比 ~58%），预览即所得
+                    : Icon(e.glyph, color: e.glyphColor, size: 64),
               ),
             ),
           ),

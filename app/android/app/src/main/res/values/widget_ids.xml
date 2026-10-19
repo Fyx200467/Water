@@ -3,9 +3,12 @@
 <resources>
     <item type="id" name="widget_root" />
     <item type="id" name="widget_bg_img" />
-    <item type="id" name="widget_goal" />
+    <item type="id" name="widget_goal_img" />
     <item type="id" name="widget_percent" />
     <item type="id" name="widget_streak" />
+    <item type="id" name="widget_streak_num" />
+    <item type="id" name="widget_streak_check" />
+    <item type="id" name="widget_badge_flipper" />
     <item type="id" name="widget_streak_badge" />
     <item type="id" name="widget_character" />
     <item type="id" name="widget_character_flipper" />
@@ -26,6 +29,9 @@
     <item type="id" name="widget_char_f14" />
     <item type="id" name="widget_char_f15" />
     <item type="id" name="widget_drinks" />
+    <item type="id" name="widget_d1_plus" />
+    <item type="id" name="widget_d2_plus" />
+    <item type="id" name="widget_d3_plus" />
     <item type="id" name="widget_d1_ml" />
     <item type="id" name="widget_d1_name" />
     <item type="id" name="widget_d1_icon" />

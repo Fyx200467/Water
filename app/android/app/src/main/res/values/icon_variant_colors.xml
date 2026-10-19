@@ -8,4 +8,9 @@
     <color name="icon_bg_5">#FFD54F</color>
     <color name="icon_bg_white">#FFFFFF</color>
     <color name="icon_bg_dark">#1C1C22</color>
+    <color name="icon_bg2_drop0">#F7F7F9</color>
+    <color name="icon_bg2_drop1">#F7F7F9</color>
+    <color name="icon_bg2_drop4">#F7F7F9</color>
+    <color name="icon_bg2_drop5">#F7F7F9</color>
+    <color name="icon_bg2_drop6">#F7F7F9</color>
 </resources>

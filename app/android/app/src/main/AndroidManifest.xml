@@ -30,7 +30,7 @@
         <!-- 桌面小组件 Provider（喝水养成） -->
         <receiver
             android:name=".WaterLlamaWidgetProvider"
-            android:exported="false">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
             </intent-filter>
@@ -39,9 +39,14 @@
                 android:resource="@xml/water_llama_widget_info"/>
         </receiver>
         <!-- home_widget 后台录入链路（插件要求宿主手动声明）：
-             饮品格点按 → HomeWidgetBackgroundReceiver 广播 →
-             HomeWidgetBackgroundService(headless Dart 引擎) 执行录入回调，
-             全程不启动 App UI。exported=false：仅本应用 PendingIntent 可达 -->
+             饮品格点按 → QuickAddReceiver 广播 → goAsync 内联跑 headless
+             Dart 引擎执行录入回调，全程不启动 App UI。
+             （不走插件的 JobIntentService：vivo OriginOS 会在 Job 执行中
+             冻结后台进程导致桌面不刷新；goAsync 持有派发窗口期间不冻结。
+             exported=false：仅本应用 PendingIntent 可达 -->
+        <receiver
+            android:name=".QuickAddReceiver"
+            android:exported="false" />
         <receiver
             android:name="es.antonborri.home_widget.HomeWidgetBackgroundReceiver"
             android:exported="false">
@@ -715,11 +720,13 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity-alias>
+
+        <!-- 图标库水滴系列：矢量前景（44% 安全区），2/3 号白框造型配深底 -->
         <activity-alias
-            android:name=".AppIcon_char_husky_0"
+            android:name=".AppIcon_glyph2_drop0"
             android:enabled="false"
             android:exported="true"
-            android:icon="@mipmap/ic_v_char_husky_0"
+            android:icon="@mipmap/ic_v_glyph2_drop0"
             android:label="喝水养成"
             android:targetActivity=".MainActivity">
             <intent-filter>
@@ -728,10 +735,10 @@
             </intent-filter>
         </activity-alias>
         <activity-alias
-            android:name=".AppIcon_char_husky_1"
+            android:name=".AppIcon_glyph2_drop1"
             android:enabled="false"
             android:exported="true"
-            android:icon="@mipmap/ic_v_char_husky_1"
+            android:icon="@mipmap/ic_v_glyph2_drop1"
             android:label="喝水养成"
             android:targetActivity=".MainActivity">
             <intent-filter>
@@ -740,10 +747,10 @@
             </intent-filter>
         </activity-alias>
         <activity-alias
-            android:name=".AppIcon_char_husky_2"
+            android:name=".AppIcon_glyph2_drop4"
             android:enabled="false"
             android:exported="true"
-            android:icon="@mipmap/ic_v_char_husky_2"
+            android:icon="@mipmap/ic_v_glyph2_drop4"
             android:label="喝水养成"
             android:targetActivity=".MainActivity">
             <intent-filter>
@@ -752,10 +759,10 @@
             </intent-filter>
         </activity-alias>
         <activity-alias
-            android:name=".AppIcon_char_husky_3"
+            android:name=".AppIcon_glyph2_drop5"
             android:enabled="false"
             android:exported="true"
-            android:icon="@mipmap/ic_v_char_husky_3"
+            android:icon="@mipmap/ic_v_glyph2_drop5"
             android:label="喝水养成"
             android:targetActivity=".MainActivity">
             <intent-filter>
@@ -764,646 +771,10 @@
             </intent-filter>
         </activity-alias>
         <activity-alias
-            android:name=".AppIcon_char_husky_4"
+            android:name=".AppIcon_glyph2_drop6"
             android:enabled="false"
             android:exported="true"
-            android:icon="@mipmap/ic_v_char_husky_4"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_husky_5"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_husky_5"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_polar_bear_0"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_polar_bear_0"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_polar_bear_1"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_polar_bear_1"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_polar_bear_2"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_polar_bear_2"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_polar_bear_3"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_polar_bear_3"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_polar_bear_4"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_polar_bear_4"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_polar_bear_5"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_polar_bear_5"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_red_squirrel_0"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_red_squirrel_0"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_red_squirrel_1"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_red_squirrel_1"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_red_squirrel_2"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_red_squirrel_2"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_red_squirrel_3"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_red_squirrel_3"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_red_squirrel_4"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_red_squirrel_4"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_red_squirrel_5"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_red_squirrel_5"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_whale_0"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_whale_0"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_whale_1"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_whale_1"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_whale_2"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_whale_2"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_whale_3"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_whale_3"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_whale_4"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_whale_4"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_whale_5"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_whale_5"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_dolphin_0"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_dolphin_0"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_dolphin_1"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_dolphin_1"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_dolphin_2"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_dolphin_2"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_dolphin_3"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_dolphin_3"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_dolphin_4"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_dolphin_4"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_dolphin_5"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_dolphin_5"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_turtle_0"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_turtle_0"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_turtle_1"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_turtle_1"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_turtle_2"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_turtle_2"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_turtle_3"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_turtle_3"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_turtle_4"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_turtle_4"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_turtle_5"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_turtle_5"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_parrot_0"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_parrot_0"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_parrot_1"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_parrot_1"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_parrot_2"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_parrot_2"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_parrot_3"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_parrot_3"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_parrot_4"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_parrot_4"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_parrot_5"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_parrot_5"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_duck_0"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_duck_0"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_duck_1"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_duck_1"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_duck_2"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_duck_2"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_duck_3"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_duck_3"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_duck_4"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_duck_4"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_duck_5"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_duck_5"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_hedgehog_0"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_hedgehog_0"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_hedgehog_1"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_hedgehog_1"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_hedgehog_2"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_hedgehog_2"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_hedgehog_3"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_hedgehog_3"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_hedgehog_4"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_hedgehog_4"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_char_hedgehog_5"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_char_hedgehog_5"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_glyph_drop_light"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_glyph_drop_light"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_glyph_cup_light"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_glyph_cup_light"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_glyph_drop_dark"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_glyph_drop_dark"
-            android:label="喝水养成"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".AppIcon_glyph_cup_dark"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_v_glyph_cup_dark"
+            android:icon="@mipmap/ic_v_glyph2_drop6"
             android:label="喝水养成"
             android:targetActivity=".MainActivity">
             <intent-filter>

@@ -57,7 +57,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   bool _isLit = false;
   Timer? _litTimer;
 
-  /// 冷启动小组件刷新计时器（延迟 1 秒，等 provider 完成首次加载）
+  /// 小组件同步防抖计时器（冷启动延迟 1 秒等 provider 首载；数据变化
+  /// 时复用同一计时器去抖，1 秒内多次变化只推一次）
   Timer? _widgetSyncTimer;
 
   /// 小组件点击事件订阅（热启动 onNewIntent 转发）
@@ -73,7 +74,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     WidgetsBinding.instance.addObserver(this);
     _scrollCtrl.addListener(_onScroll);
     // 冷启动延迟 1 秒同步一次桌面小组件
-    _widgetSyncTimer = Timer(const Duration(seconds: 1), _syncHomeWidget);
+    _scheduleWidgetSync();
+    // 数据驱动同步：今日记录或连续天数一变就防抖推送小组件——覆盖
+    // App 内手动加饮、历史页补录昨日记录（连签到天数变但今日量不变）、
+    // 目标修改等所有入口，小组件与 App 始终实时一致（此前只在冷启动
+    // 同步一次，补录历史后小组件天数不更新的根因）
+    ref.listenManual(todayEntriesProvider, (_, __) => _scheduleWidgetSync());
+    ref.listenManual(checkinDaysProvider, (_, __) => _scheduleWidgetSync());
     // 桌面小组件饮料格点击快速录入（冷启动 URI + 热启动事件流）
     HomeWidget.initiallyLaunchedFromHomeWidget()
         .then((uri) => _handleWidgetLaunch(uri));
@@ -97,7 +104,52 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      _drainNativeWidgetAdds();
       ref.read(todayEntriesProvider.notifier).refresh();
+    }
+  }
+
+  /// 排空原生快捷录入队列：vivo 冻结窗口内点按由 QuickAddReceiver 纯原生
+  /// 写偏好（"slot:ml:ts|..."）并即时重绘桌面，正式记录在这里补入 DB——
+  /// 走与手动录入完全相同的 DrinkEntry.create 折算管线，统计/回看一致。
+  /// 成功后清空队列；失败保留待下次重试（小组件数字以缓存累计，不丢数据）
+  Future<void> _drainNativeWidgetAdds() async {
+    try {
+      final pending =
+          await HomeWidget.getWidgetData<String>('native_pending_adds');
+      if (pending == null || pending.isEmpty) return;
+      // 等槽位配置与自定义饮品加载完成（冷启动早期必然经历这个窗口）
+      await ref.read(widgetSettingsProvider.notifier).loaded;
+      await ref.read(customBeveragesProvider.notifier).loaded;
+      final s = ref.read(widgetSettingsProvider);
+      final all = [
+        ...Beverage.presets,
+        ...ref.read(customBeveragesProvider),
+      ];
+      for (final raw in pending.split('|')) {
+        final parts = raw.split(':');
+        if (parts.length != 3) continue;
+        final slot = int.tryParse(parts[0]);
+        final ml = int.tryParse(parts[1]);
+        final ts = int.tryParse(parts[2]);
+        if (slot == null || ml == null || ml <= 0) continue;
+        if (slot < 1 || slot > 3) continue;
+        final (String id, _) = switch (slot) {
+          1 => (s.drink1, s.vol1),
+          2 => (s.drink2, s.vol2),
+          _ => (s.drink3, s.vol3),
+        };
+        final b = all.firstWhere((x) => x.id == id, orElse: () => all.first);
+        await ref.read(todayEntriesProvider.notifier).add(DrinkEntry.create(
+              beverage: b,
+              volumeMl: ml,
+              drankAt:
+                  ts == null ? null : DateTime.fromMillisecondsSinceEpoch(ts),
+            ));
+      }
+      await HomeWidget.saveWidgetData<String>('native_pending_adds', null);
+    } catch (e) {
+      debugPrint('[home] drain native widget adds failed: $e');
     }
   }
 
@@ -109,8 +161,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _challengeCompact.value = _scrollCtrl.offset > 28;
   }
 
-  /// 冷启动同步桌面小组件：读取今日合计 / 目标 / 连续签到并推送刷新
+  /// 防抖调度小组件同步：复用 _widgetSyncTimer，1 秒内的连续变化
+  /// （如批量补录）只触发最后一次推送
+  void _scheduleWidgetSync() {
+    _widgetSyncTimer?.cancel();
+    _widgetSyncTimer = Timer(const Duration(seconds: 1), _syncHomeWidget);
+  }
+
+  /// 同步桌面小组件：补录原生点按队列 → 读取今日合计 / 目标 / 连续签到
+  /// 推送刷新（冷启动 1s + 数据变化防抖 1s 双入口）
   Future<void> _syncHomeWidget() async {
+    if (!mounted) return;
+    // 先补录原生快捷录入队列，保证冷启动即看到点按累计的水量
+    await _drainNativeWidgetAdds();
     if (!mounted) return;
     final goalMl = ref.read(profileProvider)?.dailyGoalMl ?? 2000;
     final todayMl =

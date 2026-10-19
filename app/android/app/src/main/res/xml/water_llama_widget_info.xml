@@ -1,15 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 喝水养成桌面小组件元信息
      唯一固定样式（对标竞品「柠檬喝水」）：布局固定不可编辑，
-     默认占 4×2 格；resizeMode 不含 horizontal|vertical → 用户无法
-     拉伸改形，样式在所有厂商桌面（OriginOS/EMUI/MHCI 等）完全一致。
+     默认占 3×2 格。resizeMode 允许用户手动拉伸改占格（不改布局）：
+     ColorOS 按网格模式换算默认跨度且规则随格子宽高变化——5×5 模式
+     列窄行高，ceil(190/60)→4 列、ceil(100/140)→1 行，默认只剩
+     「4×1」且无 resizeMode 时连拉伸入口都没有（用户反馈）；
+     放开 resizeMode 后任意跨度由 applySizeProfile 连续缩放适配。
+     跨度双轨：现代启动器认 targetCellWidth/Height（3×2）；vivo 等
+     厂商桌面忽略 targetCell、按 minWidth/minHeight 除以当前网格格宽
+     换算列数（vivo 实测为 ceil 上取整）。真机实测（V2207A，
+     1080px/480dpi）：4×6 布局格宽 82dp（图标列间距 246px），
+     5×9 布局格宽 72dp（1080/5/3）。3 列安全区间需同时覆盖两种
+     网格：4×6 → (164,246]，5×9 → (144,216]，交集 (164,216]，
+     取中点 190dp（两侧余量 26dp）。此前 225dp 在 5×9 上
+     ceil(225/72)=4 列、300dp 在 4×6 上 4 列，均偏宽。
+     minHeight 100dp 实测即 2 行不动。更换桌面网格布局后需复核。
      updatePeriodMillis 为系统兜底轮询；数据实时性由 Dart 侧推送保证 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:minWidth="190dp"
-    android:minHeight="110dp"
+    android:minHeight="100dp"
     android:targetCellWidth="3"
     android:targetCellHeight="2"
+    android:resizeMode="horizontal|vertical"
     android:updatePeriodMillis="1800000"
     android:initialLayout="@layout/water_llama_widget"
     android:widgetCategory="home_screen"

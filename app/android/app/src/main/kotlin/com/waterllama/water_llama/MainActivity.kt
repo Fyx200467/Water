@@ -8,8 +8,14 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
-    /// App 图标切换通道：Dart 侧传完整 alias 类名，
-    /// 原生侧停用当前启用的别名、启用目标别名（LAUNCHER 唯一入口随之切换）
+    /// 点选后暂存的目标别名：延迟到用户离开应用（回到桌面）的瞬间再应用。
+    /// 立刻应用会停用正在运行的 LAUNCHER 别名，系统随即结束当前
+    /// Activity——用户看到的就是「切个图标 app 却闪退」
+    private var pendingIconAlias: String? = null
+
+    /// App 图标切换通道：Dart 侧传完整 alias 类名，原生侧暂存，
+    /// 在 onUserLeaveHint/onStop 统一应用（停用当前启用的别名、启用目标
+    /// 别名，LAUNCHER 唯一入口随之切换）
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "app.icon.switcher")
@@ -17,11 +23,11 @@ class MainActivity : FlutterActivity() {
                 when (call.method) {
                     "setIcon" -> {
                         val alias = call.argument<String>("alias") ?: ""
-                        try {
-                            switchIcon(alias)
+                        if (alias.isBlank()) {
+                            result.error("ICON_ERROR", "empty alias", null)
+                        } else {
+                            pendingIconAlias = alias
                             result.success(true)
-                        } catch (e: Exception) {
-                            result.error("ICON_ERROR", e.message, null)
                         }
                     }
                     else -> result.notImplemented()
@@ -34,41 +40,98 @@ class MainActivity : FlutterActivity() {
         // 自愈：重装/系统重置后默认别名会跟随清单重新启用，桌面上会出现
         // 两个「喝水养成」。启动时按已保存的选择重新收敛（无保存则不动）
         try {
-            val saved = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
-                .getString("flutter.app_icon_selection", null)
+            val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            val saved = prefs.getString("flutter.app_icon_selection", null)
             if (!saved.isNullOrBlank()) {
-                switchIcon("com.waterllama.water_llama.AppIcon_$saved")
+                val ok = switchIcon("com.waterllama.water_llama.AppIcon_$saved")
+                if (!ok) {
+                    // 保存的选择对应的别名已被从清单移除：清掉记录并回到
+                    // 默认图标，避免永远指向不存在的入口
+                    prefs.edit().remove("flutter.app_icon_selection").apply()
+                    switchIcon("com.waterllama.water_llama.AppIcon_char_alpaca_0")
+                }
             }
         } catch (_: Exception) {
             // 自愈失败不影响启动
         }
     }
 
-    private fun switchIcon(targetAlias: String) {
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        // 用户主动离开（回桌面/进多任务）的瞬间生效，回到桌面即可见
+        applyPendingIcon()
+    }
+
+    override fun onStop() {
+        // 兜底：下拉通知栏/锁屏/跳其他应用等非 onUserLeaveHint 的离开路径
+        applyPendingIcon()
+        super.onStop()
+    }
+
+    private fun applyPendingIcon() {
+        val target = pendingIconAlias ?: return
+        pendingIconAlias = null
+        try {
+            switchIcon(target)
+        } catch (_: Exception) {
+            // 生效失败不崩溃；下次启动 onCreate 自愈收敛
+        }
+    }
+
+    /** 全部 LAUNCHER 别名 id（与 Manifest 保持同步，增删图标须同步此表）。
+     *  vivo ROM 的 GET_ACTIVITIES 返回数组不含 activity-alias，依赖系统
+     *  返回遍历停用从未生效过（多个别名同时处于启用态）；此后加的存在
+     *  性守卫更因此恒判失败，切图标完全不生效——改为内置清单直连启停 */
+    private val allIconAliases: List<String> by lazy {
+        val chars = listOf("alpaca", "sheep", "rabbit", "fox", "corgi",
+            "orange_cat", "sleepy_cat", "silly_dog", "poodle")
+        val list = mutableListOf("AppIcon_default")
+        for (c in chars) for (j in 0..5) list.add("AppIcon_char_${c}_$j")
+        list.addAll(listOf(
+            "AppIcon_glyph2_drop0", "AppIcon_glyph2_drop1",
+            "AppIcon_glyph2_drop4", "AppIcon_glyph2_drop5",
+            "AppIcon_glyph2_drop6",
+        ))
+        list
+    }
+
+    private fun switchIcon(targetAlias: String): Boolean {
         val fullTarget = if (targetAlias.startsWith(".")) packageName + targetAlias else targetAlias
         val pm = packageManager
-        val pkg = pm.getPackageInfo(packageName, PackageManager.GET_ACTIVITIES)
-        val activities = pkg.activities ?: return
-        for (info in activities) {
-            if (!info.name.startsWith("$packageName.AppIcon")) continue
-            if (info.name == fullTarget) continue
-            val state = pm.getComponentEnabledSetting(ComponentName(packageName, info.name))
-            // 注意：manifest 里 enabled=true/false 的别名查出来是 DEFAULT（跟随清单）。
-            // 默认别名从未被显式 set 过（状态 DEFAULT 而实际是启用）——只停用
-            // ENABLED 会导致它一直显示，桌面出现双图标。这里对一切「非目标的
-            // 且未处于显式 DISABLED」的别名统一显式停用
-            if (state != PackageManager.COMPONENT_ENABLED_STATE_DISABLED) {
-                pm.setComponentEnabledSetting(
-                    ComponentName(packageName, info.name),
-                    PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-                    PackageManager.DONT_KILL_APP,
-                )
+        // 先启用目标。不存在/非法的别名交给 PackageManager 报错兜底：
+        // 自愈逻辑据此识别「保存的选择已从清单移除」并回退默认图标
+        val enabled = try {
+            pm.setComponentEnabledSetting(
+                ComponentName(packageName, fullTarget),
+                PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                PackageManager.DONT_KILL_APP,
+            )
+            true
+        } catch (_: IllegalArgumentException) {
+            false
+        } catch (_: SecurityException) {
+            false
+        }
+        if (!enabled) return false
+        // 停用目标以外的一切别名（含默认入口），保证 LAUNCHER 唯一；
+        // 显式 DISABLED 的跳过，每次启动只发必要的 PACKAGE_CHANGED
+        for (alias in allIconAliases) {
+            val name = "$packageName.$alias"
+            if (name == fullTarget) continue
+            val cn = ComponentName(packageName, name)
+            try {
+                if (pm.getComponentEnabledSetting(cn) !=
+                    PackageManager.COMPONENT_ENABLED_STATE_DISABLED) {
+                    pm.setComponentEnabledSetting(
+                        cn,
+                        PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                        PackageManager.DONT_KILL_APP,
+                    )
+                }
+            } catch (_: Exception) {
+                // 别名已从清单移除等情形，忽略
             }
         }
-        pm.setComponentEnabledSetting(
-            ComponentName(packageName, fullTarget),
-            PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
-            PackageManager.DONT_KILL_APP,
-        )
+        return true
     }
 }

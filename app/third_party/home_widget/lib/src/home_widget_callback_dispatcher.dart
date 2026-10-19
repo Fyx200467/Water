@@ -25,6 +25,11 @@ Future<void> callbackDispatcher() async {
     }
 
     await callback.call(uri);
+
+    // 完成信号：QuickAddReceiver（goAsync 内联模式）靠它感知回调已跑完，
+    // 从而销毁引擎并释放广播派发窗口。原生 JobIntentService 模式下原生侧
+    // 不监听此方法，无副作用。
+    await backgroundChannel.invokeMethod('waterllama.callbackCompleted');
   });
 
   await backgroundChannel.invokeMethod('HomeWidget.backgroundInitialized');

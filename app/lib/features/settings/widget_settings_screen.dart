@@ -319,11 +319,9 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
     final volume = _goalLabel(progress.totalEffectiveMl);
     final percent = (progress.progress * 100).round();
     final fraction = progress.progress.clamp(0.0, 1.0).toDouble();
-    // 选择了非默认白色主题时，预览卡背景染主题色
-    final colorful =
-        s.colorIndex != 0 || (s.colorIndex == -1 && s.customColor != null);
-    final themeColor = s.themeColor;
-    final cardColor = colorful ? themeColor : Colors.white;
+    // 预览卡底色：与桌面推送同规则（含「遵循深色模式规则」的深色强制，
+    // 详见 effectiveWidgetThemeColor 注释），保证 App 内所见 = 桌面所见
+    final themeColor = effectiveWidgetThemeColor(s);
     // 深色主题上文字/徽章用白色，浅色主题用深色
     final onCard =
         themeColor.computeLuminance() > 0.55 ? _textDark : Colors.white;
@@ -350,9 +348,12 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
       height: 210,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: cardColor,
+        color: themeColor,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: const Color(0xFFECECEF)),
+        border: Border.all(
+            color: themeColor.computeLuminance() > 0.55
+                ? const Color(0xFFECECEF)
+                : Colors.transparent),
       ),
       child: Stack(
         children: [
@@ -432,7 +433,13 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
 
   /// 预览卡内单个饮料格：容量/名称 + 灰底圆角容器
   Widget _widgetDrinkTile(Beverage b, WidgetSettingsState s) {
-    final tileColor = s.colorfulButtons ? s.themeColor : const Color(0xFFF1F1F4);
+    // 格底/文字深浅与桌面同规则：彩色按钮染「实际生效底色」（含深色
+    // 强制）；容量/名称落在卡面上，深浅随卡面亮度（桌面 dark_text 同源）
+    final themeColor = effectiveWidgetThemeColor(s);
+    final onDark = themeColor.computeLuminance() <= 0.55;
+    final tileColor = s.colorfulButtons ? themeColor : const Color(0xFFF1F1F4);
+    final textMain = onDark ? Colors.white : _textDark;
+    final textSub = onDark ? const Color(0xB3FFFFFF) : _textGray;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -440,13 +447,12 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Text('${s.volOf(b)}ml',
-                style: const TextStyle(
-                    color: _textDark,
+                style: TextStyle(
+                    color: textMain,
                     fontSize: 15,
                     fontWeight: FontWeight.w700)),
             const SizedBox(height: 1),
-            Text(b.name,
-                style: const TextStyle(color: _textGray, fontSize: 11)),
+            Text(b.name, style: TextStyle(color: textSub, fontSize: 11)),
           ],
         ),
         const SizedBox(width: 10),
@@ -1134,9 +1140,9 @@ Future<void> _renderFramesOnce(
   Reader read, {
   required Color liquidColor,
 }) async {
+  final progress = read(dailyProgressProvider);
+  final characterId = read(currentCharacterProvider);
   try {
-    final progress = read(dailyProgressProvider);
-    final characterId = read(currentCharacterProvider);
     for (var i = 0; i < kWidgetFrameCount; i++) {
       final key = 'character_frame_$i';
       var path = await HomeWidget.renderFlutterWidget(
@@ -1170,6 +1176,54 @@ Future<void> _renderFramesOnce(
     name: 'WaterLlamaWidgetProvider',
     androidName: 'WaterLlamaWidgetProvider',
   );
+  // 等级帧最后维护（数字/动画先行上桌，不被 88 张渲染阻塞；
+  // 签名未变秒回，仅首装/角色或液体色变化时重渲）
+  try {
+    await _renderLevelFrames(read,
+        characterId: characterId, liquidColor: liquidColor);
+  } catch (_) {
+    // 静默：等级帧缺失时原生点按退回旧单帧/无液面更新，下次同步补上
+  }
+}
+
+/// 静态填充等级帧：0..100% 每 10% 一档 × 16 个波浪相位共 176 张。
+/// 原生快捷录入（QuickAddReceiver）跑在 vivo 冻结窗口内、无法执行 Dart
+/// 渲染——点按后由原生按新百分比就近取档，16 相位 1:1 写入动画帧槽位，
+/// ViewFlipper 以同款 100ms/帧 轮播：动画流畅不中断、液面即时到新档位；
+/// 下次 Dart 同步重渲当前填充态动画自动恢复。
+/// 角色/液体色不变则复用（签名比对，避免每次同步重渲）
+Future<void> _renderLevelFrames(
+  Reader read, {
+  required String characterId,
+  required Color liquidColor,
+}) async {
+  final sig = '$characterId|${liquidColor.toARGB32().toSigned(32)}|v3';
+  final saved = await HomeWidget.getWidgetData<String>('character_levels_sig');
+  if (saved == sig) return;
+  for (var pct = 0; pct <= 100; pct += 10) {
+    for (var phase = 0; phase < 16; phase++) {
+      final key = 'character_level_${pct}_$phase';
+      var path = await HomeWidget.renderFlutterWidget(
+        AnimalSilhouette(
+          animalId: characterId,
+          fillRatio: pct / 100,
+          accentColor: liquidColor,
+          solidFillColor: liquidColor,
+          size: 128,
+          phase: phase / 16,
+          fullArt: pct >= 100,
+        ),
+        key: key,
+        logicalSize: const ui.Size(128, 128),
+        pixelRatio: 3,
+      );
+      path ??= await HomeWidget.getWidgetData<String>(key);
+      if (path != null && path.isNotEmpty) {
+        await HomeWidget.saveWidgetData<String>(key, path);
+      }
+    }
+  }
+  await HomeWidget.saveWidgetData<String>('character_levels_sig', sig);
 }
 
 /// 同步防交错：连续快速改设置时合并请求（渲染/写键交错会产生脏数据）
@@ -1211,6 +1265,21 @@ Color widgetLiquidColor(WidgetSettingsState s) {
   return const Color(0xFF4DB8D8);
 }
 
+/// 小组件卡面实际生效底色：预览卡与桌面推送同规则——
+/// 「遵循深色模式规则」开启且系统处于深色时**强制深色底**（无论所选
+/// 主题色为何），否则选了非白主题色时染主题色、默认白底。
+/// 此前只有桌面推送做深色强制、预览卡直接用所选色，系统深色模式下
+/// 出现「App 内改颜色、桌面永远不变」的观感错位
+Color effectiveWidgetThemeColor(WidgetSettingsState s, {bool? systemDark}) {
+  final dark = systemDark ??
+      WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+          Brightness.dark;
+  if (s.followDarkMode && dark) return const Color(0xFF1C1C22);
+  final colorful =
+      s.colorIndex != 0 || (s.colorIndex == -1 && s.customColor != null);
+  return colorful ? s.themeColor : const Color(0xFFFFFFFF);
+}
+
 Future<void> _syncWidgetFromSettingsOnce(
   Reader read, {
   int? todayMl,
@@ -1222,8 +1291,14 @@ Future<void> _syncWidgetFromSettingsOnce(
     // （此前 1s 定时器同步可能跑在加载前，用默认饮料格覆盖桌面）
     await read(widgetSettingsProvider.notifier).loaded;
     await read(customBeveragesProvider.notifier).loaded;
+    // 用户档案加载完成再判初始化态（磁盘异步读，完成前 state 为 null，
+    // 不等会把已初始化误判为未初始化 → 小组件被错误锁录入）
+    await read(profileProvider.notifier).loaded;
     final s = read(widgetSettingsProvider);
     final progress = read(dailyProgressProvider);
+    // 未完成初始化引导（无用户档案）→ 小组件只展示不可录入：
+    // 录入数值强制 0 + 原生闸门键 false（详见 syncHomeWidget 注释）
+    final recordEnabled = read(profileProvider) != null;
     // 数据文本/饮料格先行推送（不等帧渲染，录入后桌面数字即时更新）
     final slots = [(s.drink1, s.vol1), (s.drink2, s.vol2), (s.drink3, s.vol3)];
     final customs = read(customBeveragesProvider);
@@ -1232,28 +1307,25 @@ Future<void> _syncWidgetFromSettingsOnce(
     for (final (id, vol) in slots) {
       final b = all.firstWhere((x) => x.id == id, orElse: () => all.first);
       drinks.add(WidgetDrinkData(
-          ml: vol, name: b.name, iconFile: await _rasterizeDrinkIcon(b)));
+          ml: vol,
+          name: b.name,
+          // 折算后水量：原生点按累加/百分比用它，与 App 内 sumEffective 口径一致
+          effectiveMl: b.effectiveMl(vol),
+          iconFile: await _rasterizeDrinkIcon(b)));
     }
-    // 主题色：选了非白色（含自定义色）才染底，白/未选保持默认白底；
-    // 「遵循深色模式规则」开启且系统处于深色时强制深色底白字
-    final colorful =
-        s.colorIndex != 0 || (s.colorIndex == -1 && s.customColor != null);
-    final systemDark = WidgetsBinding
-            .instance.platformDispatcher.platformBrightness ==
-        Brightness.dark;
-    final themeColor = s.followDarkMode && systemDark
-        ? const Color(0xFF1C1C22)
-        : (colorful ? s.themeColor : null);
+    // 主题色：与预览卡同规则（「遵循深色模式规则」+ 系统深色 → 强制
+    // 深色底，详见 effectiveWidgetThemeColor 注释）。恒定有值：默认
+    // 白底也显式推白色，行为与 -1 相同且省去空值分支
+    final themeColor = effectiveWidgetThemeColor(s);
     await syncHomeWidget(
       todayMl: todayMl ?? progress.totalEffectiveMl,
       goalMl: goalMl ?? progress.goalMl,
       streakDays: streakDays ?? read(checkinDaysProvider).asData?.value ?? 0,
       themeColor: themeColor,
       showStreak: s.streakBadge,
-      tileColor: s.colorfulButtons
-          ? (themeColor ?? s.themeColor).toARGB32()
-          : -1,
+      tileColor: s.colorfulButtons ? themeColor.toARGB32() : -1,
       drinks: drinks,
+      recordEnabled: recordEnabled,
     );
     // 角色动画帧随后渲染补推（与 App 内首页同款 AnimalSilhouette 8 帧
     // 波浪相位，ViewFlipper 轮播实现持续动画；液体色按彩色字符层规则）

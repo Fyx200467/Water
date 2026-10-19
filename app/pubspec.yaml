@@ -64,6 +64,7 @@ flutter:
     - assets/images/
     - assets/images/drinks/
     - assets/images/characters/
+    - assets/images/icons/
     - assets/images/containers/
     - assets/images/tips/
     - assets/icons/menu/
