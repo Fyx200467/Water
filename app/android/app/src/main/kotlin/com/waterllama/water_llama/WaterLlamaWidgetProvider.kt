@@ -69,6 +69,7 @@ class WaterLlamaWidgetProvider : HomeWidgetProvider() {
      *  设置。相关 API 均为 API 31+（vivo S15 Pro = Android 12+） */
     private fun applySizeProfile(
         context: Context,
+        widgetData: SharedPreferences,
         views: RemoteViews,
         manager: AppWidgetManager,
         appWidgetId: Int
@@ -90,7 +91,10 @@ class WaterLlamaWidgetProvider : HomeWidgetProvider() {
         // 140 防溢出
         val maxW = opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, 0)
         val wCap = if (maxW > 0) maxW * 0.42f else Float.MAX_VALUE
-        val charDp = minOf(maxH - 32f, wCap).coerceIn(88f, 140f)
+        // 上限 240（原 140）：用户拉伸变高时角色随之变大；宽度约束
+        // （wCap，防贴饮品列）仍优先生效——只拉高不拉宽时角色受宽度
+        // 上限制约不放大，横向拉宽才会变大
+        val charDp = minOf(maxH - 32f, wCap).coerceIn(88f, 240f)
         for (vid in intArrayOf(R.id.widget_character, R.id.widget_character_flipper)) {
             views.setViewLayoutWidth(vid, charDp, TypedValue.COMPLEX_UNIT_DIP)
             views.setViewLayoutHeight(vid, charDp, TypedValue.COMPLEX_UNIT_DIP)
@@ -98,36 +102,50 @@ class WaterLlamaWidgetProvider : HomeWidgetProvider() {
         // 角色水平位置：布局层 overlay 锚定，羊驼居中于第一格（占卡宽
         // 68%）→ 中心落在卡宽 34% 处，窄卡上远离饮品列，与列内容宽度
         // 无关，provider 不再干预
-        // 左上数字位图框（固定 dp，防 launcher 量测缺陷）：窄卡同步收
-        views.setViewLayoutWidth(R.id.widget_goal_img,
-            if (compact) 48f else 56f, TypedValue.COMPLEX_UNIT_DIP)
-        views.setViewLayoutHeight(R.id.widget_goal_img,
-            if (compact) 20f else 24f, TypedValue.COMPLEX_UNIT_DIP)
-        // 天数徽章
-        views.setViewLayoutWidth(R.id.widget_streak_badge,
-            if (compact) 30f else 34f, TypedValue.COMPLEX_UNIT_DIP)
-        views.setViewLayoutHeight(R.id.widget_streak_badge,
-            if (compact) 30f else 34f, TypedValue.COMPLEX_UNIT_DIP)
+        // 左上数字位图框 + 天数徽章：由固定两档改为随 tileH 连续缩放，
+        // 缩放块在 tileH 计算之后（见下方）
         // 右列三行各占列高 1/3（XML weight=1），行高按实测分配高度推算
         // （maxH − 上下 padding 24dp），按钮/图标/字号随行高连续缩放，
         // 替代原固定两档——5×9 等高密度网格高度介于两档之间时不再被
         // 挤压变形。+ 号字号与 ml 数字同步
         val rowH = (maxH - 24f) / 3f
-        val tileH = (rowH - 8f).coerceIn(30f, 44f)
-        val tileW = (tileH * 1.41f).coerceIn(42f, 62f)
-        val iconDp = (tileH * 0.77f).coerceIn(22f, 34f)
-        val textSp = (tileH * 0.34f).coerceIn(11f, 15f)
+        // 上限放开（原 44/62/34/15 为 vivo 4×2 默认卡调的固定档）：OPPO
+        // 等大格网格默认卡已顶到原上限，拉伸卡片元素毫无反馈；上限
+        // 抬高后拉伸时元素随行高连续放大，下限不变保住小卡观感
+        val tileH = (rowH - 8f).coerceIn(30f, 88f)
+        val tileW = (tileH * 1.41f).coerceIn(42f, 124f)
+        val iconDp = (tileH * 0.77f).coerceIn(22f, 68f)
+        val textSp = (tileH * 0.34f).coerceIn(11f, 30f)
         for (i in 1..3) {
             views.setViewLayoutWidth(btnId(i), tileW, TypedValue.COMPLEX_UNIT_DIP)
             views.setViewLayoutHeight(btnId(i), tileH, TypedValue.COMPLEX_UNIT_DIP)
             views.setViewLayoutWidth(iconId(i), iconDp, TypedValue.COMPLEX_UNIT_DIP)
             views.setViewLayoutHeight(iconId(i), iconDp, TypedValue.COMPLEX_UNIT_DIP)
-            // + 号定位：固定宽盒（按钮宽 48%）内居中 → 中心恒在按钮宽
-            // 24% 处，随按钮等比内缩（XML 无 margin，窄按钮不挤图标）
-            views.setViewLayoutWidth(plusId(i), tileW * 0.48f, TypedValue.COMPLEX_UNIT_DIP)
+            // + 号定位：固定宽盒内居中（XML gravity=center）。有图标时盒宽
+            // = 按钮宽 48%，+ 落在左四分之一处与右侧图标成对；无图标
+            // （App 未初始化/未配置饮品）时盒拓宽至整钮 → + 居中，不再
+            // 孤零零偏居左侧空档
+            val hasIcon =
+                !widgetData.getString("drink${i}_icon", null).isNullOrEmpty()
+            views.setViewLayoutWidth(plusId(i),
+                if (hasIcon) tileW * 0.48f else tileW,
+                TypedValue.COMPLEX_UNIT_DIP)
             views.setTextViewTextSize(mlId(i), TypedValue.COMPLEX_UNIT_SP, textSp)
             views.setTextViewTextSize(plusId(i), TypedValue.COMPLEX_UNIT_SP, textSp)
         }
+        // 左上数字位图框 + 天数徽章：由固定两档改为随 tileH 连续缩放
+        //（min 钳制在原两档值上，vivo/OPPO 默认卡观感不变；上限放开
+        // 使拉伸变大时同步放大）
+        views.setViewLayoutWidth(R.id.widget_goal_img,
+            (tileH * 1.27f).coerceIn(48f, 112f), TypedValue.COMPLEX_UNIT_DIP)
+        views.setViewLayoutHeight(R.id.widget_goal_img,
+            (tileH * 0.55f).coerceIn(20f, 48f), TypedValue.COMPLEX_UNIT_DIP)
+        // 天数徽章
+        val badgeDp = (tileH * 0.77f).coerceIn(30f, 68f)
+        views.setViewLayoutWidth(R.id.widget_streak_badge, badgeDp,
+            TypedValue.COMPLEX_UNIT_DIP)
+        views.setViewLayoutHeight(R.id.widget_streak_badge, badgeDp,
+            TypedValue.COMPLEX_UNIT_DIP)
         // 极限矮档（maxH ≤ 134）：行内竖向放不下「ml 数字 + 饮品名」两层，
         // 隐藏饮品名只留数字。两态显式设置，防 RemoteViews 动作跨次残留
         val extreme = maxH in 1..134
@@ -203,7 +221,7 @@ class WaterLlamaWidgetProvider : HomeWidgetProvider() {
     ) {
         for (downshift in 0..2) {
             val views = buildRemoteViews(context, widgetData, frameDownshift = downshift)
-            applySizeProfile(context, views, manager, appWidgetId)
+            applySizeProfile(context, widgetData, views, manager, appWidgetId)
             try {
                 manager.updateAppWidget(appWidgetId, views)
                 return
@@ -227,11 +245,13 @@ class WaterLlamaWidgetProvider : HomeWidgetProvider() {
         )
 
         // 目标数字+单位：Canvas 绘成位图（规避 vivo 文本量测缺陷），
-        // 白圆/深浅色在位图内直接体现；百分比仍为 TextView（短文案无碍）
+        // 白圆/深浅色在位图内直接体现；百分比仍为 TextView（短文案无碍）。
+        // 无数据默认 "0ml"：大数字语义是**今日已喝水量**（与 Dart 侧
+        // todayMl=0 的展示一致），不能用目标容量占位（会像已喝 2.5L）
         val onDark = widgetData.getBoolean(KEY_DARK_TEXT, false)
         goalBitmap(context,
-            widgetData.getString(KEY_GOAL_NUM, "2.5") ?: "2.5",
-            widgetData.getString(KEY_GOAL_UNIT, "升") ?: "升", onDark)?.let {
+            widgetData.getString(KEY_GOAL_NUM, "0") ?: "0",
+            widgetData.getString(KEY_GOAL_UNIT, "ml") ?: "ml", onDark)?.let {
             views.setImageViewBitmap(R.id.widget_goal_img, it)
         }
         views.setTextViewText(R.id.widget_percent, widgetData.getString(KEY_PERCENT, "0%"))
@@ -284,6 +304,10 @@ class WaterLlamaWidgetProvider : HomeWidgetProvider() {
         // 注意：RemoteViews 位图总量有 ~15.5MB 系统硬上限
         // （ensureWidgetViewsMemoryLimitLocked，超限直接 IllegalArgumentException
         // 崩掉 App 进程），16 帧原分辨率必超 → 解码统一降采样到单帧 ≤440px
+        // App 未初始化（首次启动完成前 profile_initialized 缺省 false）
+        // 不展示角色卡：默认插画与液体动画层都隐藏，卡面只留数据区，
+        // 避免未录入信息时桌面先出现一只"无主"羊驼
+        val initialized = widgetData.getBoolean("profile_initialized", false)
         val frameBmps = (0 until WIDGET_FRAME_COUNT).mapNotNull { i ->
             widgetData.getString(KEY_CHARACTER_FRAME.format(i), null)?.let {
                 try {
@@ -293,7 +317,10 @@ class WaterLlamaWidgetProvider : HomeWidgetProvider() {
                 }
             }
         }
-        if (frameBmps.size >= 2) {
+        if (!initialized) {
+            views.setViewVisibility(R.id.widget_character, View.INVISIBLE)
+            views.setViewVisibility(R.id.widget_character_flipper, View.INVISIBLE)
+        } else if (frameBmps.size >= 2) {
             frameBmps.forEachIndexed { idx, bmp ->
                 views.setImageViewBitmap(frameId(idx), bmp)
             }
@@ -353,6 +380,18 @@ class WaterLlamaWidgetProvider : HomeWidgetProvider() {
                     if (bmp != null) views.setImageViewBitmap(iconId(i), bmp)
                 } catch (_: Exception) {
                 }
+            }
+        }
+
+        // Android 12 以下没有 setViewLayoutWidth（applySizeProfile 首行
+        // 即 return），+ 号回落到 XML 的 wrap_content + start 对齐，会
+        // 贴死按钮左缘（MIUI Android 10 实测）。setViewPadding 是远古
+        // API 全版本可用，垫起左内边距让 + 离开边缘。仅 <31 设置：
+        // 31+ 的 + 由 applySizeProfile 固定宽盒居中定位，不受此影响
+        if (Build.VERSION.SDK_INT < 31) {
+            val plusInset = (12 * context.resources.displayMetrics.density).toInt()
+            for (i in 1..3) {
+                views.setViewPadding(plusId(i), plusInset, 0, 0, 0)
             }
         }
 

@@ -268,9 +268,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.symmetric(horizontal: 16),
       children: [
-        // 1. 水（青色玻璃杯大插画 + 底部 ⊕ 徽章）
+        // 1. 水（用户自绘玻璃杯容器 + 底部 ⊕ 徽章；液体色同加量页）
         _DrinkItem(
           beverageId: 'water_pure',
+          icon: SvgContainerIcon(
+            containerId:
+                Beverage.presets
+                    .firstWhere((e) => e.id == 'water_pure')
+                    .containerId!,
+            color: Beverage.presets
+                .firstWhere((e) => e.id == 'water_pure')
+                .color,
+            fillRatio: 0.7, // 液体风格：液体占杯身 70%（与饮品循环一致）
+          ),
           label: '水',
           color: _brandCyan,
           highlight: true,
@@ -281,9 +291,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 builder: (_) => const AddDrinkScreen(beverageId: 'water_pure')),
           ),
         ),
-        // 2. "+98 种物品和功能"胶囊
-        const _ItemsChip(),
-        // 3. 当前选中角色头像（点击打开角色页）
+        // 2. 当前选中角色头像（点击打开角色页）
         _DrinkItem(
           icon: CharacterArt(
             animalId: currentChar,
@@ -423,9 +431,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                                           color: _hintGray, fontSize: 14),
                                     ),
                                   ] else ...[
-                                    // 未完成态：原版数据文案
-                                    Text(
-                                      '${progress.totalEffectiveMl}ml',
+                                    // 未完成态：原版数据文案（液面高光扫过）
+                                    _LiquidShimmerText(
+                                      text: '${progress.totalEffectiveMl}ml',
                                       style: const TextStyle(
                                         color: _brandCyan,
                                         fontSize: 56,
@@ -902,6 +910,69 @@ class _MenuWavesPainter extends CustomPainter {
   bool shouldRepaint(covariant _MenuWavesPainter oldDelegate) => false;
 }
 
+/// 顶部总量数字的「液面高光」：柔和白色亮带每 2 秒自左向右扫过字体，
+/// 仿液体表面反光流动；ShaderMask 只重着色亮带经过的区域，
+/// 字色保持品牌青不变
+class _LiquidShimmerText extends StatefulWidget {
+  const _LiquidShimmerText({required this.text, required this.style});
+
+  final String text;
+  final TextStyle style;
+
+  @override
+  State<_LiquidShimmerText> createState() => _LiquidShimmerTextState();
+}
+
+class _LiquidShimmerTextState extends State<_LiquidShimmerText>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 2000),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (ctx, _) => ShaderMask(
+        blendMode: BlendMode.srcATop,
+        shaderCallback: (bounds) => LinearGradient(
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+          // 亮带：透明 → 白 → 透明（软边光带，占画框 40% 宽）
+          colors: [
+            Colors.transparent,
+            Colors.white.withOpacity(0.85),
+            Colors.transparent,
+          ],
+          stops: const [0.3, 0.5, 0.7],
+          transform:
+              _SlidingHighlightTransform(shift: _ctrl.value),
+        ).createShader(bounds),
+        child: Text(widget.text, style: widget.style),
+      ),
+    );
+  }
+}
+
+/// 高光带平移：shift 0→1 时亮带中心从画框左侧外滑到右侧外
+/// （t 从 -1.5w 到 +1.5w，首尾帧亮带完全在字外，循环无跳变）
+class _SlidingHighlightTransform extends GradientTransform {
+  const _SlidingHighlightTransform({required this.shift});
+
+  final double shift;
+
+  @override
+  Matrix4? transform(Rect bounds, {TextDirection? textDirection}) =>
+      Matrix4.translationValues(bounds.width * (shift * 3 - 1.5), 0, 0);
+}
+
 /// 饮品快捷项：圆底图标 + 标签
 class _DrinkItem extends StatelessWidget {
   const _DrinkItem({
@@ -983,62 +1054,6 @@ class _DrinkItem extends StatelessWidget {
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-/// "+98 种物品和功能"白色虚线胶囊按钮
-class _ItemsChip extends StatelessWidget {
-  const _ItemsChip();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 14),
-      child: Center(
-        child: Container(
-          width: 120,
-          height: 64,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(32),
-            border: Border.all(
-              color: const Color(0xFFD8D8DC),
-              width: 1.2,
-            ),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: const BoxDecoration(
-                  color: Color(0xFFF2F2F5),
-                  shape: BoxShape.circle,
-                ),
-                child: const DrinkIllustration(
-                    beverageId: 'llama',
-                    color: Color(0xFF6B6B70),
-                    size: 22,
-                  ),
-              ),
-              const SizedBox(width: 6),
-              const Expanded(
-                child: Text(
-                  '+98 种物品和功能',
-                  style: TextStyle(
-                    color: Color(0xFF6B6B70),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
-                    height: 1.2,
-                  ),
-                ),
-              ),
-            ],
-          ),
         ),
       ),
     );

@@ -1,25 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 喝水养成桌面小组件元信息
      唯一固定样式（对标竞品「柠檬喝水」）：布局固定不可编辑，
-     默认占 3×2 格。resizeMode 允许用户手动拉伸改占格（不改布局）：
-     ColorOS 按网格模式换算默认跨度且规则随格子宽高变化——5×5 模式
-     列窄行高，ceil(190/60)→4 列、ceil(100/140)→1 行，默认只剩
-     「4×1」且无 resizeMode 时连拉伸入口都没有（用户反馈）；
-     放开 resizeMode 后任意跨度由 applySizeProfile 连续缩放适配。
+     默认占 3×2 格。resizeMode 放开 horizontal|vertical：允许用户
+     手动拉伸改占格（不改布局），ColorOS 换算规则随网格漂移（5×5
+     模式默认只剩 4×1）时这是用户唯一兜底入口；任意跨度由
+     applySizeProfile 连续缩放适配。
+     参考（柠檬喝水实机取证）：其声明为 minWidth 320dp 溢出借启动器
+     钳制锁满行 + minHeight 110dp 卡 2 行交集 + resizeMode=0 禁止
+     拉伸；「满行×2」方案若要采用需另做两台真机全布局验证。
      跨度双轨：现代启动器认 targetCellWidth/Height（3×2）；vivo 等
      厂商桌面忽略 targetCell、按 minWidth/minHeight 除以当前网格格宽
-     换算列数（vivo 实测为 ceil 上取整）。真机实测（V2207A，
+     换算列/行数（vivo 实测为 ceil 上取整）。真机实测（V2207A，
      1080px/480dpi）：4×6 布局格宽 82dp（图标列间距 246px），
-     5×9 布局格宽 72dp（1080/5/3）。3 列安全区间需同时覆盖两种
-     网格：4×6 → (164,246]，5×9 → (144,216]，交集 (164,216]，
+     5×9 布局格宽 72dp（1080/5/3）。列宽 190dp：3 列安全区间需同时
+     覆盖两种网格：4×6 → (164,246]，5×9 → (144,216]，交集 (164,216]，
      取中点 190dp（两侧余量 26dp）。此前 225dp 在 5×9 上
      ceil(225/72)=4 列、300dp 在 4×6 上 4 列，均偏宽。
-     minHeight 100dp 实测即 2 行不动。更换桌面网格布局后需复核。
+     minHeight 120dp（第一步：高度恒 2 行）。依据：OPPO 5 行类布局
+     （3×5/4×5/5×5）行高被实测夹逼在 [100,110)——本机 100dp→1 行、
+     柠檬喝水 110dp→2 行；120dp 对所有已知行高（vivo 4×6 ~95 /
+     5×9 ~78，OPPO ≤110）ceil 均为 2 行，且各模式 2×行高 ≥156 > 120
+     不会涨到 3 行，较 110dp 留出系统更新余量。此前 100dp 在 OPPO
+     5×5 掉 1 行（呈 4×1）。「满行×2」宽度方案（minWidth 320dp 溢出
+     借启动器钳制、删 targetCellWidth、resizeMode=none，对标柠檬喝水
+     实机取证）暂缓，待高度效果确认后另行执行。
+     ColorOS 5×5 模式（720px/320dpi，360dp 宽）下 ceil(190/60)→4 列，
+     宽度漂移仍在，暂接受。更换桌面网格布局后需复核。
      updatePeriodMillis 为系统兜底轮询；数据实时性由 Dart 侧推送保证 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:minWidth="190dp"
-    android:minHeight="100dp"
+    android:minHeight="120dp"
     android:targetCellWidth="3"
     android:targetCellHeight="2"
     android:resizeMode="horizontal|vertical"

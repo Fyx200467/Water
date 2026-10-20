@@ -685,13 +685,29 @@ class _SvgLiquidPainter extends CustomPainter {
   final double phase;
   final double bubbleSeed;
 
-  /// 将 viewBox 坐标系的 SVG Picture 非等比铺满目标 size
-  void _drawScaled(Canvas canvas, Size size) {
+  /// 将 viewBox 坐标系的 SVG Picture 等比适配目标 size：
+  /// 有度量时按图形包围盒 92% 居中缩放（与 SvgContainerIcon 同规则，
+  /// 竖长/扁宽画框不再把容器拉变形），无度量时退化为非等比铺满
+  void _drawFitted(Canvas canvas, Size size) {
     canvas.save();
-    canvas.scale(
-      size.width / viewBox.width,
-      size.height / viewBox.height,
-    );
+    final b = metrics?.bounds;
+    if (b == null || b.width <= 0 || b.height <= 0) {
+      canvas.scale(
+        size.width / viewBox.width,
+        size.height / viewBox.height,
+      );
+    } else {
+      const targetFactor = 0.92;
+      final s = math.min(
+        size.width * targetFactor / b.width,
+        size.height * targetFactor / b.height,
+      );
+      canvas.translate(
+        size.width / 2 - (b.left + b.width / 2) * s,
+        size.height / 2 - (b.top + b.height / 2) * s,
+      );
+      canvas.scale(s);
+    }
     canvas.drawPicture(picture);
     canvas.restore();
   }
@@ -700,7 +716,7 @@ class _SvgLiquidPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     // 1. 空容器：整只剪影染浅灰
     canvas.saveLayer(Offset.zero & size, Paint());
-    _drawScaled(canvas, size);
+    _drawFitted(canvas, size);
     canvas.drawRect(
       Offset.zero & size,
       Paint()
@@ -714,12 +730,29 @@ class _SvgLiquidPainter extends CustomPainter {
     canvas.saveLayer(Offset.zero & size, Paint());
 
     final m = metrics;
-    final bottom = m == null
-        ? size.height * 0.99
-        : m.bounds.bottom / viewBox.height * size.height + 0.5;
-    final bodyTop = m == null
-        ? size.height * 0.03
-        : m.bodyTop / viewBox.height * size.height;
+    final b = m?.bounds;
+    final double bottom;
+    final double bodyTop;
+    if (b == null || b.width <= 0 || b.height <= 0) {
+      // 无度量：按画框比例兜底（对应 _drawFitted 的非等比铺满回退）
+      bottom = m == null
+          ? size.height * 0.99
+          : m.bounds.bottom / viewBox.height * size.height + 0.5;
+      bodyTop = m == null
+          ? size.height * 0.03
+          : m.bodyTop / viewBox.height * size.height;
+    } else {
+      // 与 _drawFitted 同一变换（像素 y = viewBox y × s + ty）：
+      // 液底/液面始终对齐等比缩放后的容器实际边缘
+      const targetFactor = 0.92;
+      final s = math.min(
+        size.width * targetFactor / b.width,
+        size.height * targetFactor / b.height,
+      );
+      final ty = size.height / 2 - (b.top + b.height / 2) * s;
+      bottom = b.bottom * s + ty + 0.5;
+      bodyTop = m!.bodyTop * s + ty;
+    }
     // 液面最高点与杯口沿保留气隙（满杯也不触口），与预设容器
     // _DrinkContainerPainter 的 fillTop=杯口沿+5%×画布高 同一规则
     final liquidTop = bodyTop + size.height * 0.05;
@@ -787,7 +820,7 @@ class _SvgLiquidPainter extends CustomPainter {
       Offset.zero & size,
       Paint()..blendMode = BlendMode.dstIn,
     );
-    _drawScaled(canvas, size);
+    _drawFitted(canvas, size);
     canvas.restore();
 
     canvas.restore();

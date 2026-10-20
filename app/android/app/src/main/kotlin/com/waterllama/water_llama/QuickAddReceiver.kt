@@ -130,6 +130,24 @@ class QuickAddReceiver : BroadcastReceiver() {
         for (i in 0..15) editor.remove("character_frame_$i")
       }
     }
+
+    // 天数徽章：本次是「今天第一笔录入」时连续天数 +1。对齐 Dart
+    // checkinDaysProvider 语义：今天有任何条目 → 连续链纳入今天，
+    // 否则从昨天起数——widget_today_ml 在 Dart 同步后恒为当日有效
+    // 总量，增量前为 0 即今天还没有计入连续链的条目。此前徽章数字
+    // 只随 App 内数据变化由 Dart 推送刷新，快捷录入后停留旧值，
+    // 重进 App 才更新（真机反馈缺陷）。
+    // 已知边界：中间整日无录入也不开 App 的场景原生无从察觉，
+    // 下次 App 同步按真实数据自愈
+    if (todayMl <= 0) {
+      val raw = prefs.all["streak_days"]
+      val oldStreak = when (raw) {
+        is Number -> raw.toInt()
+        is String -> raw.toIntOrNull() ?: 0
+        else -> 0
+      }
+      editor.putString("streak_days", "${oldStreak + 1}")
+    }
     editor.commit()
 
     // 直接同步重绘（HomeWidgetProvider 三参 onUpdate 内部取 getData 再走
