@@ -346,6 +346,13 @@ class _SvgContainerIconState extends State<SvgContainerIcon> {
   SvgArtMetrics? _metrics;
   bool _failed = false;
 
+  // 请求代数守卫：containerId 快速连续变化时（列表同位置 State 复用 +
+  // 异步数据加载重排），上一个 _load 还在 await 中、新的 _load 已发起，
+  // 旧请求后返回会把「旧容器 picture + 新容器颜色」写进 State（首页
+  // 饮品栏图标混淆 bug 根因）。每次触发加载递增，await 返回后代数
+  // 不符即丢弃
+  int _gen = 0;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -367,24 +374,27 @@ class _SvgContainerIconState extends State<SvgContainerIcon> {
 
   Future<void> _load() async {
     if (_info != null || _failed) return;
+    // 入口固定本次请求的 containerId：await 期间 widget.containerId 可能
+    // 已变，用漂移后的 id 调 loadSvgArtMetrics 会把旧 picture 的包围盒
+    // 写进全局 metrics 缓存（按 id 键控）污染其他页面
+    final id = widget.containerId;
+    final gen = ++_gen;
     try {
       final info = await vg.loadPicture(
-        SvgAssetLoader(svgContainerAsset(widget.containerId)),
+        SvgAssetLoader(svgContainerAsset(id)),
         context,
       );
-      final metrics = await loadSvgArtMetrics(
-        widget.containerId,
-        info.picture,
-        info.size,
-      );
-      if (mounted) {
+      final metrics = await loadSvgArtMetrics(id, info.picture, info.size);
+      // await 期间 id 又变了（didUpdateWidget 已清空并发起新代数加载）：
+      // 过期请求直接丢弃，不得覆盖新结果
+      if (mounted && gen == _gen) {
         setState(() {
           _info = info;
           _metrics = metrics;
         });
       }
     } catch (_) {
-      if (mounted) setState(() => _failed = true);
+      if (mounted && gen == _gen) setState(() => _failed = true);
     }
   }
 
@@ -585,6 +595,9 @@ class _SvgContainerFillState extends State<SvgContainerFill> {
   SvgArtMetrics? _metrics;
   bool _failed = false;
 
+  // 请求代数守卫：同 _SvgContainerIconState（防旧请求后到覆盖新容器）
+  int _gen = 0;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -605,24 +618,23 @@ class _SvgContainerFillState extends State<SvgContainerFill> {
 
   Future<void> _load() async {
     if (_info != null || _failed) return;
+    // 入口固定 containerId：防 await 期间 id 漂移污染全局 metrics 缓存
+    final id = widget.containerId;
+    final gen = ++_gen;
     try {
       final info =
           await vg.loadPicture(SvgAssetLoader(svgContainerAsset(
-        widget.containerId,
+        id,
       )), context);
-      final metrics = await loadSvgArtMetrics(
-        widget.containerId,
-        info.picture,
-        info.size,
-      );
-      if (mounted) {
+      final metrics = await loadSvgArtMetrics(id, info.picture, info.size);
+      if (mounted && gen == _gen) {
         setState(() {
           _info = info;
           _metrics = metrics;
         });
       }
     } catch (_) {
-      if (mounted) setState(() => _failed = true);
+      if (mounted && gen == _gen) setState(() => _failed = true);
     }
   }
 

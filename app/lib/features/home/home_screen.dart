@@ -279,7 +279,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             color: Beverage.presets
                 .firstWhere((e) => e.id == 'water_pure')
                 .color,
-            fillRatio: 0.7, // 液体风格：液体占杯身 70%（与饮品循环一致）
+            fillRatio: 0.9, // 液体风格：液体占杯身 90%（全局统一）
           ),
           label: '水',
           color: _brandCyan,
@@ -325,12 +325,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         // 4. 各类饮品
         for (final b in drinks)
           _DrinkItem(
+            // ValueKey 防同位置 State 复用：开关饮品/异步加载重排后，
+            // 相邻格变成不同饮品却复用旧 State，图标加载竞态会短暂
+            // 显示「旧容器形状 + 新液体色」
+            key: ValueKey('drink_${b.id}'),
             beverageId: b.id.startsWith('custom_') ? null : b.id,
             icon: isSvgContainer(b.containerId)
                 ? SvgContainerIcon(
                     containerId: b.containerId!,
                     color: b.color,
-                    fillRatio: 0.7, // 液体风格：液体占杯身 70%
+                    fillRatio: 0.9, // 液体风格：液体占杯身 90%（全局统一）
                   )
                 : b.id.startsWith('custom_')
                     ? Icon(b.icon, size: 30, color: b.color)
@@ -431,14 +435,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                                           color: _hintGray, fontSize: 14),
                                     ),
                                   ] else ...[
-                                    // 未完成态：原版数据文案（液面高光扫过）
-                                    _LiquidShimmerText(
-                                      text: '${progress.totalEffectiveMl}ml',
-                                      style: const TextStyle(
-                                        color: _brandCyan,
-                                        fontSize: 56,
-                                        fontWeight: FontWeight.w800,
-                                        height: 1.1,
+                                    // 未完成态：原版数据文案（液面高光扫过）；
+                                    // 数字滚动：从旧值慢慢数到新值（回首页才播）
+                                    _DeferredTween(
+                                      end: progress.totalEffectiveMl
+                                          .toDouble(),
+                                      duration:
+                                          const Duration(milliseconds: 700),
+                                      curve: Curves.easeOutCubic,
+                                      builder: (_, v) => _LiquidShimmerText(
+                                        text: '${v.round()}ml',
+                                        style: const TextStyle(
+                                          color: _brandCyan,
+                                          fontSize: 56,
+                                          fontWeight: FontWeight.w800,
+                                          height: 1.1,
+                                        ),
                                       ),
                                     ),
                                     const SizedBox(height: 4),
@@ -458,15 +470,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                               child: Center(
                                 child: GestureDetector(
                                   onTap: done ? _triggerLit : null,
-                                  child: AnimalSilhouette(
-                                    animalId: currentChar,
-                                    fillRatio:
-                                        progress.progress.clamp(0.0, 1.0),
-                                    accentColor: _brandCyan,
-                                    solidFillColor: _brandCyan,
-                                    size: 280,
-                                    // 点亮态显示全彩插画，否则剪影+液体填充
-                                    fullArt: isLit,
+                                  // 液面过渡：返回首页后液体从旧液位慢慢
+                                  // 涨到新液位（1.1s easeOut，非跳变）
+                                  child: _DeferredTween(
+                                    end: progress.progress.clamp(0.0, 1.0),
+                                    duration:
+                                        const Duration(milliseconds: 1100),
+                                    curve: Curves.easeOutCubic,
+                                    builder: (_, v) => AnimalSilhouette(
+                                      animalId: currentChar,
+                                      fillRatio: v,
+                                      accentColor: _brandCyan,
+                                      solidFillColor: _brandCyan,
+                                      size: 280,
+                                      // 点亮态显示全彩插画，否则剪影+液体填充
+                                      fullArt: isLit,
+                                    ),
                                   ),
                                 ),
                               ),
@@ -910,6 +929,99 @@ class _MenuWavesPainter extends CustomPainter {
   bool shouldRepaint(covariant _MenuWavesPainter oldDelegate) => false;
 }
 
+/// 延迟过渡动画（首页专用）：end 变化时若首页正被上层页面遮盖
+/// （如加量页），挂起过渡，待返回首页（上层路由关闭完成）后再从
+/// 当前值慢慢动画到新值；页面可见时立即过渡。用于角色液面与总量
+/// 数字——「加完水返回首页」看到液体上涨 / 数字滚动的过程而非跳变
+class _DeferredTween extends StatefulWidget {
+  const _DeferredTween({
+    required this.end,
+    required this.duration,
+    required this.curve,
+    required this.builder,
+  });
+
+  final double end;
+  final Duration duration;
+  final Curve curve;
+  final Widget Function(BuildContext context, double value) builder;
+
+  @override
+  State<_DeferredTween> createState() => _DeferredTweenState();
+}
+
+class _DeferredTweenState extends State<_DeferredTween>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late double _value;
+  double _from = 0;
+  double _to = 0;
+
+  /// 被上层页面遮盖期间发生了数据变化：回首页后补播
+  bool _pending = false;
+  Animation<double>? _secondary;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(vsync: this, duration: widget.duration);
+    _value = widget.end; // 首帧直接定格，无进场动画
+    _ctrl.addListener(() {
+      final t = widget.curve.transform(_ctrl.value);
+      setState(() => _value = _from + (_to - _from) * t);
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final sec = ModalRoute.of(context)?.secondaryAnimation;
+    if (!identical(sec, _secondary)) {
+      _secondary?.removeStatusListener(_onSecondaryStatus);
+      _secondary = sec;
+      sec?.addStatusListener(_onSecondaryStatus);
+    }
+  }
+
+  /// 上层页面（加量页）pop 关闭完成回到首页 → 补播挂起的过渡
+  void _onSecondaryStatus(AnimationStatus st) {
+    if (st == AnimationStatus.dismissed && _pending && mounted) {
+      _pending = false;
+      _start();
+    }
+  }
+
+  @override
+  void didUpdateWidget(_DeferredTween oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.end != oldWidget.end) {
+      if (ModalRoute.of(context)?.isCurrent ?? true) {
+        _start();
+      } else {
+        _pending = true; // 被加量页遮盖：返回首页后再播（期间显示旧值）
+      }
+    }
+  }
+
+  void _start() {
+    _from = _value;
+    _to = widget.end;
+    _ctrl
+      ..duration = widget.duration
+      ..forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    _secondary?.removeStatusListener(_onSecondaryStatus);
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(context, _value);
+}
+
 /// 顶部总量数字的「液面高光」：柔和白色亮带每 2 秒自左向右扫过字体，
 /// 仿液体表面反光流动；ShaderMask 只重着色亮带经过的区域，
 /// 字色保持品牌青不变
@@ -976,6 +1088,7 @@ class _SlidingHighlightTransform extends GradientTransform {
 /// 饮品快捷项：圆底图标 + 标签
 class _DrinkItem extends StatelessWidget {
   const _DrinkItem({
+    super.key,
     required this.label,
     required this.color,
     required this.onTap,

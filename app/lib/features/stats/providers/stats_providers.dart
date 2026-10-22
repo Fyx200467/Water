@@ -245,6 +245,21 @@ final filteredYearDailyProvider =
   return byDay;
 });
 
+/// 近 365 天原始记录（不过滤饮品），供历史页「各饮品摄入量」面板
+/// 按今天/本周/本月周期在本地聚合各饮品的总摄入量/水份/热量。
+/// 注意：面板不受图表右上角饮品筛选按钮影响，故意不按饮品名过滤
+final yearEntriesProvider = FutureProvider<List<DrinkEntry>>((ref) async {
+  ref.watch(todayEntriesProvider); // 新增/删除饮水后面板实时重算
+  final storage = await ref.read(localStorageProvider.future);
+  final today = DateTime.now();
+  final start = DateTime(today.year, today.month, today.day).subtract(364.days);
+  final entries = await storage.loadEntriesForRange(
+    start,
+    DateTime(today.year, today.month, today.day + 1),
+  );
+  return entries;
+});
+
 /// 供 stats 模块使用的日期便捷扩展（命名导出，跨库可见）
 extension StatsDayX on int {
   Duration get days => Duration(days: this);

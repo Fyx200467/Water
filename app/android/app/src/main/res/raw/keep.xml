@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 通知小图标只通过 Dart 字符串（'ic_stat_water'）引用，资源压缩器
+     看不到静态引用会把它裁掉，导致 release 包初始化报 invalid_icon。 -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_stat_water" />

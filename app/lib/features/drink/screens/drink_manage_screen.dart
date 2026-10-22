@@ -604,7 +604,7 @@ class _DrinkCard extends StatelessWidget {
                   ? SvgContainerIcon(
                       containerId: b.containerId!,
                       color: b.color,
-                      fillRatio: 0.7, // 液体风格：液体占杯身 70%
+                      fillRatio: 0.9, // 液体风格：液体占杯身 90%（全局统一）
                       size: 42,
                     )
                   : isCustom

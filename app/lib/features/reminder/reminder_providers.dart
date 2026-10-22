@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/notification/notification_service.dart';
 import '../../../core/storage/providers.dart';
+import '../drink/services/hydration_calculator.dart';
+import '../home/providers/home_providers.dart';
 
 /// PRD §2.4 提醒设置
 class ReminderSettings {
@@ -11,43 +15,33 @@ class ReminderSettings {
     required this.times, // "HH:mm" 全部已添加时间
     this.disabledTimes = const [], // 其中被单独关闭的时间
     required this.message,
-    required this.dndEnabled,
-    this.dndStart,
-    this.dndEnd,
   });
 
   final bool enabled;
   final List<String> times;
   final List<String> disabledTimes;
   final String message;
-  final bool dndEnabled;
-  final String? dndStart;
-  final String? dndEnd;
 
   /// 当前生效（参与调度）的时间 = 全部时间 - 单独关闭的
   List<String> get activeTimes =>
       times.where((t) => !disabledTimes.contains(t)).toList();
 
-  static const defaultTimes = ['10:00', '15:00', '20:00'];
-  static const defaultMessage = '别忘了喝水哦，小动物在等你~';
+  /// 首次使用的默认值：只开启当天第一个整点（07:00），
+  /// 其余整点在界面上显示为关闭，避免新装即被高频提醒轰炸
+  static const defaultTimes = ['07:00'];
+  static const defaultMessage = '别忘了喝水';
 
   ReminderSettings copyWith({
     bool? enabled,
     List<String>? times,
     List<String>? disabledTimes,
     String? message,
-    bool? dndEnabled,
-    String? dndStart,
-    String? dndEnd,
   }) {
     return ReminderSettings(
       enabled: enabled ?? this.enabled,
       times: times ?? this.times,
       disabledTimes: disabledTimes ?? this.disabledTimes,
       message: message ?? this.message,
-      dndEnabled: dndEnabled ?? this.dndEnabled,
-      dndStart: dndStart ?? this.dndStart,
-      dndEnd: dndEnd ?? this.dndEnd,
     );
   }
 }
@@ -63,7 +57,6 @@ class ReminderNotifier extends StateNotifier<ReminderSettings> {
           enabled: true,
           times: ReminderSettings.defaultTimes,
           message: ReminderSettings.defaultMessage,
-          dndEnabled: false,
         )) {
     _load();
   }
@@ -73,9 +66,11 @@ class ReminderNotifier extends StateNotifier<ReminderSettings> {
   static const _kTimes = 'reminder_times';
   static const _kDisabledTimes = 'reminder_disabled_times';
   static const _kMessage = 'reminder_message';
-  static const _kDndEnabled = 'reminder_dnd_enabled';
-  static const _kDndStart = 'reminder_dnd_start';
-  static const _kDndEnd = 'reminder_dnd_end';
+
+  /// 初始异步加载完成信号：重排前必须等待，否则会用默认值排一轮
+  final Completer<void> _loaded = Completer<void>();
+
+  Future<void> _ensureLoaded() => _loaded.future;
 
   Future<void> _load() async {
     final storage = await ref.read(localStorageProvider.future);
@@ -83,19 +78,28 @@ class ReminderNotifier extends StateNotifier<ReminderSettings> {
     final timesRaw = p.getString(_kTimes);
     final disabledRaw = p.getString(_kDisabledTimes);
     state = ReminderSettings(
-      // 总开关 UI 已移除，提醒始终按各行开关调度
-      enabled: true,
+      // 总开关（「饮水提醒」卡）：持久化，关闭即取消全部已排提醒
+      enabled: p.getBool(_kEnabled) ?? true,
       times: timesRaw == null || timesRaw.isEmpty
           ? ReminderSettings.defaultTimes
           : timesRaw.split(','),
       disabledTimes: disabledRaw == null || disabledRaw.isEmpty
           ? const []
           : disabledRaw.split(','),
-      message: p.getString(_kMessage) ?? ReminderSettings.defaultMessage,
-      dndEnabled: p.getBool(_kDndEnabled) ?? false,
-      dndStart: p.getString(_kDndStart),
-      dndEnd: p.getString(_kDndEnd),
+      message: _migrateMessage(p.getString(_kMessage)),
     );
+    _loaded.complete();
+  }
+
+  /// 旧版默认提示语（新版已删除「，小动物在等你~」后半句）：
+  /// 已持久化的旧文案在加载时自动迁移，避免新装与老用户文案不一致
+  static const _legacyDefaultMessage = '别忘了喝水哦，小动物在等你~';
+
+  static String _migrateMessage(String? raw) {
+    if (raw == null || raw.isEmpty || raw == _legacyDefaultMessage) {
+      return ReminderSettings.defaultMessage;
+    }
+    return raw;
   }
 
   Future<void> update(ReminderSettings next) async {
@@ -105,56 +109,37 @@ class ReminderNotifier extends StateNotifier<ReminderSettings> {
     await p.setString(_kTimes, next.times.join(','));
     await p.setString(_kDisabledTimes, next.disabledTimes.join(','));
     await p.setString(_kMessage, next.message);
-    await p.setBool(_kDndEnabled, next.dndEnabled);
-    if (next.dndStart != null) {
-      await p.setString(_kDndStart, next.dndStart!);
-    }
-    if (next.dndEnd != null) {
-      await p.setString(_kDndEnd, next.dndEnd!);
-    }
     state = next;
     await rescheduleNow();
   }
 
-  /// 按当前全部设置重排通知（含间隔提醒开关与间隔分钟数）
   Future<void> rescheduleNow() async {
+    await _ensureLoaded();
     final s = state;
     final intervalOn = ref.read(intervalEnabledProvider);
     final intervalMin = ref.read(notificationIntervalMinutesProvider);
+    final entries = ref.read(todayEntriesProvider);
+    final goalMl = ref.read(profileProvider)?.dailyGoalMl ?? 2000;
     await NotificationService.reschedule(
       enabled: s.enabled,
       times: s.activeTimes,
       message: s.message,
-      dndStart: s.dndEnabled ? s.dndStart : null,
-      dndEnd: s.dndEnabled ? s.dndEnd : null,
+      customMessage: ref.read(customMessageProvider),
       intervalMinutes: intervalOn ? intervalMin : null,
+      windowStartMin: ref.read(reminderWindowStartProvider),
+      windowEndMin: ref.read(reminderWindowEndProvider),
+      weekdays: ref.read(reminderWeekdaysProvider),
+      todayDrinkMinutes: [
+        for (final e in entries) e.drankAt.hour * 60 + e.drankAt.minute,
+      ],
+      todayEffectiveMl: HydrationCalculator.sumEffective(entries),
+      goalMl: goalMl,
+      stopAtGoal: ref.read(stopAtGoalEnabledProvider),
+      progressTitle: ref.read(progressTitleEnabledProvider),
+      motivationalTitle: ref.read(motivationalTitleEnabledProvider),
+      waterFacts: ref.read(waterFactsEnabledProvider),
+      stickers: ref.read(stickersEnabledProvider),
     );
-  }
-}
-
-/// 音效开关（PRD §2.8）
-final soundEnabledProvider =
-    StateNotifierProvider<SoundEnabledNotifier, bool>((ref) {
-  return SoundEnabledNotifier(ref);
-});
-
-class SoundEnabledNotifier extends StateNotifier<bool> {
-  SoundEnabledNotifier(this.ref) : super(true) {
-    _load();
-  }
-  final Ref ref;
-
-  static const _kSound = 'sound_enabled';
-
-  Future<void> _load() async {
-    final storage = await ref.read(localStorageProvider.future);
-    state = storage.prefs.getBool(_kSound) ?? true;
-  }
-
-  Future<void> set(bool v) async {
-    final storage = await ref.read(localStorageProvider.future);
-    await storage.prefs.setBool(_kSound, v);
-    state = v;
   }
 }
 
@@ -255,12 +240,6 @@ final waterFactsEnabledProvider =
   return NotificationToggleNotifier(ref, 'notif_water_facts', true);
 });
 
-/// 高级设置开关：快速添加
-final quickAddEnabledProvider =
-    StateNotifierProvider<NotificationToggleNotifier, bool>((ref) {
-  return NotificationToggleNotifier(ref, 'notif_quick_add', true);
-});
-
 /// 高级设置开关：贴纸
 final stickersEnabledProvider =
     StateNotifierProvider<NotificationToggleNotifier, bool>((ref) {
@@ -273,11 +252,84 @@ final notificationIntervalMinutesProvider =
   return IntSettingNotifier(ref, 'notif_interval_min', 120);
 });
 
-/// 快速添加默认杯子容量（ml），默认 250
-final quickAddCupMlProvider =
+/// 智能提醒生效窗口开始（当日分钟数，含），默认 08:00 ——
+/// 间隔提醒槽位仅在该窗口内排程（见 NotificationService.reschedule）
+final reminderWindowStartProvider =
     StateNotifierProvider<IntSettingNotifier, int>((ref) {
-  return IntSettingNotifier(ref, 'quick_add_cup_ml', 250);
+  return IntSettingNotifier(ref, 'reminder_window_start_min', 8 * 60);
 });
+
+/// 智能提醒生效窗口结束（当日分钟数，不含），默认 22:00
+final reminderWindowEndProvider =
+    StateNotifierProvider<IntSettingNotifier, int>((ref) {
+  return IntSettingNotifier(ref, 'reminder_window_end_min', 22 * 60);
+});
+
+/// 智能提醒生效星期（1=周一 … 7=周日，默认全选）。
+/// 调度侧按星期过滤：逐日逐槽一次性排程，仅排生效星期的槽位
+final reminderWeekdaysProvider =
+    StateNotifierProvider<WeekdaysNotifier, Set<int>>((ref) {
+  return WeekdaysNotifier(ref);
+});
+
+class WeekdaysNotifier extends StateNotifier<Set<int>> {
+  WeekdaysNotifier(this.ref) : super(const {1, 2, 3, 4, 5, 6, 7}) {
+    _load();
+  }
+  final Ref ref;
+  static const _k = 'reminder_weekdays';
+
+  Future<void> _load() async {
+    final storage = await ref.read(localStorageProvider.future);
+    final raw = storage.prefs.getStringList(_k);
+    if (raw == null) return;
+    // 允许空集合：用户主动取消全部星期后，重启不能恢复成全选
+    state = raw
+        .map(int.tryParse)
+        .whereType<int>()
+        .where((d) => d >= 1 && d <= 7)
+        .toSet();
+  }
+
+  Future<void> toggle(int day) async {
+    final next = {...state};
+    if (next.contains(day)) {
+      next.remove(day);
+    } else {
+      next.add(day);
+    }
+    state = next;
+    final storage = await ref.read(localStorageProvider.future);
+    await storage.prefs.setStringList(_k, next.map((d) => '$d').toList());
+    // 星期变更立即生效：按新星期集重排（切换日历天不再收到通知）
+    await ref.read(reminderProvider.notifier).rescheduleNow();
+  }
+}
+
+/// 通知自定义信息（提醒正文中追加的个人文本），空串 = 未设置
+final customMessageProvider =
+    StateNotifierProvider<CustomMessageNotifier, String>((ref) {
+  return CustomMessageNotifier(ref);
+});
+
+class CustomMessageNotifier extends StateNotifier<String> {
+  CustomMessageNotifier(this.ref) : super('') {
+    _load();
+  }
+  final Ref ref;
+  static const _k = 'notif_custom_message';
+
+  Future<void> _load() async {
+    final storage = await ref.read(localStorageProvider.future);
+    state = storage.prefs.getString(_k) ?? '';
+  }
+
+  Future<void> set(String v) async {
+    final storage = await ref.read(localStorageProvider.future);
+    await storage.prefs.setString(_k, v);
+    state = v;
+  }
+}
 
 /// 通用 int 设置 Notifier（持久化）
 class IntSettingNotifier extends StateNotifier<int> {

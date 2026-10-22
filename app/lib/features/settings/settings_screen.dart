@@ -24,7 +24,7 @@ import 'widget_settings_screen.dart';
 /// PRD §2.8 设置页 — 对标原版 WaterLlama App 设计
 ///
 /// 布局（自上而下）：
-/// 1. 顶部导航：返回按钮 + "最新变化"
+/// 1. 悬浮返回按钮（无标题行，页面内容铺满屏幕顶部）
 /// 2. 提醒卡片（浅青绿）
 /// 3. 每日目标卡片（渐变青绿 + 红色角标）
 /// 4. 推广卡片（薄荷绿 + 羊驼插画）
@@ -77,18 +77,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
+    // 内容铺满整个屏幕顶部（状态栏区域同为页面底色），返回按钮悬浮
+    // 在页面之上、不随列表滚动（无标题行，无右上角「最新变化」）
+    final topInset = MediaQuery.of(context).padding.top;
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.dark,
       child: Scaffold(
         backgroundColor: _bgColor,
-        body: SafeArea(
-          child: Column(
-            children: [
-              _buildTopBar(),
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 40),
-                  children: [
+        body: Stack(
+          children: [
+            ListView(
+              padding: EdgeInsets.fromLTRB(16, topInset + 56, 16, 40),
+              children: [
                     // ---- 卡片1：提醒 ----
                     _buildReminderCard(reminder),
                     const SizedBox(height: 12),
@@ -264,48 +264,35 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     _buildFooter(),
                   ],
                 ),
-              ),
-            ],
-          ),
+            Positioned(
+              top: topInset + 6,
+              left: 12,
+              child: _buildBackButton(),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  // ==================== 顶部导航 ====================
+  // ==================== 悬浮返回按钮 ====================
 
-  Widget _buildTopBar() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          // 左上：圆形浅灰背景返回按钮
-          GestureDetector(
-            onTap: () => Navigator.of(context).maybePop(),
-            child: Container(
-              width: 36,
-              height: 36,
-              decoration: const BoxDecoration(
-                color: Color(0xFFE5E5EA),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.arrow_back_ios_new,
-                size: 15,
-                color: _textPrimary,
-              ),
-            ),
-          ),
-          // 右上："最新变化" 文字按钮
-          TextButton(
-            onPressed: () => _showSnack('最新变化'),
-            child: const Text(
-              '最新变化',
-              style: TextStyle(color: _textSecondary, fontSize: 14),
-            ),
-          ),
-        ],
+  /// 圆形浅灰返回按钮（浮在页面内容之上，不随列表滚动）
+  Widget _buildBackButton() {
+    return GestureDetector(
+      onTap: () => Navigator.of(context).maybePop(),
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: const BoxDecoration(
+          color: Color(0xFFE5E5EA),
+          shape: BoxShape.circle,
+        ),
+        child: const Icon(
+          Icons.arrow_back_ios_new,
+          size: 15,
+          color: _textPrimary,
+        ),
       ),
     );
   }
@@ -844,7 +831,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     ref.invalidate(dailyProgressProvider);
     ref.invalidate(dailyAnimalProvider);
     ref.invalidate(reminderProvider);
-    ref.invalidate(soundEnabledProvider);
     ref.invalidate(last7DaysProvider);
     ref.invalidate(monthDataProvider);
     ref.invalidate(dayEntriesForProvider);

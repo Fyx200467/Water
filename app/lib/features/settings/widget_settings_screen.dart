@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -30,8 +31,7 @@ import '../stats/providers/stats_providers.dart';
 // 3. 小组件预览卡（目标 + 灰色角色剪影 + 连续徽章 + 饮料格）
 // 4. 颜色主题卡（20 色圆形色板 + 自定义 + 按钮）
 // 5. 饮料 1/2/3 选择行（弹层选饮品 + 容量）
-// 6. 开关组：彩色饮料按钮 / 彩色字符层 / 遵循深色模式规则 /
-//    跳过日间模式 / 连续徽章
+// 6. 开关组：彩色饮料按钮 / 彩色字符层 / 连续徽章
 // 7. 手表示意 + 说明文案
 //
 // 原则：本页只做小组件的「样式」设置（外观/内容），不提供添加/
@@ -52,7 +52,6 @@ class WidgetSettingsState {
     this.colorfulButtons = false,
     this.colorfulCharacter = true,
     this.followDarkMode = true,
-    this.skipDayMode = true,
     this.streakBadge = true,
   });
 
@@ -66,8 +65,7 @@ class WidgetSettingsState {
   final int vol3;
   final bool colorfulButtons; // 彩色饮料按钮
   final bool colorfulCharacter; // 彩色字符层
-  final bool followDarkMode; // 遵循深色模式规则
-  final bool skipDayMode; // 跳过日间模式
+  final bool followDarkMode; // 遵循深色模式规则（页面已隐藏，逻辑沿用默认值）
   final bool streakBadge; // 连续徽章
 
   Color get themeColor => colorIndex >= 0
@@ -86,7 +84,6 @@ class WidgetSettingsState {
     bool? colorfulButtons,
     bool? colorfulCharacter,
     bool? followDarkMode,
-    bool? skipDayMode,
     bool? streakBadge,
   }) =>
       WidgetSettingsState(
@@ -101,7 +98,6 @@ class WidgetSettingsState {
         colorfulButtons: colorfulButtons ?? this.colorfulButtons,
         colorfulCharacter: colorfulCharacter ?? this.colorfulCharacter,
         followDarkMode: followDarkMode ?? this.followDarkMode,
-        skipDayMode: skipDayMode ?? this.skipDayMode,
         streakBadge: streakBadge ?? this.streakBadge,
       );
 
@@ -114,7 +110,6 @@ class WidgetSettingsState {
         'colorfulButtons': colorfulButtons,
         'colorfulCharacter': colorfulCharacter,
         'followDarkMode': followDarkMode,
-        'skipDayMode': skipDayMode,
         'streakBadge': streakBadge,
       };
 
@@ -131,7 +126,6 @@ class WidgetSettingsState {
         colorfulButtons: m['colorfulButtons'] as bool? ?? false,
         colorfulCharacter: m['colorfulCharacter'] as bool? ?? true,
         followDarkMode: m['followDarkMode'] as bool? ?? true,
-        skipDayMode: m['skipDayMode'] as bool? ?? true,
         streakBadge: m['streakBadge'] as bool? ?? true,
       );
 }
@@ -248,20 +242,6 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
                   subtitle: '角色饮料图层的颜色将与小组件的色彩主题保持一致',
                   value: s.colorfulCharacter,
                   onChanged: (v) => _mutate((x) => x.copyWith(colorfulCharacter: v)),
-                ),
-                const SizedBox(height: 10),
-                _toggleCard(
-                  title: '遵循深色模式规则',
-                  subtitle: '当你的设备启用深色模式时，将深色应用于主屏幕小组件',
-                  value: s.followDarkMode,
-                  onChanged: (v) => _mutate((x) => x.copyWith(followDarkMode: v)),
-                ),
-                const SizedBox(height: 10),
-                _toggleCard(
-                  title: '跳过日间模式',
-                  subtitle: '如果你一整天都不加水，第二天的部件会显示一个鼓励的图示。',
-                  value: s.skipDayMode,
-                  onChanged: (v) => _mutate((x) => x.copyWith(skipDayMode: v)),
                 ),
                 _sectionDivider(),
                 _toggleCard(
@@ -473,7 +453,10 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
   Widget _drinkThumb(Beverage b, double size) {
     if (isSvgContainer(b.containerId)) {
       return SvgContainerIcon(
-          containerId: b.containerId!, color: b.color, size: size);
+          containerId: b.containerId!,
+          color: b.color,
+          fillRatio: 0.9, // 液体风格：液体占杯身 90%（全局统一）
+          size: size);
     }
     final illustId = b.id.startsWith('custom_')
         ? (b.templateId ?? Beverage.fallbackIllustration(b.category))
@@ -1132,7 +1115,10 @@ Future<void> renderWidgetCharacterFrames(
   }
   if (_framesPending) {
     _framesPending = false;
-    return renderWidgetCharacterFrames(read, liquidColor: liquidColor);
+    // 补渲必须重读当前设置：渲染期间用户可能改了主题色/彩色字符层，
+    // 复用本次入参的 liquidColor 会把旧色帧再推上桌面
+    return renderWidgetCharacterFrames(read,
+        liquidColor: widgetLiquidColor(read(widgetSettingsProvider)));
   }
 }
 
@@ -1142,6 +1128,13 @@ Future<void> _renderFramesOnce(
 }) async {
   final progress = read(dailyProgressProvider);
   final characterId = read(currentCharacterProvider);
+  // 帧签名：同角色 + 同液体色 + 同填充档位（0.5% 步进）+ 同达标态时
+  // 16 帧画面完全一致，直接复用已有帧跳过渲染——设置页连续开关
+  // （徽章/彩色按钮等不影响画面的项）只剩数据推送，桌面即时刷新
+  final sig = '$characterId|${liquidColor.toARGB32().toSigned(32)}|'
+      '${(progress.progress.clamp(0.0, 1.0) * 200).round()}|${progress.isComplete}';
+  final savedSig = await HomeWidget.getWidgetData<String>('character_frames_sig');
+  if (savedSig == sig) return;
   try {
     for (var i = 0; i < kWidgetFrameCount; i++) {
       final key = 'character_frame_$i';
@@ -1169,6 +1162,7 @@ Future<void> _renderFramesOnce(
   } catch (_) {
     // 帧渲染失败静默跳过（下次数据变化同步时自动补上）
   }
+  await HomeWidget.saveWidgetData<String>('character_frames_sig', sig);
   // updateWidget 必须无条件执行：小组件后台录入跑在 headless 引擎里，
   // 帧渲染必然抛错（无 implicitView），若 updateWidget 放在 try 内则
   // 会被跳过——数据虽已写入但桌面 RemoteViews 不重绘，数字永远不更新
@@ -1233,6 +1227,11 @@ bool _syncPending = false;
 /// 组装小组件数据并刷新：饮料格/主题色/徽章/格底色来自小组件设置
 /// （与预览卡同构）；今日合计/目标/连续天数默认读当前状态，
 /// 可用参数覆盖（清除数据等重置场景）
+///
+/// 响应速度关键：数据推送（数字/颜色/饮料格）走同步锁串行执行，
+/// 完成后立即 updateWidget 上桌；角色动画帧渲染（16/176 帧，可达数秒）
+/// 不占用锁、后台执行——连续调整设置时每次数据都即时上桌，帧由
+/// renderWidgetCharacterFrames 自身的 pending 机制合并补渲
 Future<void> syncWidgetFromSettings(
   Reader read, {
   int? todayMl,
@@ -1250,6 +1249,8 @@ Future<void> syncWidgetFromSettings(
   } finally {
     _syncBusy = false;
   }
+  unawaited(renderWidgetCharacterFrames(read,
+      liquidColor: widgetLiquidColor(read(widgetSettingsProvider))));
   if (_syncPending) {
     _syncPending = false;
     return syncWidgetFromSettings(read);
@@ -1303,16 +1304,22 @@ Future<void> _syncWidgetFromSettingsOnce(
     final slots = [(s.drink1, s.vol1), (s.drink2, s.vol2), (s.drink3, s.vol3)];
     final customs = read(customBeveragesProvider);
     final all = [...Beverage.presets, ...customs];
-    final drinks = <WidgetDrinkData>[];
-    for (final (id, vol) in slots) {
-      final b = all.firstWhere((x) => x.id == id, orElse: () => all.first);
-      drinks.add(WidgetDrinkData(
-          ml: vol,
-          name: b.name,
-          // 折算后水量：原生点按累加/百分比用它，与 App 内 sumEffective 口径一致
-          effectiveMl: b.effectiveMl(vol),
-          iconFile: await _rasterizeDrinkIcon(b)));
-    }
+    final beverages = [
+      for (final (id, _) in slots)
+        all.firstWhere((x) => x.id == id, orElse: () => all.first)
+    ];
+    // 三格图标并行光栅化（命中缓存时近乎零开销）
+    final icons =
+        await Future.wait([for (final b in beverages) _rasterizeDrinkIcon(b)]);
+    final drinks = <WidgetDrinkData>[
+      for (var i = 0; i < slots.length; i++)
+        WidgetDrinkData(
+            ml: slots[i].$2,
+            name: beverages[i].name,
+            // 折算后水量：原生点按累加/百分比用它，与 App 内 sumEffective 口径一致
+            effectiveMl: beverages[i].effectiveMl(slots[i].$2),
+            iconFile: icons[i]),
+    ];
     // 主题色：与预览卡同规则（「遵循深色模式规则」+ 系统深色 → 强制
     // 深色底，详见 effectiveWidgetThemeColor 注释）。恒定有值：默认
     // 白底也显式推白色，行为与 -1 相同且省去空值分支
@@ -1327,17 +1334,31 @@ Future<void> _syncWidgetFromSettingsOnce(
       drinks: drinks,
       recordEnabled: recordEnabled,
     );
-    // 角色动画帧随后渲染补推（与 App 内首页同款 AnimalSilhouette 8 帧
-    // 波浪相位，ViewFlipper 轮播实现持续动画；液体色按彩色字符层规则）
-    await renderWidgetCharacterFrames(read, liquidColor: widgetLiquidColor(s));
+    // 角色动画帧由 syncWidgetFromSettings 在数据推送完成后异步补推
+    // （不阻塞数据同步锁，见其函数注释）
   } catch (_) {
     // 小组件同步失败不影响主流程
   }
 }
 
+/// 饮品图标 PNG 缓存：id → (签名, 文件)。签名 = 容器/插画 id + 液体色，
+/// 未变化且文件仍在时直接复用，避免每次同步重复 SVG 解析 + 光栅化
+/// （设置页每次调整都要推 3 张图标，无缓存时显著拖慢上桌速度）
+final Map<String, (String, File)> _drinkIconCache = {};
+
 /// 光栅化饮品图标为 PNG（RemoteViews 不支持 SVG；规则与预览卡 _drinkThumb
 /// 一致：容器剪影按包围盒 92% 居中 + srcIn 染色，预设插画 contain 不染色）
 Future<File?> _rasterizeDrinkIcon(Beverage b, {int dim = 96}) async {
+  final illustId = b.id.startsWith('custom_')
+      ? (b.templateId ?? Beverage.fallbackIllustration(b.category))
+      : b.id;
+  final sig = isSvgContainer(b.containerId)
+      ? '${b.containerId}|${b.color.toARGB32().toSigned(32)}'
+      : 'illust|$illustId';
+  final cached = _drinkIconCache[b.id];
+  if (cached != null && cached.$1 == sig && cached.$2.existsSync()) {
+    return cached.$2;
+  }
   try {
     final String assetPath;
     final Color? tint;
@@ -1345,9 +1366,6 @@ Future<File?> _rasterizeDrinkIcon(Beverage b, {int dim = 96}) async {
       assetPath = svgContainerAsset(b.containerId!);
       tint = b.color;
     } else {
-      final illustId = b.id.startsWith('custom_')
-          ? (b.templateId ?? Beverage.fallbackIllustration(b.category))
-          : b.id;
       assetPath = 'assets/images/drinks/$illustId.svg';
       tint = null;
     }
@@ -1409,6 +1427,7 @@ Future<File?> _rasterizeDrinkIcon(Beverage b, {int dim = 96}) async {
         '${Platform.pathSeparator}icon_${b.id}.png');
     await file.create(recursive: true);
     await file.writeAsBytes(data.buffer.asUint8List());
+    _drinkIconCache[b.id] = (sig, file);
     return file;
   } catch (_) {
     return null;

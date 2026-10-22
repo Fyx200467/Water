@@ -169,12 +169,31 @@ class LiquidPainter extends CustomPainter {
   /// 容器图形度量（包围盒 + 杯口沿），null 时回退画框估算
   final SvgArtMetrics? metrics;
 
-  /// 将 viewBox 坐标系的 SVG Picture 非等比铺满目标 size
-  void _drawMaskScaled(Canvas canvas, Size size) {
-    canvas.save();
-    canvas.scale(
+  /// viewBox 等比缩放（contain）后在画布上的落区：容器画布均为正方形，
+  /// 而预览框是竖长比例，非等比拉伸会把杯子纵向拉长变形
+  Rect _maskRect(Size size) {
+    final s = math.min(
       size.width / maskViewBox.width,
       size.height / maskViewBox.height,
+    );
+    final w = maskViewBox.width * s;
+    final h = maskViewBox.height * s;
+    return Rect.fromLTWH(
+      (size.width - w) / 2,
+      (size.height - h) / 2,
+      w,
+      h,
+    );
+  }
+
+  /// 将 viewBox 坐标系的 SVG Picture 等比缩放（contain）居中铺进目标 size
+  void _drawMaskScaled(Canvas canvas, Size size) {
+    final r = _maskRect(size);
+    canvas.save();
+    canvas.translate(r.left, r.top);
+    canvas.scale(
+      r.width / maskViewBox.width,
+      r.height / maskViewBox.height,
     );
     canvas.drawPicture(maskPicture!);
     canvas.restore();
@@ -208,21 +227,23 @@ class LiquidPainter extends CustomPainter {
   }
 
   void _paintLiquid(Canvas canvas, Size size) {
-    // 液体范围按容器图形包围盒对齐（源文件留白各异，不能按画框估算）
+    // 液体范围按容器图形包围盒对齐（源文件留白各异，不能按画框估算）；
+    // 映射基于等比缩放后的 viewBox 落区（与蒙版同一变换，否则液体错位）
     const inset = 9.0;
     final m = metrics;
+    final mr = _maskRect(size);
     final Rect art = m == null
         ? Rect.fromLTRB(
             inset + 7, inset + 7, size.width - inset - 7, size.height - inset - 7)
         : Rect.fromLTRB(
-            m.bounds.left / maskViewBox.width * size.width,
-            m.bounds.top / maskViewBox.height * size.height,
-            m.bounds.right / maskViewBox.width * size.width,
-            m.bounds.bottom / maskViewBox.height * size.height,
+            mr.left + m.bounds.left / maskViewBox.width * mr.width,
+            mr.top + m.bounds.top / maskViewBox.height * mr.height,
+            mr.left + m.bounds.right / maskViewBox.width * mr.width,
+            mr.top + m.bounds.bottom / maskViewBox.height * mr.height,
           );
     final body = m == null
         ? art.top
-        : m.bodyTop / maskViewBox.height * size.height;
+        : mr.top + m.bodyTop / maskViewBox.height * mr.height;
 
     final left = art.left;
     final right = art.right;

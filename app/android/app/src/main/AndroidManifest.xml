@@ -5,6 +5,10 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- 重启后恢复已排定的提醒 -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- 精确闹钟（提醒准点触发）：Android 12 用 SCHEDULE_EXACT_ALARM，
+         Android 13+ 用 USE_EXACT_ALARM（声明即授予），二者并存按系统版本生效 -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <application
         android:label="喝水养成"
         android:name="${applicationName}"
@@ -47,6 +51,24 @@
         <receiver
             android:name=".QuickAddReceiver"
             android:exported="false" />
+        <!-- flutter_local_notifications 的接收器需宿主手动声明（插件自身
+             manifest 只含权限）：缺失时闹钟照常触发但广播无处投递，通知永不出现 -->
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver"
+            android:exported="false" />
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver"
+            android:exported="false" />
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
+        </receiver>
         <receiver
             android:name="es.antonborri.home_widget.HomeWidgetBackgroundReceiver"
             android:exported="false">
