@@ -17,6 +17,17 @@
         android:scaleType="fitXY"
         android:contentDescription="@null" />
 
+    <!-- 达标礼炮彩带层（provider 按当日是否达标决定显隐）：插在背景之上、
+         角色/内容层之下 → 彩带贴在卡面上但不遮挡数字与饮品格；ImageView
+         无点击监听，触摸事件继续下传，不拦截饮品格点按 -->
+    <ImageView
+        android:id="@id/widget_confetti"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="fitXY"
+        android:visibility="gone"
+        android:contentDescription="@null" />
+
     <!-- 角色定位层：羊驼居中于第一格 → 中心 = 第一格中点。要中心落
          在卡宽 34%（3 列窄卡上远离右侧饮品列），第一格须占 68%
          （权重 0.53/0.25）；此前 80/20 中心在 40%，窄卡上右缘几乎

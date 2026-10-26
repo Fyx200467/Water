@@ -1,4 +1,4 @@
-import 'dart:math' as math;
+﻿import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/storage/providers.dart';
+import '../../shared/models/preferred_unit.dart';
 import '../../shared/models/user_profile.dart';
 import '../home/providers/home_providers.dart';
 import '../settings/goal_screen.dart';
@@ -94,34 +95,34 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       body: IndexedStack(
-        index: _step,
-        children: [
-          _GoalCalcScreen(
-            genderLabel: _genderDisplayLabel,
-            genderSelected: _gender != null,
-            weightSelected: _weightSelected,
-            weightDisplay: _weightSelected ? _weightDisplay : null,
-            activity: _activity,
-            temp: _temp,
-            customGoal: _customGoal,
-            previewGoal: _previewGoal,
-            onGenderTap: () => _showGenderSheet(context),
-            onWeightTap: () => _showWeightSheet(context),
-            onActivityTap: () => _showActivitySheet(context),
-            onTempTap: () => _showTempSheet(context),
-            onCustomGoalTap: () => _showCustomGoalSheet(context),
-            onContinue: _goNext,
-          ),
-          _ReminderScreen(
-            onContinue: _goNext,
-            onSkip: _goSkip,
-          ),
-          _LoadingScreen(
-            visible: _step == 2,
-            onDone: _finishProfile,
-          ),
-        ],
-      ),
+          index: _step,
+          children: [
+            _GoalCalcScreen(
+              genderLabel: _genderDisplayLabel,
+              genderSelected: _gender != null,
+              weightSelected: _weightSelected,
+              weightDisplay: _weightSelected ? _weightDisplay : null,
+              activity: _activity,
+              temp: _temp,
+              customGoal: _customGoal,
+              previewGoal: _previewGoal,
+              onGenderTap: () => _showGenderSheet(context),
+              onWeightTap: () => _showWeightSheet(context),
+              onActivityTap: () => _showActivitySheet(context),
+              onTempTap: () => _showTempSheet(context),
+              onCustomGoalTap: () => _showCustomGoalSheet(context),
+              onContinue: _goNext,
+            ),
+            _ReminderScreen(
+              onContinue: _goNext,
+              onSkip: _goSkip,
+            ),
+            _LoadingScreen(
+              visible: _step == 2,
+              onDone: _finishProfile,
+            ),
+          ],
+        ),
     );
   }
 
@@ -294,13 +295,13 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                       min: 1000,
                       max: 5000,
                       divisions: 80,
-                      label: '$temp ml',
+                      label: UnitFormat.volume(temp),
                       onChanged: (v) => setSheet(() => temp = v.round()),
                     ),
                   ),
                   SizedBox(
                     width: 100,
-                    child: Text('$temp ml',
+                    child: Text(UnitFormat.volume(temp),
                         textAlign: TextAlign.end,
                         style: const TextStyle(
                             color: _textDark,
@@ -639,8 +640,13 @@ class _GoalCalcScreenState extends State<_GoalCalcScreen>
     final canContinue = widget.genderSelected && widget.weightSelected;
     return Stack(
       children: [
-        // 底层：水下动画背景（渐变水体 + 冰晶 + 气泡）
-        const Positioned.fill(child: UnderwaterBackground()),
+        // 底层：白底，气泡与冰晶用淡青灰着色保证可见
+        const Positioned.fill(
+          child: UnderwaterBackground(
+            gradientColors: [Colors.white, Colors.white],
+            decorTint: Color(0xFFB7E6F0),
+          ),
+        ),
         // 内容层
         SafeArea(
           child: AnimatedBuilder(
@@ -655,10 +661,10 @@ class _GoalCalcScreenState extends State<_GoalCalcScreen>
                     const Spacer(),
                     // 大字目标
                     Text(
-                      '${widget.previewGoal} ml',
+                      UnitFormat.volume(widget.previewGoal),
                       textAlign: TextAlign.center,
                       style: const TextStyle(
-                        color: Colors.white,
+                        color: Color(0xFF4DB8D8),
                         fontSize: 56,
                         fontWeight: FontWeight.w800,
                       ),
@@ -668,11 +674,11 @@ class _GoalCalcScreenState extends State<_GoalCalcScreen>
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: const [
                         Text('常见目标',
-                            style:
-                                TextStyle(color: Colors.white70, fontSize: 14)),
+                            style: TextStyle(
+                                color: Color(0xFF4DB8D8), fontSize: 14)),
                         SizedBox(width: 4),
                         Icon(Icons.info_outline,
-                            color: Colors.white70, size: 16),
+                            color: Color(0xFF4DB8D8), size: 16),
                       ],
                     ),
                     const SizedBox(height: 24),
@@ -680,7 +686,7 @@ class _GoalCalcScreenState extends State<_GoalCalcScreen>
                       '计算你的目标',
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                        color: Colors.white,
+                        color: Color(0xFF4DB8D8),
                         fontSize: 17,
                         fontWeight: FontWeight.w600,
                       ),
@@ -725,13 +731,14 @@ class _GoalCalcScreenState extends State<_GoalCalcScreen>
                       child: TextButton(
                         onPressed: widget.onCustomGoalTap,
                         child: const Text('自定义目标',
-                            style:
-                                TextStyle(color: Colors.white, fontSize: 14)),
+                            style: TextStyle(
+                                color: Color(0xFF2C3E50),
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500)),
                       ),
                     ),
                     const Spacer(),
-                    // 底部"继续"按钮（白底青字；性别与体重均已选择才可点击，
-                    // 未选完时置灰不可点）
+                    // 底部"继续"按钮（深色胶囊；性别与体重均已选择才可点击）
                     SizedBox(
                       width: double.infinity,
                       height: 56,
@@ -739,18 +746,15 @@ class _GoalCalcScreenState extends State<_GoalCalcScreen>
                         onPressed:
                             canContinue ? widget.onContinue : null,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: canContinue
-                              ? Colors.white
-                              : Colors.white.withValues(alpha: 0.5),
-                          foregroundColor: canContinue
-                              ? const Color(0xFF4DB8D8)
-                              : const Color(0xFF4DB8D8)
-                                  .withValues(alpha: 0.4),
+                          backgroundColor: const Color(0xFF4DB8D8),
+                          foregroundColor: Colors.white,
                           disabledBackgroundColor:
-                              Colors.white.withValues(alpha: 0.5),
+                              Colors.white.withValues(alpha: 0.55),
                           disabledForegroundColor: const Color(0xFF4DB8D8)
-                              .withValues(alpha: 0.4),
+                              .withValues(alpha: 0.5),
                           elevation: 0,
+                          shadowColor: const Color(0xFF4DB8D8)
+                              .withValues(alpha: 0.35),
                           shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(28)),
                           textStyle: const TextStyle(
@@ -788,42 +792,62 @@ class _OptionCapsule extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(32),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(32),
+    // 胶囊占内容区 5/8 宽度并居中（比通栏窄，留出呼吸感）
+    return Center(
+      child: FractionallySizedBox(
+        widthFactor: 0.625,
         child: Container(
-          height: 64,
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Row(
-            children: [
-              Text(
-                label,
-                style: const TextStyle(
-                  color: Color(0xFF171A26),
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(28),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF2C3E50).withValues(alpha: 0.10),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Material(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(28),
+            child: InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(28),
+              child: Container(
+                height: 58,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  children: [
+                    Text(
+                      label,
+                      style: const TextStyle(
+                        color: Color(0xFF171A26),
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const Spacer(),
+                    if (value != null)
+                      Flexible(
+                        child: Text(
+                          value!,
+                          maxLines: 1,
+                          textAlign: TextAlign.right,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: _waterAccent,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    const SizedBox(width: 2),
+                    const Icon(Icons.chevron_right,
+                        color: _waterAccent, size: 20),
+                  ],
                 ),
               ),
-              const Spacer(),
-              if (value != null) ...[
-                Text(
-                  value!,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: _waterAccent,
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(width: 6),
-              ],
-              const Icon(Icons.chevron_right,
-                  color: _waterAccent, size: 24),
-            ],
+            ),
           ),
         ),
       ),
@@ -878,7 +902,7 @@ class _ReminderScreen extends StatelessWidget {
                   alignment: Alignment.center,
                   children: [
                     AnimalSilhouette(
-                      animalId: 'llama',
+                      animalId: 'sheep',
                       fillRatio: 1.0,
                       accentColor: const Color(0xFF4DB8D8),
                       size: 240,
@@ -944,19 +968,20 @@ class _NotificationCard extends StatelessWidget {
         children: [
           Row(
             children: [
+              // 应用默认图标：浅灰底板 + 青色水滴
               Container(
                 width: 28,
                 height: 28,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF4DB8D8),
+                  color: const Color(0xFFF1F3F7),
                   borderRadius: BorderRadius.circular(7),
                 ),
                 child: const Icon(Icons.water_drop,
-                    color: Colors.white, size: 16),
+                    color: Color(0xFF72E3F0), size: 18),
               ),
               const SizedBox(width: 8),
               const Text(
-                'WaterLlama',
+                'Drink some water',
                 style: TextStyle(color: Color(0xFF8E8E93), fontSize: 12),
               ),
               const Spacer(),
@@ -1063,7 +1088,7 @@ class _LoadingScreenState extends State<_LoadingScreen>
                 painter: _DotsPainter(progress: _ctrl.value),
                 child: Center(
                   child: AnimalSilhouette(
-                    animalId: 'llama',
+                    animalId: 'sheep',
                     fillRatio: 1.0,
                     accentColor: const Color(0xFF4DB8D8),
                     size: 110,

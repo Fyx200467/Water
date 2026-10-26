@@ -10,6 +10,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
+import '../../shared/models/preferred_unit.dart';
+
 /// PRD §2.4 智能提醒 — 本地定时通知
 /// Android: flutter_local_notifications + timezone
 /// iOS: APNs 远程兜底（M5 服务端接入），本地通知同样生效
@@ -135,6 +137,17 @@ class NotificationService {
 
   // ==================== 调度 ====================
 
+  /// 记录的「相对今天 0 点分钟数」。
+  /// 重置时间 > 0 时，逻辑日「今天」可能落在自然日昨天：这些记录返回负数，
+  /// 智能跳过才能正确判断「30 分钟内是否喝过水」而不是把昨晚的分钟数
+  /// 误当成今夜同一时刻。
+  static int relativeMinute(DateTime now, DateTime t) {
+    final m = t.hour * 60 + t.minute;
+    final sameDay =
+        t.year == now.year && t.month == now.month && t.day == now.day;
+    return sameDay ? m : m - 1440;
+  }
+
   ///PRD §2.4 按全部设置重排提醒（先取消再排）
   ///
   /// [times] 固定时间槽（"HH:mm"，自定义提醒页已开启的时间）
@@ -171,8 +184,24 @@ class NotificationService {
     final remainingMl = math.max(0, goalMl - todayEffectiveMl);
     // vivo 等厂商会在后台冻结应用，普通闹钟广播被挂起（extras 被剥离），
     // 到点收不到通知；改用 setAlarmClock，系统按"闹钟"对待，不受后台
-    // 冻结与 Doze 影响，且无需 SCHEDULE_EXACT_ALARM 权限
-    const scheduleMode = AndroidScheduleMode.alarmClock;
+    // 冻结与 Doze 影响。
+    //
+    // 注意：setAlarmClock 也属于精确闹钟，Android 12+ 需要
+    // SCHEDULE_EXACT_ALARM 被授予（Android 14 起新装默认关闭）。
+    // 未授予时插件抛 exact_alarms_not_permitted，整轮排程会全部失败、
+    // 一条提醒都收不到——此时降级为 inexactAllowWhileIdle（无需权限，
+    // 可能被 Doze 延后几分钟，但绝不会静默丢失）。
+    var scheduleMode = AndroidScheduleMode.alarmClock;
+    try {
+      final android = _plugin.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+      final exactAllowed = await android?.canScheduleExactNotifications();
+      if (exactAllowed == false) {
+        scheduleMode = AndroidScheduleMode.inexactAllowWhileIdle;
+      }
+    } catch (e) {
+      debugPrint('[notif] read exact-alarm state failed: $e');
+    }
 
     final slots = _collectSlots(
       now: now,
@@ -188,7 +217,7 @@ class NotificationService {
     // ---- 只清理已失效的排程，不动通知栏里已展示的通知 ----
     // 注意：不能用 cancelAll()，它会把刚弹出的提醒一并抹掉（通知自己消失）
     final newIds = <int>{
-      for (final s in slots) s.id(now),
+      for (final s in slots) s.id,
     };
     final pending = await () async {
       // 清理步骤失败不能阻断后续排程（否则一条旧槽位异常会让整轮通知全丢）
@@ -215,7 +244,7 @@ class NotificationService {
       final date = s.date;
       final m = s.minute;
       final isInterval = s.isInterval;
-      final id = s.id(now);
+      final id = s.id;
       final (String title, String body) = _composeContent(
         slotId: id,
         message: message,
@@ -261,12 +290,31 @@ class NotificationService {
       }));
     }
     await Future.wait(futures);
-    debugPrint('[notif] rescheduled ${slots.length} slots, alarmClock');
+    var pendingNow = -1;
+    try {
+      pendingNow = (await _plugin.pendingNotificationRequests()).length;
+    } catch (_) {}
+    debugPrint(
+        '[notif] rescheduled ${slots.length} slots, ${scheduleMode.name}, '
+        'pending=$pendingNow');
   }
 
   static Future<void> cancelAll() async {
     await _ensureInit();
     await _plugin.cancelAll();
+  }
+
+  /// 打开系统的「本应用通知设置」页。Android 上用户永久拒绝通知权限后
+  /// 再调 requestPermission 不会再弹框，必须引导到系统设置手动开启
+  static Future<bool> openNotificationSettings() async {
+    try {
+      return await const MethodChannel('app.notification.settings')
+              .invokeMethod<bool>('open') ??
+          false;
+    } catch (e) {
+      debugPrint('[notif] open notification settings failed: $e');
+      return false;
+    }
   }
 
   /// 系统通知权限当前是否开启（提醒页状态提示用）
@@ -275,6 +323,33 @@ class NotificationService {
     final android = _plugin.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
     return await android?.areNotificationsEnabled() ?? true;
+  }
+
+  /// Android 12+ 精确闹钟权限：关闭时排程会降级为 inexact（可能延后）。
+  /// 非 Android 或读取失败一律按可用处理，不影响排程
+  static Future<bool> exactAlarmsAllowed() async {
+    await _ensureInit();
+    try {
+      final android = _plugin.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+      return await android?.canScheduleExactNotifications() ?? true;
+    } catch (e) {
+      debugPrint('[notif] read exact-alarm state failed: $e');
+      return true;
+    }
+  }
+
+  /// 打开系统「闹钟和提醒」授权页（Android 12+）
+  static Future<void> openExactAlarmSettings() async {
+    await _ensureInit();
+    try {
+      await _plugin
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>()
+          ?.requestExactAlarmsPermission();
+    } catch (e) {
+      debugPrint('[notif] request exact alarms failed: $e');
+    }
   }
 
   /// 下一次提醒的真实触发时刻（无排程或未开启时返回 null）。
@@ -306,7 +381,10 @@ class NotificationService {
     );
     DateTime? best;
     for (final s in slots) {
-      final t = _slotTime(s.date, s.minute, now).toLocal();
+      // 用 epoch 转成真正的本地时间：TZDateTime.toLocal() 依赖 tz.local，
+      // 未设置本地时区时会返回 UTC 墙上时间（界面上会显示成早 8 小时）
+      final t = DateTime.fromMillisecondsSinceEpoch(
+          _slotTime(s.date, s.minute, now).millisecondsSinceEpoch);
       if (best == null || t.isBefore(best)) best = t;
     }
     return best;
@@ -331,8 +409,9 @@ class NotificationService {
     var winStart = (windowStartMin ?? 0).clamp(0, 1439).toInt();
     var winEnd = (windowEndMin ?? 1440).clamp(1, 1440).toInt();
     if (winStart >= winEnd) {
-      winStart = 0;
-      winEnd = 1440;
+      // 非法窗口（开始不早于结束）：不铺间隔槽。此处不能回落成
+      // 0:00~24:00，否则会静默变成全天提醒（含深夜）
+      winStart = winEnd;
     }
     final intervalPerDay =
         step == 0 ? 0 : ((winEnd - winStart) + step - 1) ~/ step;
@@ -362,17 +441,22 @@ class NotificationService {
         final minute = int.tryParse(parts[1]);
         if (hour == null || minute == null) continue;
         final m = hour * 60 + minute;
-        // 今天已过的槽跳过；同一分钟内刚设置的立即触发
-        if (isToday && m < nowMinutes) continue;
+        // 今天「当前分钟及更早」的槽一律跳过：若把这一分钟也重排到 2 秒后，
+        // 每次改设置/切前后台/新增记录都会立刻补弹一条重复提醒
+        if (isToday && m <= nowMinutes) continue;
         // 达标停止：今日剩余槽全跳（未来天喝水情况未知，正常排）
         if (isToday && goalReached) continue;
+        // 智能语义（固定时间同样适用）：槽位前 30 分钟内刚喝过水 → 跳过
+        if (isToday && todayDrinkMinutes.any((dm) => dm > m - 30 && dm <= m)) {
+          continue;
+        }
         out.add(_NotificationSlot(date, m, false));
       }
 
       // 间隔槽（智能提醒）
       if (step == 0) continue;
       for (var m = winStart; m < winEnd; m += step) {
-        if (isToday && m < nowMinutes) continue;
+        if (isToday && m <= nowMinutes) continue;
         if (isToday && goalReached) continue;
         if (fixedMinutes.contains(m)) continue;
         // 智能语义：槽位前 30 分钟内刚喝过水 → 你没忘记，跳过
@@ -437,10 +521,11 @@ class NotificationService {
     required int? remainingMl,
   }) {
     final showRemaining = progressTitle && (remainingMl ?? 0) > 0;
+    final remainingText = UnitFormat.volume(remainingMl ?? 0, compact: true);
     final motivation = _motivations[slotId % _motivations.length];
     final title = motivationalTitle
-        ? (showRemaining ? '剩余 ${remainingMl}ml，$motivation' : motivation)
-        : (showRemaining ? '该喝水啦 · 剩余 ${remainingMl}ml' : '该喝水啦');
+        ? (showRemaining ? '剩余 $remainingText，$motivation' : motivation)
+        : (showRemaining ? '该喝水啦 · 剩余 $remainingText' : '该喝水啦');
 
     // 提醒语与饮水事实排在同一行，提醒语在前
     var body = message;
@@ -505,9 +590,11 @@ class _NotificationSlot {
   final int minute;
   final bool isInterval;
 
-  /// 排程 id：跨天唯一、同轮稳定（固定槽与间隔槽分开段位）
-  int id(DateTime now) =>
-      (date.difference(now).inDays + 1) * 100000 +
+  /// 排程 id：跨天唯一、同轮稳定（固定槽与间隔槽分开段位）。
+  /// 用「月*32+日」作日期键而不是与 now 的天数差——后者在夏令时/
+  /// 时区改写导致某天只有 23 小时时会算出 0 天，与当天 id 撞车
+  int get id =>
+      (date.month * 32 + date.day) * 100000 +
       (isInterval ? 50000 : 0) +
       minute;
 }

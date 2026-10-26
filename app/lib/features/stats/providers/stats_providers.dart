@@ -2,9 +2,24 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/storage/providers.dart';
+import '../../../core/time/logical_day.dart';
 import '../../../shared/models/drink_entry.dart';
 import '../../home/providers/home_providers.dart';
 import '../services/streak_calculator.dart';
+
+/// 历史窗口：近 3 年（含今天），天数 = 1095
+const int historyWindowDays = 1095;
+
+/// 饮品筛选 token：`全部` | `id:<beverageId>` | `name:<beverageName>`
+///
+/// 优先按 id 匹配，饮品改名后历史记录不会从筛选结果里断链；
+/// 仅对「饮品已被删除」的历史记录回退到名称匹配。
+bool matchesBeverageFilter(DrinkEntry e, String filter) {
+  if (filter.isEmpty || filter == '全部') return true;
+  if (filter.startsWith('id:')) return e.beverageId == filter.substring(3);
+  if (filter.startsWith('name:')) return e.beverageName == filter.substring(5);
+  return e.beverageName == filter;
+}
 
 /// 单日聚合
 @immutable
@@ -32,7 +47,8 @@ Map<int, DayTotal> _aggregate(
 ) {
   final map = <int, List<DrinkEntry>>{};
   for (final e in entries) {
-    final idx = DateTime(e.drankAt.year, e.drankAt.month, e.drankAt.day)
+    // 逻辑日归属：重置时刻之前的记录计入前一天
+    final idx = LogicalDay.of(e.drankAt)
         .difference(DateTime(firstDay.year, firstDay.month, firstDay.day))
         .inDays;
     if (idx >= 0 && idx < days) {
@@ -57,28 +73,76 @@ Map<int, DayTotal> _aggregate(
 
 int _goalOf(Ref ref) => ref.watch(profileProvider)?.dailyGoalMl ?? 2000;
 
+/// 近 3 年原始记录（逻辑日窗口，含今天）。
+///
+/// 历史页的列表、趋势图、各饮品面板、连续签到全部从这一份数据本地派生，
+/// 同一轮刷新只查一次数据库。
+final yearEntriesProvider = FutureProvider<List<DrinkEntry>>((ref) async {
+  ref.watch(todayEntriesProvider); // 新增/删除饮水后立即重算
+  final storage = await ref.read(localStorageProvider.future);
+  final today = LogicalDay.today();
+  final start = today.subtract(Duration(days: historyWindowDays - 1));
+  return storage.loadEntriesForRange(
+    LogicalDay.startOf(start),
+    LogicalDay.endOf(today),
+  );
+});
+
+/// 近 3 年每日聚合（key = 逻辑日零点），供历史页周/月图表本地聚合
+final yearDailyProvider = FutureProvider<Map<DateTime, DayTotal>>((ref) async {
+  final entries = await ref.watch(yearEntriesProvider.future);
+  final today = LogicalDay.today();
+  final start = today.subtract(Duration(days: historyWindowDays - 1));
+  final map = _aggregate(entries, start, historyWindowDays, _goalOf(ref));
+  return {for (final t in map.values) t.day: t};
+});
+
+/// 近 3 年每日聚合（按饮品筛选），供历史页周/月柱形图筛选
+final filteredYearDailyProvider =
+    FutureProvider.family<Map<DateTime, DayTotal>, String>((ref, filter) async {
+  final all = await ref.watch(yearEntriesProvider.future);
+  final entries =
+      all.where((e) => matchesBeverageFilter(e, filter)).toList();
+  final today = LogicalDay.today();
+  final start = today.subtract(Duration(days: historyWindowDays - 1));
+  final map = _aggregate(entries, start, historyWindowDays, _goalOf(ref));
+  return {for (final t in map.values) t.day: t};
+});
+
 /// 近 7 天（含今天）
 final last7DaysProvider = FutureProvider<List<DayTotal>>((ref) async {
-  ref.watch(todayEntriesProvider); // 新增/删除饮水后重算柱形图
-  final storage = await ref.read(localStorageProvider.future);
-  final today = DateTime.now();
-  final start = DateTime(today.year, today.month, today.day).subtract(6.days);
-  final entries = await storage.loadEntriesForRange(
-    start,
-    DateTime(today.year, today.month, today.day + 1),
-  );
+  final entries = await ref.watch(yearEntriesProvider.future);
+  final today = LogicalDay.today();
+  final start = today.subtract(6.days);
   final map = _aggregate(entries, start, 7, _goalOf(ref));
   return [for (var i = 0; i < 7; i++) map[i]!];
 });
 
-/// 指定月份的每日聚合
+/// 近 7 天（含今天），按饮品筛选（'全部'=不过滤）
+/// 用于历史页天 Tab 柱形图筛选
+final filteredLast7DaysProvider =
+    FutureProvider.family<List<DayTotal>, String>((ref, filter) async {
+  final all = await ref.watch(yearEntriesProvider.future);
+  final entries =
+      all.where((e) => matchesBeverageFilter(e, filter)).toList();
+  final today = LogicalDay.today();
+  final start = today.subtract(6.days);
+  final map = _aggregate(entries, start, 7, _goalOf(ref));
+  return [for (var i = 0; i < 7; i++) map[i]!];
+});
+
+/// 指定月份的每日聚合（月历可翻到任意月份，因此单独查询）
 final monthDataProvider =
     FutureProvider.family<Map<int, DayTotal>, DateTime>((ref, month) async {
   ref.watch(todayEntriesProvider); // 新增/删除饮水后重算日历圆点
   final storage = await ref.read(localStorageProvider.future);
   final first = DateTime(month.year, month.month, 1);
   final next = DateTime(month.year, month.month + 1, 1);
-  final entries = await storage.loadEntriesForRange(first, next);
+  // 逻辑月窗口 = [1 号 + 重置时刻, 下月 1 号 + 重置时刻)
+  final entries = await storage.loadEntriesForRange(
+    LogicalDay.startOf(first),
+    LogicalDay.startOf(next),
+  );
   return _aggregate(entries, first, next.difference(first).inDays, _goalOf(ref));
 });
 
@@ -90,58 +154,40 @@ final dayEntriesForProvider =
   return storage.loadEntriesForDay(day);
 });
 
-/// 连续打卡（扫描近 365 天）
+/// 连续打卡（扫描近 3 年）
 final streakProvider = FutureProvider<StreakInfo>((ref) async {
-  // 监听当日记录：新增/删除饮水后立即重算（否则 FutureProvider 缓存导致徽章数字不刷新）
-  ref.watch(todayEntriesProvider);
-  final storage = await ref.read(localStorageProvider.future);
-  final today = DateTime.now();
-  final start = DateTime(today.year - 1, today.month, today.day);
-  final entries = await storage.loadEntriesForRange(
-    start,
-    DateTime(today.year, today.month, today.day + 1),
-  );
+  final entries = await ref.watch(yearEntriesProvider.future);
   final byDay = <DateTime, int>{};
   for (final e in entries) {
-    final d = DateTime(e.drankAt.year, e.drankAt.month, e.drankAt.day);
+    final d = LogicalDay.of(e.drankAt);
     byDay[d] = (byDay[d] ?? 0) + e.effectiveMl;
   }
-  return StreakCalculator.compute(byDay, _goalOf(ref), today);
+  return StreakCalculator.compute(byDay, _goalOf(ref), LogicalDay.today());
 });
 
-/// 签到日集合：当日有任何饮水记录的日子（不管正负容量，与月历点亮
+/// 签到日集合：近 3 年内有任何饮水记录的日子（不管正负容量，与月历点亮
 /// 「有条目即点亮」规则一致）。完全以饮水数据为准：无任何记录
 /// （如清除数据后）连续签到为 0，今天喝下第一口即变 1；
 /// 删除某天全部记录该日自动退出、实时回退。
 Future<Set<String>> _signinDayKeys(Ref ref) async {
-  ref.watch(todayEntriesProvider); // 补录/删除/新增记录后重算
-  final storage = await ref.read(localStorageProvider.future);
-  final now = DateTime.now();
-  final entries = await storage.loadEntriesForRange(
-    now.subtract(365.days),
-    DateTime(now.year, now.month, now.day + 1),
-  );
+  final entries = await ref.watch(yearEntriesProvider.future);
   return {
-    for (final e in entries)
-      '${e.drankAt.year}-${e.drankAt.month.toString().padLeft(2, '0')}-${e.drankAt.day.toString().padLeft(2, '0')}',
+    for (final e in entries) LogicalDay.keyString(LogicalDay.of(e.drankAt)),
   };
 }
-
-String _signinKey(DateTime d) =>
-    '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
 /// 连续签到（当前连续没有断签的天数）：从今天往前数连续签到日；
 /// 今天还没有饮水记录则从昨天起数（昨天累计照常显示，不断签；
 /// 今天喝下第一口即 +1；昨天也没有记录才是 0）
 final checkinDaysProvider = FutureProvider<int>((ref) async {
   final days = await _signinDayKeys(ref);
-  final now = DateTime.now();
+  final today = LogicalDay.today();
   // 今天未签到不断签：起点退到昨天，保留已有连续链
-  var cursor = days.contains(_signinKey(now))
-      ? now
-      : now.subtract(const Duration(days: 1));
+  var cursor = days.contains(LogicalDay.keyString(today))
+      ? today
+      : today.subtract(const Duration(days: 1));
   var streak = 0;
-  while (days.contains(_signinKey(cursor))) {
+  while (days.contains(LogicalDay.keyString(cursor))) {
     streak++;
     cursor = cursor.subtract(const Duration(days: 1));
   }
@@ -164,100 +210,6 @@ final bestCheckinDaysProvider = FutureProvider<int>((ref) async {
     prev = d;
   }
   return best;
-});
-
-/// 近 365 天每日聚合（key = 当日零点），供历史页周/月图表本地聚合
-final yearDailyProvider = FutureProvider<Map<DateTime, DayTotal>>((ref) async {
-  ref.watch(todayEntriesProvider); // 新增/删除饮水后重算
-  final storage = await ref.read(localStorageProvider.future);
-  final today = DateTime.now();
-  final start = DateTime(today.year, today.month, today.day).subtract(364.days);
-  final entries = await storage.loadEntriesForRange(
-    start,
-    DateTime(today.year, today.month, today.day + 1),
-  );
-  final goalMl = _goalOf(ref);
-  final byDay = <DateTime, DayTotal>{};
-  for (final e in entries) {
-    final d = DateTime(e.drankAt.year, e.drankAt.month, e.drankAt.day);
-    final prev = byDay[d];
-    final eff = (prev?.effectiveMl ?? 0) + e.effectiveMl;
-    final vol = (prev?.volumeMl ?? 0) + e.volumeMl;
-    byDay[d] = DayTotal(
-      day: d,
-      effectiveMl: eff,
-      volumeMl: vol,
-      count: (prev?.count ?? 0) + 1,
-      complete: eff >= goalMl,
-    );
-  }
-  return byDay;
-});
-
-/// 近 7 天（含今天），按饮品名筛选（'全部'=不过滤）
-/// 用于历史页天 Tab 柱形图筛选
-final filteredLast7DaysProvider =
-    FutureProvider.family<List<DayTotal>, String>((ref, beverageFilter) async {
-  ref.watch(todayEntriesProvider); // 新增/删除饮水后重算柱形图
-  final storage = await ref.read(localStorageProvider.future);
-  final today = DateTime.now();
-  final start = DateTime(today.year, today.month, today.day).subtract(6.days);
-  final entries = await storage.loadEntriesForRange(
-    start,
-    DateTime(today.year, today.month, today.day + 1),
-  );
-  final filtered = beverageFilter == '全部'
-      ? entries
-      : entries.where((e) => e.beverageName == beverageFilter).toList();
-  final map = _aggregate(filtered, start, 7, _goalOf(ref));
-  return [for (var i = 0; i < 7; i++) map[i]!];
-});
-
-/// 近 365 天每日聚合（按饮品名筛选），供历史页周/月柱形图筛选
-final filteredYearDailyProvider =
-    FutureProvider.family<Map<DateTime, DayTotal>, String>((ref, beverageFilter) async {
-  ref.watch(todayEntriesProvider); // 新增/删除饮水后重算
-  final storage = await ref.read(localStorageProvider.future);
-  final today = DateTime.now();
-  final start = DateTime(today.year, today.month, today.day).subtract(364.days);
-  final entries = await storage.loadEntriesForRange(
-    start,
-    DateTime(today.year, today.month, today.day + 1),
-  );
-  final filtered = beverageFilter == '全部'
-      ? entries
-      : entries.where((e) => e.beverageName == beverageFilter).toList();
-  final goalMl = _goalOf(ref);
-  final byDay = <DateTime, DayTotal>{};
-  for (final e in filtered) {
-    final d = DateTime(e.drankAt.year, e.drankAt.month, e.drankAt.day);
-    final prev = byDay[d];
-    final eff = (prev?.effectiveMl ?? 0) + e.effectiveMl;
-    final vol = (prev?.volumeMl ?? 0) + e.volumeMl;
-    byDay[d] = DayTotal(
-      day: d,
-      effectiveMl: eff,
-      volumeMl: vol,
-      count: (prev?.count ?? 0) + 1,
-      complete: eff >= goalMl,
-    );
-  }
-  return byDay;
-});
-
-/// 近 365 天原始记录（不过滤饮品），供历史页「各饮品摄入量」面板
-/// 按今天/本周/本月周期在本地聚合各饮品的总摄入量/水份/热量。
-/// 注意：面板不受图表右上角饮品筛选按钮影响，故意不按饮品名过滤
-final yearEntriesProvider = FutureProvider<List<DrinkEntry>>((ref) async {
-  ref.watch(todayEntriesProvider); // 新增/删除饮水后面板实时重算
-  final storage = await ref.read(localStorageProvider.future);
-  final today = DateTime.now();
-  final start = DateTime(today.year, today.month, today.day).subtract(364.days);
-  final entries = await storage.loadEntriesForRange(
-    start,
-    DateTime(today.year, today.month, today.day + 1),
-  );
-  return entries;
 });
 
 /// 供 stats 模块使用的日期便捷扩展（命名导出，跨库可见）

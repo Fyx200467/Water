@@ -3,16 +3,19 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../../drink/widgets/svg_container.dart';
+
 /// 动物液体填充（对标原版 WaterLlama 首页效果）
 ///
-/// 简化方案（用户建议）：
-/// - 直接用 SvgPicture.asset + BoxFit.contain 把 SVG 等比例缩放到正方形盒子
-/// - 底层：染灰的 SVG 剪影（始终显示，0% 进度态）
-/// - 顶层：彩色 SVG，用 ClipPath 从底部按 fillRatio 高度裁剪显示
-///   （因为 SVG 轮廓外透明，彩色部分自动只在动物轮廓内可见 → 液体填充效果）
-/// - fullArt=true（目标完成）：直接显示彩色 SVG，不染灰
-/// - PNG 兼容：onboarding/welcome 等场景传入 'llama'/'panda'/'octopus' 时
-///   自动用老 PNG 资源，渲染机制相同（染灰用 BlendMode.srcIn）
+/// 机制（v3 — 归一化渲染，修复不同角色大小比例不一致）：
+/// 1. 光栅扫描 SVG 图形拿到真实 bounds（轮廓外留白不再干扰）
+/// 2. 把 bounds 作为"有效图形单元"，**所有角色统一映射到盒子的 85%**
+///    （等比缩放 + 居中），轮廓视觉占比完全一致
+/// 3. 裁剪线从图形的 bottom 往上 fillRatio×图形高度（相对于归一化后的 bounds）
+/// 4. 底层：染灰 SVG 剪影（始终显示，0% 进度态）
+/// 5. 顶层：彩色 SVG，按 fillRatio 从图形底部裁剪 + 正弦波面
+/// 6. fullArt=true（目标完成）：同样归一化缩放显示彩色 SVG
+/// 7. PNG 遗留资源（onboarding 用）跳过 bounds 扫描，仍按 BoxFit.contain
 class AnimalSilhouette extends StatefulWidget {
   const AnimalSilhouette({
     super.key,
@@ -29,13 +32,8 @@ class AnimalSilhouette extends StatefulWidget {
   final double fillRatio;
   final Color accentColor;
   final double size;
-  /// 非空时用纯色填充（替代彩色 SVG 顶层，用于强调品牌色液体）
   final Color? solidFillColor;
-  /// true 时叠加全彩插画（五官可见）；false 时只有轮廓剪影+液体填充
   final bool fullArt;
-
-  /// 非空时定格波浪相位（0..1，供离屏渲染桌面小组件动画帧，不启动
-  /// 动画）；null 时正常循环播放水面波动动画
   final double? phase;
 
   @override
@@ -44,10 +42,84 @@ class AnimalSilhouette extends StatefulWidget {
 
 class _AnimalSilhouetteState extends State<AnimalSilhouette>
     with SingleTickerProviderStateMixin {
-  /// 波动动画驱动器：水面持续晃动
   late final AnimationController _wave;
 
-  /// 老 PNG 资源映射（onboarding/welcome 仍可能传入这些 ID）
+  /// 光栅扫描得到的 bounds（viewBox 坐标系），缓存后复用
+  SvgArtMetrics? _metrics;
+
+  /// viewBox 尺寸（光栅化时同倍数缩放）
+  Size _viewBox = Size.zero;
+
+  /// 资源是否 PNG（PNG 跳过 bounds 扫描）
+  bool get _isPng => _legacyPngPaths.containsKey(widget.animalId);
+
+  /// 目标归一化占比：所有角色图形 bounds 映射到盒子的 85%
+  static const _kTargetFraction = 0.85;
+
+  /// 归一化后的渲染参数：把 bounds 缩放到盒子 85% 并居中
+  /// 返回：渲染宽高（盒子坐标系）、图形 bounds 在盒子坐标系中的 top/bottom
+  ({
+    double renderW,
+    double renderH,
+    double dx,
+    double dy,
+    double renderTop,
+    double renderBottom,
+  }) _effectiveLayout() {
+    if (_isPng || _metrics == null || _viewBox.isEmpty) {
+      // PNG 或 bounds 还没算出来：fallback 按盒子高度撑满
+      return (
+        renderW: widget.size,
+        renderH: widget.size,
+        dx: 0.0,
+        dy: 0.0,
+        renderTop: 0.0,
+        renderBottom: widget.size,
+      );
+    }
+    final vb = _viewBox;
+    final b = _metrics!.bounds;
+    final bodyW = b.width;
+    final bodyH = b.height;
+    if (bodyW <= 0 || bodyH <= 0) {
+      return (
+        renderW: widget.size,
+        renderH: widget.size,
+        dx: 0.0,
+        dy: 0.0,
+        renderTop: 0.0,
+        renderBottom: widget.size,
+      );
+    }
+
+    // 目标区 = 盒子 × 目标占比，按图形原始高宽比等比缩放
+    final target = widget.size * _kTargetFraction;
+    final normScale = math.min(target / bodyW, target / bodyH);
+
+    // SVG 在盒子里的渲染尺寸（viewBox 整体缩放）
+    final renderW = vb.width * normScale;
+    final renderH = vb.height * normScale;
+
+    // 以图形真实 bounds 居中定位（而不是整张 viewBox 居中）：
+    // 图形在画布里偏上/偏下时，老写法会把图形底部推出盒子，
+    // 低进度（如 12%）的液面直接落到盒子外 → 有水量却看不到液体
+    final dx = (widget.size - bodyW * normScale) / 2 - b.left * normScale;
+    final dy = (widget.size - bodyH * normScale) / 2 - b.top * normScale;
+
+    // 图形 bounds 在盒子坐标系中的位置（必定落在盒内）
+    final bodyTop = dy + b.top * normScale;
+    final bodyBottom = dy + b.bottom * normScale;
+
+    return (
+      renderW: renderW,
+      renderH: renderH,
+      dx: dx,
+      dy: dy,
+      renderTop: bodyTop,
+      renderBottom: bodyBottom,
+    );
+  }
+
   static const _legacyPngPaths = <String, String>{
     'llama': 'assets/images/animal_llama_full.png',
     'panda': 'assets/images/animal_panda_full.png',
@@ -66,12 +138,37 @@ class _AnimalSilhouetteState extends State<AnimalSilhouette>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _loadMetrics();
+  }
+
+  @override
+  void didUpdateWidget(covariant AnimalSilhouette oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.animalId != widget.animalId) _loadMetrics();
+  }
+
+  Future<void> _loadMetrics() async {
+    if (_isPng) return;
+    final svgPath = 'assets/images/characters/${widget.animalId}.svg';
+    final info = await vg.loadPicture(SvgAssetLoader(svgPath), null);
+    if (!mounted) return;
+    final vb = Size(info.size.width, info.size.height);
+    _viewBox = vb;
+    final metrics = await loadSvgArtMetrics(svgPath, info.picture, vb);
+    if (!mounted) return;
+    setState(() {
+      _metrics = metrics;
+    });
+  }
+
+  @override
   void dispose() {
     _wave.dispose();
     super.dispose();
   }
 
-  /// 当前 animalId 对应的资源路径 + 是否 PNG
   ({String path, bool isPng}) get _asset {
     final png = _legacyPngPaths[widget.animalId];
     if (png != null) return (path: png, isPng: true);
@@ -81,12 +178,36 @@ class _AnimalSilhouetteState extends State<AnimalSilhouette>
     );
   }
 
-  /// 构建单张插画 widget（彩色或染灰版）
   Widget _buildArt({required bool grayscale}) {
     final a = _asset;
-    final img = a.isPng
-        ? Image.asset(a.path, fit: BoxFit.contain)
-        : SvgPicture.asset(a.path, fit: BoxFit.contain);
+    Widget img;
+    if (a.isPng) {
+      img = Image.asset(
+        a.path,
+        width: widget.size,
+        height: widget.size,
+        fit: BoxFit.contain,
+      );
+    } else {
+      // 归一化后的 SVG 尺寸（宽高各自独立，保留 viewBox 比例）
+      // 按 bounds 实际位置摆放，保证图形整体落在盒内
+      final layout = _effectiveLayout();
+      img = SizedBox(
+        width: widget.size,
+        height: widget.size,
+        child: Stack(
+          children: [
+            Positioned(
+              left: layout.dx,
+              top: layout.dy,
+              width: layout.renderW,
+              height: layout.renderH,
+              child: SvgPicture.asset(a.path, fit: BoxFit.fill),
+            ),
+          ],
+        ),
+      );
+    }
     if (!grayscale) return img;
     return ColorFiltered(
       colorFilter: const ColorFilter.mode(_silhouetteGray, BlendMode.srcIn),
@@ -94,9 +215,8 @@ class _AnimalSilhouetteState extends State<AnimalSilhouette>
     );
   }
 
-  /// 构建液体填充层（wavePhase 为弧度制波浪相位；定格帧与循环动画共用）
   Widget _buildLiquid(double wavePhase) {
-    // 彩色液体层：可以是原色 SVG（默认）或 solidFillColor（品牌色液体）
+    final layout = _effectiveLayout();
     final liquidChild = widget.solidFillColor != null
         ? _SolidLiquid(
             size: widget.size,
@@ -108,6 +228,8 @@ class _AnimalSilhouetteState extends State<AnimalSilhouette>
       clipper: _LiquidSurfaceClipper(
         fillRatio: widget.fillRatio,
         phase: wavePhase,
+        artTop: layout.renderTop,
+        artBottom: layout.renderBottom,
       ),
       child: liquidChild,
     );
@@ -117,29 +239,23 @@ class _AnimalSilhouetteState extends State<AnimalSilhouette>
   Widget build(BuildContext context) {
     final w = widget;
 
-    // 目标完成：直接显示彩色 SVG，不染灰
     if (w.fullArt) {
       return SizedBox(
         width: w.size,
         height: w.size,
-        child: Center(child: _buildArt(grayscale: false)),
+        child: _buildArt(grayscale: false),
       );
     }
 
-    // 未完成：底层灰剪影 + 顶层彩色按 fillRatio 从底部裁剪
     return SizedBox(
       width: w.size,
       height: w.size,
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // 1. 底层：染灰剪影（始终显示，0% 进度态）
-          Center(child: _buildArt(grayscale: true)),
-
-          // 2. 顶层：彩色液体填充（按 fillRatio 从底部裁剪，带波浪面）
+          _buildArt(grayscale: true),
           if (w.fillRatio > 0)
             if (w.phase != null)
-              // 定格相位：离屏渲染桌面小组件动画帧，不启动动画
               _buildLiquid(w.phase! * math.pi * 2)
             else
               AnimatedBuilder(
@@ -152,39 +268,57 @@ class _AnimalSilhouetteState extends State<AnimalSilhouette>
   }
 }
 
-/// 液体表面波浪裁剪器：从底部按 fillRatio 高度裁剪，顶部带正弦波浪面
+/// 液体表面波浪裁剪器：裁剪线相对于图形真实 bounds（归一化后的值）
 class _LiquidSurfaceClipper extends CustomClipper<Path> {
-  _LiquidSurfaceClipper({required this.fillRatio, required this.phase});
+  _LiquidSurfaceClipper({
+    required this.fillRatio,
+    required this.phase,
+    required this.artTop,
+    required this.artBottom,
+  });
 
   final double fillRatio;
   final double phase;
+  final double artTop;
+  final double artBottom;
 
   @override
   Path getClip(Size size) {
-    final surfaceY = size.height * (1 - fillRatio.clamp(0.0, 1.0));
+    final bodyH = artBottom - artTop;
+    if (bodyH <= 0) {
+      final surfaceY = size.height * (1 - fillRatio.clamp(0.0, 1.0));
+      return _wavePath(size.width, size.height, surfaceY);
+    }
+    final clamped = fillRatio.clamp(0.0, 1.0);
+    final surfaceY = artBottom - clamped * bodyH;
+    return _wavePath(size.width, size.height, surfaceY);
+  }
+
+  Path _wavePath(double w, double h, double surfaceY) {
     final path = Path()
-      ..moveTo(0, size.height)
+      ..moveTo(0, h)
       ..lineTo(0, surfaceY);
     const samples = 24;
     for (var i = 1; i <= samples; i++) {
       final t = i / samples;
-      final x = size.width * t;
-      // 2 个周期，振幅 2.5px（与原版幅度一致），每帧相位不同
+      final x = w * t;
       final wave = math.sin(t * math.pi * 2.0 + phase) * 2.5;
       path.lineTo(x, surfaceY + wave);
     }
     path
-      ..lineTo(size.width, size.height)
+      ..lineTo(w, h)
       ..close();
     return path;
   }
 
   @override
   bool shouldReclip(covariant _LiquidSurfaceClipper old) =>
-      old.fillRatio != fillRatio || old.phase != phase;
+      old.fillRatio != fillRatio ||
+      old.phase != phase ||
+      old.artTop != artTop ||
+      old.artBottom != artBottom;
 }
 
-/// solidFillColor 模式：用纯色覆盖彩色 SVG 轮廓（用于品牌色液体效果）
 class _SolidLiquid extends StatelessWidget {
   const _SolidLiquid({
     required this.size,
@@ -204,11 +338,10 @@ class _SolidLiquid extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          Center(child: art),
-          // 用 srcIn 把彩色 SVG 染成纯色（保留 alpha 蒙版）
+          art,
           ColorFiltered(
             colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
-            child: Center(child: art),
+            child: art,
           ),
         ],
       ),

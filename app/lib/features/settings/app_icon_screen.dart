@@ -38,8 +38,8 @@ const List<String> _iconCharacters = [
 /// 选中图标持久化键（设置页「App 图标」行同步读取）
 const kAppIconSelectionKey = 'app_icon_selection';
 
-/// 未主动选择过的默认图标（图标页第一个，与桌面默认图标一致）
-const kDefaultAppIconId = 'char_alpaca_0';
+/// 未主动选择过的默认图标（与桌面默认图标一致：品牌水滴）
+const kDefaultAppIconId = 'glyph2_drop0';
 
 /// 当前选中的 App 图标 id（全局通知：设置页行内小图标跟随变化）
 final ValueNotifier<String?> selectedAppIcon = ValueNotifier<String?>(null);

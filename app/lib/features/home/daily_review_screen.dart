@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../characters/character_art.dart';
+import '../../shared/models/preferred_unit.dart';
 import 'providers/home_providers.dart';
 
 /// 今日回顾（对标原版 WaterLlama 庆祝流程，两张截图两步跳转）：
@@ -48,6 +49,7 @@ class _DailyReviewScreenState extends ConsumerState<DailyReviewScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(preferredUnitProvider);
     final goal = ref.watch(profileProvider)?.dailyGoalMl ?? 2000;
     return Scaffold(
       backgroundColor: Colors.white,
@@ -158,8 +160,12 @@ class PosterView extends StatelessWidget {
                     height: 1.0,
                   ),
                   children: [
-                    const TextSpan(text: 'ml\n', style: TextStyle(fontSize: 15)),
-                    TextSpan(text: '$goalMl', style: const TextStyle(fontSize: 34)),
+                    TextSpan(
+                        text: '${UnitFormat.unit.symbol}\n',
+                        style: const TextStyle(fontSize: 15)),
+                    TextSpan(
+                        text: UnitFormat.number(goalMl),
+                        style: const TextStyle(fontSize: 34)),
                   ],
                 ),
               ),
@@ -204,7 +210,7 @@ class SharePosterScreen extends ConsumerWidget {
   Future<void> _share(int goalMl) async {
     await SharePlus.instance.share(
       ShareParams(
-        text: '我在 Waterlllama 达成了今日 $goalMl ml 饮水目标！'
+        text: '我在 Waterlllama 达成了今日 ${UnitFormat.volume(goalMl)} 饮水目标！'
             '保持充足的水分，拥有快乐的心情！ Waterllama.com',
       ),
     );
@@ -212,6 +218,7 @@ class SharePosterScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    ref.watch(preferredUnitProvider);
     final goal = ref.watch(profileProvider)?.dailyGoalMl ?? 2000;
 
     return Scaffold(

@@ -3,7 +3,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../shared/models/beverage.dart';
+import '../../../shared/models/preferred_unit.dart';
 import '../../../shared/widgets/drink_illustration.dart';
+import '../../home/providers/home_providers.dart';
 import '../providers/custom_beverage_provider.dart';
 import '../widgets/svg_container.dart';
 import 'drink_edit_screen.dart';
@@ -43,59 +45,14 @@ class _DrinkManageScreenState extends ConsumerState<DrinkManageScreen> {
         BeverageCategory.alcohol => '酒精',
       };
 
-  /// 品类筛选匹配规则：名称/属性模式优先 + 分类兜底防漏。
-  /// 显式模式（用户定稿）：水 = 仅进水量 100%；茶 = 名字含「茶」+ 含
-  /// 咖啡因 + 不含「奶」；咖啡 = 含「咖啡」+ 咖啡因 + 不含「茶」；
-  /// 奶茶·果汁·牛奶 = 含「奶茶」+ 咖啡因 / 含「汁」/ 含「牛奶」；
-  /// 碳酸饮料 = 含 碳酸/汽/可乐/气泡/苏打；汤粥 = 含「汤」或「粥」；
-  /// 酒精 = 酒精度非空。
-  /// 兜底（水除外，防名称漏匹配）：分类等于筛选品类且名称未命中任何
-  /// 其它品类模式时归入本品类——「拿铁」归咖啡、「雪碧」归碳酸、
-  /// 无咖啡因的「菊花茶」归茶
-  bool _matchesFilter(Beverage b) {
-    if (_matchesNamePattern(_filter!, b)) return true;
-    if (_filter == BeverageCategory.water) return false; // 水严格按 100%
-    return b.category == _filter && !_hitsAnyNamePattern(b);
-  }
-
-  /// 名称/属性模式是否命中指定品类
-  bool _matchesNamePattern(BeverageCategory c, Beverage b) {
-    final name = b.name;
-    final hasCaffeine = (b.caffeineMg ?? 0) > 0;
-    return switch (c) {
-      BeverageCategory.water => (b.effectiveRatio * 100).round() == 100,
-      BeverageCategory.tea =>
-        name.contains('茶') && hasCaffeine && !name.contains('奶'),
-      BeverageCategory.coffee =>
-        name.contains('咖啡') && hasCaffeine && !name.contains('茶'),
-      BeverageCategory.milk =>
-        (name.contains('奶茶') && hasCaffeine) ||
-            name.contains('汁') ||
-            name.contains('牛奶'),
-      BeverageCategory.soda =>
-        name.contains('碳酸') ||
-            name.contains('汽') ||
-            name.contains('可乐') ||
-            name.contains('气泡') ||
-            name.contains('苏打'),
-      BeverageCategory.soup =>
-        name.contains('汤') || name.contains('粥'),
-      BeverageCategory.alcohol => b.alcoholPercent != null,
-    };
-  }
-
-  /// 名称/属性是否命中任意品类模式（水的进水量属性不参与排除，
-  /// 避免 100% 折算的非水饮品被错误逐出原品类兜底）
-  bool _hitsAnyNamePattern(Beverage b) {
-    for (final c in BeverageCategory.values) {
-      if (c == BeverageCategory.water) continue;
-      if (_matchesNamePattern(c, b)) return true;
-    }
-    return false;
-  }
+  /// 品类筛选匹配规则：直接按饮品自身的分类字段筛选
+  /// （编辑页新增了「分类」选择项，分类成为唯一权威口径；
+  /// 早期按名称关键词猜测的规则会让自定义饮品归错品类）
+  bool _matchesFilter(Beverage b) => b.category == _filter!;
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(preferredUnitProvider);
     final customs = ref.watch(customBeveragesProvider);
     final homeDrinks = ref.watch(homeDrinksProvider);
     // 列表按持久化顺序渲染（拖拽/掉落结果即时反映；未登记的新饮品追加到末尾）
@@ -586,7 +543,8 @@ class _DrinkCard extends StatelessWidget {
     } else if (isCustom) {
       subtitle = null;
     } else {
-      subtitle = '${b.category.label} · ${b.defaultMl}ml';
+      subtitle =
+          '${b.category.label} · ${UnitFormat.volume(b.defaultMl, compact: true)}';
     }
     return Material(
       color: const Color(0xFFF5F5F7),
@@ -673,9 +631,12 @@ class _DrinkCard extends StatelessWidget {
               Transform.scale(
                 scale: 0.82,
                 child: isWater
-                    ? const Opacity(
-                        opacity: 0,
-                        child: Switch(value: false, onChanged: null),
+                    ? const ExcludeSemantics(
+                        // 水没有开关：隐形占位仅用于右缘对齐，且不进读屏树
+                        child: Opacity(
+                          opacity: 0,
+                          child: Switch(value: false, onChanged: null),
+                        ),
                       )
                     : Switch(
                         value: visible,

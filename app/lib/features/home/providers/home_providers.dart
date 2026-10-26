@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/sound/sound_service.dart';
 import '../../../core/storage/providers.dart';
+import '../../../core/time/logical_day.dart';
 import '../../../shared/models/animal_character.dart';
 import '../../../shared/models/drink_entry.dart';
 import '../../../shared/models/preferred_unit.dart';
@@ -79,12 +81,14 @@ class PreferredUnitNotifier extends StateNotifier<PreferredUnit> {
     final storage = await ref.read(localStorageProvider.future);
     final raw = storage.loadPreferredUnit();
     state = raw == 'oz' ? PreferredUnit.oz : PreferredUnit.ml;
+    UnitFormat.unit = state;
   }
 
   Future<void> select(PreferredUnit unit) async {
     final storage = await ref.read(localStorageProvider.future);
     await storage.savePreferredUnit(unit.name);
     state = unit;
+    UnitFormat.unit = unit;
   }
 }
 
@@ -93,6 +97,12 @@ final dailyAnimalProvider = FutureProvider<AnimalCharacter>((ref) async {
   final storage = await ref.read(localStorageProvider.future);
   return storage.pickOrLoadDailyAnimal();
 });
+
+/// 今日目标刚被跨过的信号：真实加水（add）跨过目标时 +1
+///
+/// 首页据此点亮角色并播放庆祝音效。用显式信号而不是监听进度变化，
+/// 避免「删除记录 / 重载数据」等进度回落再回升造成的误庆祝。
+final goalCrossedProvider = StateProvider<int>((ref) => 0);
 
 /// PRD §2.3 当日饮水记录
 final todayEntriesProvider = StateNotifierProvider<TodayEntriesNotifier, List<DrinkEntry>>((ref) {
@@ -107,14 +117,25 @@ class TodayEntriesNotifier extends StateNotifier<List<DrinkEntry>> {
 
   Future<void> _load() async {
     final storage = await ref.read(localStorageProvider.future);
-    final list = await storage.loadEntriesForDay(DateTime.now());
+    // 「今天」= 逻辑日：重置时刻（默认 00:00）之前仍算昨天
+    final list = await storage.loadEntriesForDay(LogicalDay.today());
     state = list;
   }
 
-  Future<void> add(DrinkEntry entry) async {
+  /// [celebrate] 为 false 时不发声/不庆祝（小组件后台 isolate 录入用）
+  Future<void> add(DrinkEntry entry, {bool celebrate = true}) async {
     final storage = await ref.read(localStorageProvider.future);
+    final goalMl = ref.read(profileProvider)?.dailyGoalMl ?? 2000;
+    final beforeMl = HydrationCalculator.sumEffective(state);
     await storage.insertDrinkEntry(entry);
     await _load();
+    final afterMl = HydrationCalculator.sumEffective(state);
+    // 只有「真实加水后跨过目标」才庆祝：
+    // 删除记录、回前台重载、数据抖动都不会触发（避免误播音效/误点亮）
+    if (celebrate && beforeMl < goalMl && afterMl >= goalMl && afterMl > beforeMl) {
+      ref.read(goalCrossedProvider.notifier).state++;
+      unawaited(SoundService.goalReached());
+    }
     unawaited(pushHomeWidget(ref));
   }
 

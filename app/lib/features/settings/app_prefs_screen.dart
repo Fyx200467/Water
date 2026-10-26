@@ -1,16 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:home_widget/home_widget.dart';
 
 import 'settings_flags.dart';
 
 // ============================================================
-// App、声音、动画设置页（对标原版：5 张灰卡，每卡 = 标题 + 青色开关 + 说明小字）
+// App、声音、动画设置页（对标原版：4 张灰卡，每卡 = 标题 + 青色开关 + 说明小字）
 //
-// 1. 每日回顾 —— 达成目标后，快速查看当天的饮品摄入回顾
-// 2. 庆祝我的一天！ —— 饮水目标完成后，主屏幕上会显示"庆祝我的一天！"按钮
-// 3. App 声音 —— 在 App 中播放简单的声音，例如当你饮水、完成目标或挑战时。
-// 4. 小部件声音 —— 从小部件添加饮料时发出声音
-// 5. 杯子里的动画 —— 动画粒子，如：气泡、冰块、茶叶
+// 1. 庆祝我的一天！ —— 饮水目标完成后，主屏幕上显示"庆祝我的一天！"按钮
+//    （关闭后首页完成目标时的庆祝轮播整体隐藏）
+// 2. App 声音 —— 在 App 中播放简单的声音（完成目标、弹弓命中时）
+// 3. 小部件声音 —— 从小部件添加饮料时发出声音（原生点按即时播放）
+// 4. 杯子里的动画 —— 动画粒子，如：气泡、冰块、茶叶（总开关，所有杯子预览生效）
 // 开关状态经 SettingsFlags 持久化（默认全开）
 // ============================================================
 
@@ -82,6 +83,16 @@ class _AppPrefsScreenState extends State<AppPrefsScreen> {
     );
   }
 
+  /// 开关同步到原生小组件偏好：点按小组件时 QuickAddReceiver 直接读取该键
+  /// 决定是否播放提示音（不经过 Dart 引擎）
+  Future<void> _syncWidgetSound(bool on) async {
+    try {
+      await HomeWidget.saveWidgetData<bool>('widget_sounds', on);
+    } catch (_) {
+      // 非 Android / 插件不可用时静默
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final f = SettingsFlags.instance;
@@ -130,10 +141,6 @@ class _AppPrefsScreenState extends State<AppPrefsScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     child: Column(
                       children: [
-                        _card('每日回顾', '达成目标后，快速查看当天的饮品摄入回顾',
-                            f.dailyReview,
-                            (v) => f.save(dailyReview: v)),
-                        const SizedBox(height: 14),
                         _card(
                             '庆祝我的一天！',
                             '饮水目标完成后，主屏幕上会显示"庆祝我的一天！"按钮',
@@ -141,11 +148,14 @@ class _AppPrefsScreenState extends State<AppPrefsScreen> {
                             (v) => f.save(celebrateDay: v)),
                         const SizedBox(height: 14),
                         _card('App 声音',
-                            '在 App 中播放简单的声音，例如当你饮水、完成目标或挑战时。',
+                            '在 App 中播放简单的声音，例如完成目标、弹弓命中时。',
                             f.appSounds, (v) => f.save(appSounds: v)),
                         const SizedBox(height: 14),
                         _card('小部件声音', '从小部件添加饮料时发出声音', f.widgetSounds,
-                            (v) => f.save(widgetSounds: v)),
+                            (v) {
+                          f.save(widgetSounds: v);
+                          _syncWidgetSound(v);
+                        }),
                         const SizedBox(height: 14),
                         _card('杯子里的动画', '动画粒子，如：气泡、冰块、茶叶',
                             f.cupAnimations,

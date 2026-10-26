@@ -60,7 +60,20 @@ class _LiquidPreviewState extends State<LiquidPreview>
     _ctrl = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 12),
-    )..repeat();
+    );
+    // 「杯子里的动画」总开关：关闭时液面/粒子完全静止
+    if (SettingsFlags.instance.cupAnimations) _ctrl.repeat();
+    SettingsFlags.instance.addListener(_onFlagsChanged);
+  }
+
+  void _onFlagsChanged() {
+    if (SettingsFlags.instance.cupAnimations) {
+      if (!_ctrl.isAnimating) _ctrl.repeat();
+    } else {
+      _ctrl.stop();
+      _ctrl.value = 0;
+    }
+    if (mounted) setState(() {});
   }
 
   @override
@@ -109,6 +122,7 @@ class _LiquidPreviewState extends State<LiquidPreview>
 
   @override
   void dispose() {
+    SettingsFlags.instance.removeListener(_onFlagsChanged);
     _ctrl.dispose();
     super.dispose();
   }
@@ -127,8 +141,11 @@ class _LiquidPreviewState extends State<LiquidPreview>
             animation: widget.animation,
             fillRatio: widget.fillRatio,
             // 连续时钟秒数（_ctrl 仅驱动重绘）：循环控制器 value 跳回 0
-            // 会让波形/气泡相位瞬间倒流产生周期性抽搐，连续时钟则永不跳变
-            t: _clock.elapsedMilliseconds / 1000,
+            // 会让波形/气泡相位瞬间倒流产生周期性抽搐，连续时钟则永不跳变；
+            // 总开关关闭时固定 0 → 静止液面、无粒子
+            t: SettingsFlags.instance.cupAnimations
+                ? _clock.elapsedMilliseconds / 1000
+                : 0,
             maskPicture: _maskPicture,
             maskViewBox: _maskViewBox,
             metrics: _metrics,

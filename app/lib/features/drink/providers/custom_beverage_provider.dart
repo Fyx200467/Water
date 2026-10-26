@@ -98,10 +98,11 @@ class CustomBeverageListNotifier extends StateNotifier<List<Beverage>> {
     await _save();
   }
 
-  /// 删除自定义饮品
+  /// 删除自定义饮品：同步清理首页顺序表 / 隐藏集合里的悬空 id
   Future<void> remove(String id) async {
     state = state.where((b) => b.id != id).toList();
     await _save();
+    await ref.read(homeDrinksProvider.notifier).removeId(id);
   }
 }
 
@@ -233,6 +234,17 @@ class HomeDrinksNotifier extends StateNotifier<HomeDrinksState> {
       ...ref.read(customBeveragesProvider).map((b) => b.id),
     ].where((id) => !known.contains(id));
     return [...state.order, ...missing];
+  }
+
+  /// 删除饮品时清理顺序表 / 隐藏集合中的悬空 id
+  /// （否则 reorderShown 的锚定数组会长期保留幽灵槽位）
+  Future<void> removeId(String id) async {
+    if (!state.order.contains(id) && !state.hidden.contains(id)) return;
+    state = HomeDrinksState(
+      order: state.order.where((e) => e != id).toList(),
+      hidden: {...state.hidden}..remove(id),
+    );
+    await _save();
   }
 
   /// 稳定分区：已开启饮品整体排在已关闭之前（各自保持相对顺序，水固定首位）。

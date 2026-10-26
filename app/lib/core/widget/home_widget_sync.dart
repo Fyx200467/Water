@@ -4,6 +4,8 @@ import 'dart:ui' show Color;
 import 'package:flutter/foundation.dart';
 import 'package:home_widget/home_widget.dart';
 
+import '../../shared/models/preferred_unit.dart';
+
 /// 同步数据到 Android 桌面小组件（视图对标 App 内「小组件」设置页预览卡）
 ///
 /// 数据键约定（原生 WaterLlamaWidgetProvider 读取）：
@@ -29,12 +31,17 @@ class WidgetDrinkData {
   const WidgetDrinkData({
     required this.ml,
     required this.name,
+    this.id = '',
     this.iconFile,
     this.effectiveMl, // 折算后水量（原生点按累加口径；null = 未折算）
   });
 
   final int ml;
   final String name;
+
+  /// 饮品 id：原生点按队列随条目携带，App 补录时按当时的饮品入库，
+  /// 避免用户点完又改了饮品格配置导致入错饮品
+  final String id;
   final File? iconFile; // 已渲染的饮品图标 PNG
 
   /// 折算后水量：与 App 内 HydrationCalculator 同口径（如咖啡按系数折算）。
@@ -42,9 +49,11 @@ class WidgetDrinkData {
   final int? effectiveMl;
 }
 
-/// 饮料格容量文案：<1000 显示「Nml」，≥1000 换算升显示「NL/N.NL」
-/// （去尾零：1000→1L，1500→1.5L）
-String _tileMlLabel(int ml) {
+/// 饮料格容量文案（跟随全局测量单位；ml 模式 <1000 显示「Nml」，≥1000 换算升）
+String tileMlLabel(int ml) {
+  if (UnitFormat.unit == PreferredUnit.oz) {
+    return UnitFormat.volume(ml, compact: true);
+  }
   if (ml >= 1000) {
     final liters = ml / 1000;
     final text = liters == liters.roundToDouble()
@@ -61,9 +70,12 @@ Future<void> syncHomeWidget({
   required int streakDays,
   Color? themeColor, // null = 默认白底
   bool showStreak = true, // 连续徽章显隐
-  int tileColor = -1, // 饮料格底色（-1 = 默认灰底）
+  int tileColor = -2, // 饮料格底色（-2 = 默认灰底；-1 是合法颜色值，不能当哨兵）
   List<WidgetDrinkData> drinks = const [],
   bool recordEnabled = true, // 未完成初始化引导时 false：只展示不可录入
+  int resetMinutes = 0, // 逻辑日重置时刻（距零点分钟数），原生跨天判定用
+  String? streakAnchor, // 连续链已计入的最后一个逻辑日（yyyy-MM-dd）；null = 数据未就绪不覆盖
+  bool widgetSounds = true, // 小部件点按是否播放提示音（原生 QuickAddReceiver 读取）
 }) async {
   // 仅 Android 执行（kIsWeb 需先排除：Web 平台没有 dart:io 的 Platform）
   if (kIsWeb || !Platform.isAndroid) return;
@@ -73,7 +85,10 @@ Future<void> syncHomeWidget({
     // launcher 上会被异常换行/裁切。≥1L 一位小数（1.0升），否则 ml
     final String goalNum;
     final String goalUnit;
-    if (todayMl >= 1000) {
+    if (UnitFormat.unit == PreferredUnit.oz) {
+      goalNum = UnitFormat.number(todayMl);
+      goalUnit = 'oz';
+    } else if (todayMl >= 1000) {
       goalNum = (todayMl / 1000).toStringAsFixed(1);
       goalUnit = '升';
     } else {
@@ -100,7 +115,7 @@ Future<void> syncHomeWidget({
     for (var i = 1; i <= 3; i++) {
       final d = i <= drinks.length ? drinks[i - 1] : null;
       await HomeWidget.saveWidgetData<String>(
-          'drink${i}_ml', d == null ? '' : _tileMlLabel(d.ml));
+          'drink${i}_ml', d == null ? '' : tileMlLabel(d.ml));
       // 未初始化闸门：录入数值强制 0 → 原生 QuickAddReceiver 的
       // ml<=0 检查天然拒绝（方案 A）；界面文案/图标照常展示
       await HomeWidget.saveWidgetData<int>(
@@ -109,22 +124,37 @@ Future<void> syncHomeWidget({
       await HomeWidget.saveWidgetData<int>(
           'drink${i}_eff_ml_value',
           !recordEnabled ? 0 : (d?.effectiveMl ?? -1));
+      // 饮品 id：原生点按队列条目随身携带，App 补录按点按时配置入库
+      await HomeWidget.saveWidgetData<String>('drink${i}_id', d?.id ?? '');
       await HomeWidget.saveWidgetData<String>('drink${i}_name', d?.name ?? '');
       await HomeWidget.saveWidgetData<String>(
           'drink${i}_icon', d?.iconFile?.path ?? '');
     }
     // 原生快速路径键：vivo 冻结窗口内点按录入由 QuickAddReceiver 直接
     // 读写这些数值（不拉起 Dart 引擎），跨天用 widget_date 判定归零
-    final now = DateTime.now();
     await HomeWidget.saveWidgetData<int>('widget_today_ml', todayMl);
     await HomeWidget.saveWidgetData<int>('goal_ml', goalMl);
+    // 逻辑日：跨天分界不是午夜而是用户设置的「一天重置时间」，
+    // 原生侧无法读 App 设置，故把重置时刻与今天的逻辑日 key 一并下发
+    await HomeWidget.saveWidgetData<int>('reset_hour', resetMinutes ~/ 60);
+    await HomeWidget.saveWidgetData<int>('reset_minute', resetMinutes % 60);
+    if (streakAnchor != null) {
+      await HomeWidget.saveWidgetData<String>('streak_anchor', streakAnchor);
+    }
     // 原生双保险闸门键（方案 B）：QuickAddReceiver 见 false 拒绝录入
     await HomeWidget.saveWidgetData<bool>(
         'profile_initialized', recordEnabled);
+    // 点按音效开关：原生快捷录入路径在播放提示音前读取
+    await HomeWidget.saveWidgetData<bool>('widget_sounds', widgetSounds);
+    final now = DateTime.now();
+    var logicalDay = DateTime(now.year, now.month, now.day);
+    if (now.hour * 60 + now.minute < resetMinutes) {
+      logicalDay = logicalDay.subtract(const Duration(days: 1));
+    }
     await HomeWidget.saveWidgetData<String>(
         'widget_date',
-        '${now.year}-${now.month.toString().padLeft(2, '0')}-'
-        '${now.day.toString().padLeft(2, '0')}');
+        '${logicalDay.year}-${logicalDay.month.toString().padLeft(2, '0')}-'
+        '${logicalDay.day.toString().padLeft(2, '0')}');
     // androidName 不能带前导点：插件按「包名 + androidName」反射查找 Provider 类
     await HomeWidget.updateWidget(
       name: 'WaterLlamaWidgetProvider',

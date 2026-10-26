@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/time/logical_day.dart';
 import '../../../shared/models/drink_entry.dart';
 
 /// PRD §2.5 月历打卡视图
@@ -16,18 +17,17 @@ class MonthCalendar extends StatelessWidget {
   final Map<int, DayTotalLite> dayTotals; // key: 1..31
   final int goalMl;
 
-  static const _weekLabels = ['一', '二', '三', '四', '五', '六', '日'];
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final first = DateTime(month.year, month.month, 1);
     final daysInMonth = DateTime(month.year, month.month + 1, 0).day;
-    // 周一 = 0（DateTime.weekday: 1=Mon..7=Sun）
-    final leadingBlanks = first.weekday - 1;
+    // 一周起始随「一周开始时间」设置（周日或周一）
+    final leadingBlanks = LogicalDay.leadingBlanksOf(first);
+    final weekLabels = LogicalDay.weekHeaderLabels;
 
     final cells = <Widget>[
-      for (final w in _weekLabels)
+      for (final w in weekLabels)
         Center(
           child: Text(w,
               style: theme.textTheme.labelSmall
@@ -105,8 +105,8 @@ class MonthCalendar extends StatelessWidget {
   }
 
   bool _isToday(int d) {
-    final now = DateTime.now();
-    return now.year == month.year && now.month == month.month && now.day == d;
+    final t = LogicalDay.today();
+    return t.year == month.year && t.month == month.month && t.day == d;
   }
 }
 

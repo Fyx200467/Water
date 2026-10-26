@@ -1,12 +1,15 @@
+import 'dart:async';
 import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../shared/models/beverage.dart';
+import '../../../shared/models/preferred_unit.dart';
 import '../../../shared/widgets/drink_illustration.dart';
 import '../../settings/settings_flags.dart';
+import '../../settings/widget_settings_screen.dart';
+import '../../home/providers/home_providers.dart';
 import '../providers/custom_beverage_provider.dart';
 import '../widgets/liquid_preview.dart';
 import '../widgets/svg_container.dart';
@@ -56,6 +59,15 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
   int? _caffeineMg;
   int? _alcoholPercent;
 
+  /// 保存中标志：防止连点保存生成重复饮品
+  bool _saving = false;
+
+  /// 用户是否手动选过图标（未手动选过时，切换分类会同步换成分类的默认容器）
+  bool _iconTouched = false;
+
+  /// 用户是否已手动选过分类（选过后随机初始化不再覆盖其选择）
+  bool _categoryPicked = false;
+
   bool get _isEditing => widget.existing != null;
 
   @override
@@ -86,9 +98,12 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
       }
     } else {
       _nameCtrl = TextEditingController();
-      // 新增默认模板（「类似于」入口已剔除）：分类/折算比例由此派生
+      // 新增默认模板（「类似于」入口已剔除）：分类/折算比例由此派生；
+      // 分类可在此页「分类」行重新选择
       _template = Beverage.presets.firstWhere((p) => p.id == 'soda');
       _sizeMl = _template.defaultMl;
+      // 先同步落一个默认容器，避免随机图标异步加载完成前预览区空白闪一下
+      _containerId = _template.containerId;
       _randomizeNew();
     }
   }
@@ -97,13 +112,13 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
   /// 颜色同样随机取自预设色板，动画默认不选择
   Future<void> _randomizeNew() async {
     final ids = await loadSvgContainerIds();
-    if (!mounted || _isEditing) return;
+    if (!mounted || _isEditing || _categoryPicked) return;
     final rnd = math.Random();
     setState(() {
-      if (ids.isNotEmpty) {
+      if (ids.isNotEmpty && !_iconTouched) {
         _containerId = ids[rnd.nextInt(ids.length)];
       }
-      _colorOverride = drinkColorPresets[rnd.nextInt(drinkColorPresets.length)];
+      _colorOverride ??= drinkColorPresets[rnd.nextInt(drinkColorPresets.length)];
     });
   }
 
@@ -139,9 +154,23 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
   // ---------------- 保存 ----------------
 
   Future<void> _save() async {
+    if (_saving) return; // 防抖：连点保存只生效一次
     final name = _nameCtrl.text.trim();
     if (name.isEmpty) return;
+    // 同名校验：内置预设与其它自定义饮品都不可重名（编辑自身时排除自己）
+    final selfId = widget.existing?.id;
+    final duplicated = [...Beverage.presets, ...ref.read(customBeveragesProvider)]
+        .any((b) => b.id != selfId && b.name.trim() == name);
+    if (duplicated) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('已存在名为「$name」的饮品'),
+        duration: const Duration(milliseconds: 1500),
+      ));
+      return;
+    }
+    setState(() => _saving = true);
     final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
     final notifier = ref.read(customBeveragesProvider.notifier);
     final id = widget.existing?.id ??
         'custom_${DateTime.now().millisecondsSinceEpoch}';
@@ -164,10 +193,18 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
     );
     if (_isEditing) {
       await notifier.updateCustom(beverage);
+      // 编辑可能影响桌面小组件饮料格（名称/图标/容量），主动刷新一次
+      // （走 Notifier 的 ref，页面销毁后也能安全完成）
+      unawaited(ref.read(widgetSettingsProvider.notifier).refreshWidget());
     } else {
       await notifier.addCustom(beverage);
     }
+    if (!mounted) return;
     navigator.pop();
+    messenger.showSnackBar(SnackBar(
+      content: Text(_isEditing ? '已保存「$name」' : '已添加「$name」'),
+      duration: const Duration(milliseconds: 1200),
+    ));
   }
 
   // ---------------- 交互弹层 ----------------
@@ -280,7 +317,7 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
                     child: Row(
                       children: [
                         Expanded(
-                          child: Text('$v ml',
+                          child: Text('${UnitFormat.volume(v)}',
                               style: const TextStyle(
                                   color: _textDark,
                                   fontSize: 15,
@@ -297,17 +334,29 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
               InkWell(
                 borderRadius: BorderRadius.circular(14),
                 onTap: () async {
+                  const maxMl = 2000; // 自定义容量上限（不局限于预设档位最大值）
                   Navigator.pop(ctx);
                   final custom = await _inputNumber(
-                    title: '自定义量（ml）',
-                    hint: '10 - ${_template.volumes.last}',
-                    initial: _sizeMl.toString(),
+                    title: '自定义量（${UnitFormat.unit.symbol}）',
+                    hint:
+                        '${UnitFormat.volume(10, compact: true)} - ${UnitFormat.volume(maxMl, compact: true)}',
+                    initial: UnitFormat.number(_sizeMl),
+                    allowNone: false,
+                    volumeUnit: true,
                   );
-                  if (custom != null &&
-                      custom >= 10 &&
-                      custom <= _template.volumes.last) {
-                    setState(() => _sizeMl = custom);
+                  if (custom == null) return; // 取消
+                  if (!mounted) return;
+                  if (custom < 10 || custom > maxMl) {
+                    // 超出范围明确提示，不再静默丢弃
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: Text(
+                        '请输入 ${UnitFormat.volume(10, compact: true)} - '
+                        '${UnitFormat.volume(maxMl, compact: true)} 之间的容量'),
+                      duration: const Duration(milliseconds: 1500),
+                    ));
+                    return;
                   }
+                  setState(() => _sizeMl = custom);
                 },
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 12),
@@ -315,7 +364,7 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
                     children: [
                       Expanded(
                         child: Text(
-                          '自定义量${!_template.volumes.contains(_sizeMl) ? ' · $_sizeMl ml' : ''}',
+                          '自定义量${!_template.volumes.contains(_sizeMl) ? ' · ${UnitFormat.volume(_sizeMl)}' : ''}',
                           style: const TextStyle(
                               color: _textDark,
                               fontSize: 15,
@@ -337,10 +386,28 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
     if (v != null) setState(() => _sizeMl = v);
   }
 
+  /// 解析可用于预览的 SVG 容器：当前容器不是 SVG 时回退模板容器并写回
+  /// （老数据无 containerId 时会自动补齐，避免颜色/动画入口点了没反应）
+  String? _resolvePreviewContainer() {
+    if (isSvgContainer(_containerId)) return _containerId;
+    final fallback = _template.containerId;
+    if (isSvgContainer(fallback)) {
+      setState(() => _containerId = fallback);
+      return fallback;
+    }
+    return null;
+  }
+
   /// 颜色选择：跳转全屏颜色选择页（预设色板 + 自定义滑杆）
   Future<void> _editColor() async {
-    final id = _containerId;
-    if (id == null || !isSvgContainer(id)) return; // 老数据无容器：无法预览
+    final id = _resolvePreviewContainer();
+    if (id == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('请先选择饮品图标，再调整颜色'),
+        duration: Duration(milliseconds: 1500),
+      ));
+      return;
+    }
     final c = await Navigator.of(context).push<Color>(
       MaterialPageRoute(
         builder: (_) => DrinkColorScreen(
@@ -354,8 +421,14 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
 
   /// 动画选择：跳转全屏动画选择页（实时预览）
   Future<void> _editAnimation() async {
-    final id = _containerId;
-    if (id == null || !isSvgContainer(id)) return; // 老数据无容器：无法预览
+    final id = _resolvePreviewContainer();
+    if (id == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('请先选择饮品图标，再调整动画'),
+        duration: Duration(milliseconds: 1500),
+      ));
+      return;
+    }
     final v = await Navigator.of(context).push<String>(
       MaterialPageRoute(
         builder: (_) => DrinkAnimationScreen(
@@ -368,12 +441,83 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
     if (v != null) setState(() => _animation = v.isEmpty ? null : v);
   }
 
-  /// 数字输入弹层（digitsOnly；空 = 无）
+  /// 分类选择：决定折算比例、容量档位与动画推断
+  Future<void> _editCategory() async {
+    final c = await showModalBottomSheet<BeverageCategory>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('饮品分类',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      color: _textDark,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800)),
+              const SizedBox(height: 10),
+              for (final v in BeverageCategory.values)
+                InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: () => Navigator.pop(ctx, v),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: Row(
+                      children: [
+                        Icon(v.icon, size: 20, color: v.color),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(v.label,
+                              style: const TextStyle(
+                                  color: _textDark,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600)),
+                        ),
+                        if (v == _template.category)
+                          const Icon(Icons.check,
+                              size: 20, color: _brandCyan),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (c == null || c == _template.category) return;
+    // 取该分类的代表预设作为新模板（折算比例/容量档位/默认容器都随之切换）
+    final preset = Beverage.presets.firstWhere((p) => p.category == c);
+    setState(() {
+      _categoryPicked = true;
+      _template = preset;
+      _ratioPercent = null; // 回落到新分类的默认折算比例
+      _colorOverride = null; // 回落到新模板的液体色
+      _animation = null; // 按新分类重新推断动画
+      if (!preset.volumes.contains(_sizeMl)) _sizeMl = preset.defaultMl;
+      // 用户没手动挑过图标时，顺手换成该分类的默认容器
+      if (!_iconTouched) _containerId = preset.containerId;
+    });
+  }
+
+  /// 数字输入弹层（digitsOnly；「无」返回 0，取消返回 null）
+  /// [allowNone] 为 false 时隐藏「无」按钮（容量输入等没有「无」语义的场景）
   Future<int?> _inputNumber({
     required String title,
     required String hint,
     String? initial,
+    bool allowNone = true,
+    bool volumeUnit = false,
   }) async {
+    // 容量输入跟随单位偏好：oz 模式允许一位小数，落库仍统一为 ml
+    final isOz = volumeUnit && UnitFormat.unit == PreferredUnit.oz;
     final ctrl = TextEditingController(text: initial ?? '');
     final res = await showDialog<String>(
       context: context,
@@ -387,10 +531,15 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
         content: TextField(
           controller: ctrl,
           autofocus: true,
-          keyboardType: TextInputType.number,
-          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          keyboardType: TextInputType.numberWithOptions(decimal: isOz),
+          inputFormatters: [
+            isOz
+                ? FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))
+                : FilteringTextInputFormatter.digitsOnly,
+          ],
           decoration: InputDecoration(
             hintText: hint,
+            suffixText: volumeUnit ? UnitFormat.unit.symbol : null,
             filled: true,
             fillColor: _rowBg,
             border: OutlineInputBorder(
@@ -400,10 +549,11 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
           ),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, ''),
-            child: const Text('无', style: TextStyle(color: _valueGray)),
-          ),
+          if (allowNone)
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, ''),
+              child: const Text('无', style: TextStyle(color: _valueGray)),
+            ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, ctrl.text),
             child:
@@ -414,7 +564,9 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
     );
     if (res == null) return null; // 取消
     if (res.isEmpty) return 0; // 「无」
-    return int.tryParse(res);
+    final n = double.tryParse(res);
+    if (n == null) return null;
+    return volumeUnit ? UnitFormat.unit.toMl(n).round() : n.round();
   }
 
   /// 通用滑杆弹层：返回选定值；取消返回 null 不改动状态
@@ -464,6 +616,7 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
                   max: max,
                   divisions: divisions,
                   activeColor: valueColor(value),
+                  semanticFormatterCallback: (v) => label(v),
                   onChanged: (v) => setSheet(() => value = v),
                 ),
                 Row(
@@ -511,7 +664,12 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
         ),
       ),
     );
-    if (id != null) setState(() => _containerId = id);
+    if (id != null) {
+      setState(() {
+        _containerId = id;
+        _iconTouched = true; // 手动选过图标后，切换分类不再覆盖
+      });
+    }
   }
 
   /// 进水量滑杆：-400% ~ 200%（负值 = 脱水扣减）
@@ -531,13 +689,14 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
   /// 卡路里滚轮页（0 = 无）
   Future<void> _editCalories() async {
     final v = await _pushNutrient(NutrientTab.calories, _calories);
-    if (v != null) setState(() => _calories = v);
+    // 0 归一为「无」，避免卡片显示「0 卡」而不是灰色「无」
+    if (v != null) setState(() => _calories = v == 0 ? null : v);
   }
 
   /// 咖啡因滚轮页（0 = 无）
   Future<void> _editCaffeine() async {
     final v = await _pushNutrient(NutrientTab.caffeine, _caffeineMg);
-    if (v != null) setState(() => _caffeineMg = v);
+    if (v != null) setState(() => _caffeineMg = v == 0 ? null : v);
   }
 
   /// 酒精分类滚轮页（无 / 五档 ABV）
@@ -571,6 +730,8 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // 单位切换后容量文案需要立即重绘
+    ref.watch(preferredUnitProvider);
     final name = _nameCtrl.text.trim();
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.dark,
@@ -587,6 +748,14 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
                   children: [
                     const SizedBox(height: 8),
                     SizedBox(height: 270, child: _preview()),
+                    if (widget.readOnly) ...[
+                      const SizedBox(height: 4),
+                      const Text(
+                        '内置饮品为只读展示，如需自定义请返回后点右上「添加」',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: _valueGray, fontSize: 12),
+                      ),
+                    ],
                     _row(
                       icon: Icons.sell_outlined,
                       label: '名称',
@@ -598,18 +767,46 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-                      onTap: _editName,
+                      onTap: widget.readOnly ? null : _editName,
+                    ),
+                    const SizedBox(height: 10),
+                    // 分类：决定折算比例 / 容量档位 / 动画推断（自定义饮品可选）
+                    _row(
+                      icon: _template.category.icon,
+                      label: '分类',
+                      value: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: _template.category.color,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            _template.category.label,
+                            style: const TextStyle(
+                                color: _textDark,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                      onTap: widget.readOnly ? null : _editCategory,
                     ),
                     const SizedBox(height: 10),
                     _row(
                       icon: Icons.straighten,
                       label: '大小',
-                      value: Text('$_sizeMl ml',
+                      value: Text(UnitFormat.volume(_sizeMl),
                           style: const TextStyle(
                               color: _textDark,
                               fontSize: 15,
                               fontWeight: FontWeight.w600)),
-                      onTap: _editSize,
+                      onTap: widget.readOnly ? null : _editSize,
                     ),
                     _groupDivider(),
                     _row(
@@ -627,7 +824,7 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
                               fillRatio: 0.9, // 液体风格：液体占杯身 90%（全局统一）
                               size: 30,
                             ),
-                      onTap: _editIcon,
+                      onTap: widget.readOnly ? null : _editIcon,
                     ),
                     const SizedBox(height: 10),
                     _row(
@@ -641,20 +838,22 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
                           shape: BoxShape.circle,
                         ),
                       ),
-                      onTap: _editColor,
+                      onTap: widget.readOnly ? null : _editColor,
                     ),
                     const SizedBox(height: 10),
                     _row(
                       icon: Icons.bubble_chart,
                       label: '动画',
-                      value: _animation == null
-                          ? const SizedBox.shrink()
-                          : Text(_animationLabel,
-                              style: const TextStyle(
-                                  color: _valueGray,
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w600)),
-                      onTap: _editAnimation,
+                      // 未手动选择时展示自动推断的动画值（与预览一致），不再留白
+                      value: Text(
+                          _animation == null
+                              ? '$_animationLabel（自动）'
+                              : _animationLabel,
+                          style: const TextStyle(
+                              color: _valueGray,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600)),
+                      onTap: widget.readOnly ? null : _editAnimation,
                     ),
                     _groupDivider(),
                     _row(
@@ -668,7 +867,7 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
                           fontWeight: FontWeight.w800,
                         ),
                       ),
-                      onTap: _editRatio,
+                      onTap: widget.readOnly ? null : _editRatio,
                     ),
                     const SizedBox(height: 10),
                     // 「跟踪卡路里」总开关关闭：卡路里选项卡整行隐藏（新增/编辑通用）
@@ -684,10 +883,10 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
                                     value: _calories,
                                     text: _calories == null
                                         ? null
-                                        : '$_calories 卡',
+                                        : '$_calories 千卡',
                                     color: _calorieOrange,
                                   ),
-                                  onTap: _editCalories,
+                                  onTap: widget.readOnly ? null : _editCalories,
                                 ),
                                 const SizedBox(height: 10),
                               ],
@@ -702,14 +901,14 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
                         text: _caffeineMg == null ? null : '$_caffeineMg mg',
                         color: _caffeineBrown,
                       ),
-                      onTap: _editCaffeine,
+                      onTap: widget.readOnly ? null : _editCaffeine,
                     ),
                     const SizedBox(height: 10),
                     _row(
                       icon: Icons.local_bar_outlined,
                       label: '酒精',
                       value: _alcoholText(),
-                      onTap: _editAlcohol,
+                      onTap: widget.readOnly ? null : _editAlcohol,
                     ),
                     // 删除按钮仅自定义饮品编辑模式提供（内置预设只读浏览）
                     if (_isEditing && !widget.readOnly) ...[
@@ -755,12 +954,12 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
           // 只读浏览模式（内置预设饮品）无保存按钮
           if (!widget.readOnly)
             GestureDetector(
-              onTap: nameEmpty ? null : _save,
+              onTap: nameEmpty || _saving ? null : _save,
               child: Container(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
                 decoration: BoxDecoration(
-                  color: nameEmpty
+                  color: nameEmpty || _saving
                       ? const Color(0xFF1F2733).withValues(alpha: 0.35)
                       : const Color(0xFF1F2733),
                   borderRadius: BorderRadius.circular(22),
@@ -871,8 +1070,10 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
   Widget _alcoholText() {
     return Text(
       _alcoholLabel,
-      style: const TextStyle(
-          color: _alcoholPurple, fontSize: 15, fontWeight: FontWeight.w800),
+      style: TextStyle(
+          color: _alcoholPercent == null ? _valueGray : _alcoholPurple,
+          fontSize: 15,
+          fontWeight: FontWeight.w800),
     );
   }
 
@@ -917,9 +1118,28 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
       ),
     );
     if (confirmed != true) return;
+    if (!mounted) return;
     final navigator = Navigator.of(context);
     final messenger = ScaffoldMessenger.of(context);
+    // 桌面小组件槽位若用了这杯饮品：回退为纯净水，避免悬空 id 被静默
+    // 回退成「纯净水」却仍按被删饮品记录
+    final ws = ref.read(widgetSettingsProvider);
+    var next = ws;
+    if (ws.drink1 == b.id) {
+      next = next.copyWith(drink1: 'water_pure', vol1: 250);
+    }
+    if (ws.drink2 == b.id) {
+      next = next.copyWith(drink2: 'water_pure', vol2: 250);
+    }
+    if (ws.drink3 == b.id) {
+      next = next.copyWith(drink3: 'water_pure', vol3: 250);
+    }
     await ref.read(customBeveragesProvider.notifier).remove(b.id);
+    if (!identical(next, ws)) {
+      // update() 内部会即时刷新桌面小组件
+      await ref.read(widgetSettingsProvider.notifier).update(next);
+    }
+    if (!mounted) return;
     navigator.pop();
     messenger.showSnackBar(SnackBar(
       content: Text('已删除「${b.name}」'),

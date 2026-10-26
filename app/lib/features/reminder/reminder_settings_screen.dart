@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../core/notification/notification_service.dart';
+import '../../core/time/logical_day.dart';
+import '../../shared/models/preferred_unit.dart';
 import '../drink/services/hydration_calculator.dart';
 import '../home/providers/home_providers.dart';
 import 'reminder_providers.dart';
@@ -58,6 +60,9 @@ class _ReminderSettingsScreenState
   /// 系统通知权限是否开启（未开启时在状态卡提示）
   bool _notifAllowed = true;
 
+  /// Android 12+ 精确闹钟权限：关闭时排程降级为 inexact，提醒会延迟
+  bool _exactAllowed = true;
+
   /// 通知样式预览的随机种子与随机角色卡
   int _previewSeed = 0;
   String? _previewChar;
@@ -76,9 +81,8 @@ class _ReminderSettingsScreenState
     final cur = ref.read(notificationIntervalMinutesProvider);
     final (h, m) = _decodeInterval(cur);
     final normalized = (h * 60 + m).clamp(15, 300);
-    if (normalized != cur || !ref.read(intervalEnabledProvider)) {
+    if (normalized != cur) {
       Future.microtask(() async {
-        await ref.read(intervalEnabledProvider.notifier).set(true);
         await ref
             .read(notificationIntervalMinutesProvider.notifier)
             .set(normalized);
@@ -105,16 +109,19 @@ class _ReminderSettingsScreenState
   /// 刷新系统通知权限状态 + 预览随机角色卡（不阻塞首帧）
   Future<void> _refreshStatus() async {
     final allowed = await NotificationService.notificationsEnabled();
+    final exact = await NotificationService.exactAlarmsAllowed();
     final card = await NotificationService.randomCharacterAsset();
     if (!mounted) return;
     setState(() {
       _notifAllowed = allowed;
+      _exactAllowed = exact;
       _previewChar = card;
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(preferredUnitProvider);
     // 内容铺满整个屏幕顶部（状态栏区域同为页面底色，不用 SafeArea
     // 顶部留白），返回按钮悬浮在页面之上、不随列表滚动
     final topInset = MediaQuery.of(context).padding.top;
@@ -450,7 +457,6 @@ class _ReminderSettingsScreenState
     var total = h * 60 + m;
     if (total < 15) total = 15;
     if (total > 300) total = 300;
-    await ref.read(intervalEnabledProvider.notifier).set(true);
     await ref.read(notificationIntervalMinutesProvider.notifier).set(total);
     await ref.read(reminderProvider.notifier).rescheduleNow();
     if (!mounted) return;
@@ -890,6 +896,50 @@ class _ReminderSettingsScreenState
             ),
             const Divider(height: 1, thickness: 0.5, color: _separatorColor),
           ],
+          // 精确闹钟权限关闭时提醒仍会送达，但可能被系统延后
+          if (!_exactAllowed) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Row(
+                children: [
+                  const Icon(Icons.alarm_off_outlined,
+                      color: Color(0xFFC9364F), size: 22),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      '系统未允许「闹钟和提醒」，提醒可能延后几分钟。到 系统设置 → 应用 → 闹钟和提醒 中允许即可准时。',
+                      style: TextStyle(
+                        color: Color(0xFFC9364F),
+                        fontSize: 12.5,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: () => NotificationService.openExactAlarmSettings(),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 7),
+                      decoration: BoxDecoration(
+                        color: _accent,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Text(
+                        '去开启',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1, thickness: 0.5, color: _separatorColor),
+          ],
           SizedBox(
             height: 52,
             child: Row(
@@ -924,17 +974,17 @@ class _ReminderSettingsScreenState
     final s = ref.watch(reminderProvider);
     final entries = ref.watch(todayEntriesProvider);
     final goalMl = ref.watch(profileProvider)?.dailyGoalMl ?? 2000;
+    final now = DateTime.now();
     return NotificationService.nextSlotAt(
       enabled: s.enabled,
       times: s.activeTimes,
-      intervalMinutes: ref.watch(intervalEnabledProvider)
-          ? ref.watch(notificationIntervalMinutesProvider)
-          : null,
+      intervalMinutes: ref.watch(notificationIntervalMinutesProvider),
       windowStartMin: ref.watch(reminderWindowStartProvider),
       windowEndMin: ref.watch(reminderWindowEndProvider),
       weekdays: ref.watch(reminderWeekdaysProvider),
       todayDrinkMinutes: [
-        for (final e in entries) e.drankAt.hour * 60 + e.drankAt.minute,
+        for (final e in entries)
+          NotificationService.relativeMinute(now, e.drankAt),
       ],
       todayEffectiveMl: HydrationCalculator.sumEffective(entries),
       goalMl: goalMl,
@@ -944,9 +994,9 @@ class _ReminderSettingsScreenState
 
   String _fmtNext(DateTime? t) {
     if (t == null) return '暂无';
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final day = DateTime(t.year, t.month, t.day);
+    // 「今天/明天」按逻辑日（重置时间）口径，与「今日水量/达标停止」一致
+    final today = LogicalDay.today();
+    final day = LogicalDay.of(t);
     final diff = day.difference(today).inDays;
     final label = diff == 0 ? '今天' : (diff == 1 ? '明天' : '${t.month}月${t.day}日');
     final hm =
@@ -954,12 +1004,19 @@ class _ReminderSettingsScreenState
     return '$label $hm';
   }
 
-  /// 「去开启」：再次发起系统权限请求并刷新状态
+  /// 「去开启」：先弹一次系统权限框；若已被永久拒绝（系统不再弹框），
+  /// 直接跳本应用的系统通知设置页，避免点了按钮毫无反应
   Future<void> _enableNotifications() async {
     await _ensureNotificationPermission();
-    final allowed = await NotificationService.notificationsEnabled();
-    if (!mounted) return;
-    setState(() => _notifAllowed = allowed);
+    if (!mounted || _notifAllowed) return;
+    final opened = await NotificationService.openNotificationSettings();
+    if (!mounted || opened) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+            '无法自动打开系统设置，请手动到 系统设置 → 应用 → 喝水养成 → 通知 中允许'),
+      ),
+    );
   }
 
   /// 圆形星期选项：选中 = 青色圆 + 白字白勾，未选中 = 浅灰圆 + 灰字
@@ -1174,7 +1231,8 @@ class _ReminderSettingsScreenState
           _advancedSwitchRow(
             icon: Icons.water_drop_outlined,
             title: '饮水进度标题',
-            subtitle: '在通知标题中显示剩余水量。例如：剩余 800ml',
+            subtitle:
+                '在通知标题中显示剩余水量。例如：剩余 ${UnitFormat.volume(800, compact: true)}',
             provider: progressTitleEnabledProvider,
           ),
           _advancedSwitchRow(

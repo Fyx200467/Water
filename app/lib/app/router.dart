@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../features/games/match3/match3_screen.dart';
 import '../features/home/home_screen.dart';
 import '../features/home/providers/home_providers.dart';
 import '../features/onboarding/onboarding_screen.dart';
@@ -68,6 +69,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/drink/manage',
         builder: (context, state) => const DrinkManageScreen(),
+      ),
+      GoRoute(
+        path: '/game/match3',
+        builder: (context, state) => const Match3Screen(),
       ),
     ],
   );

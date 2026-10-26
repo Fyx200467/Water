@@ -1,7 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../home/providers/home_providers.dart';
+import '../reminder/reminder_providers.dart';
+import '../stats/providers/stats_providers.dart';
 import 'settings_flags.dart';
+import 'widget_settings_screen.dart';
 
 // ============================================================
 // 一天中的重置时间（对标原版：重置时间双轮 + 一周开始时间胶囊）
@@ -9,17 +16,19 @@ import 'settings_flags.dart';
 // 1. 返回圆钮 + 居中大标题 + 说明文案
 // 2. 时:分 双滚轮（共享浅灰胶囊高亮，选中值青色放大，分钟步进 5）
 // 3. 一周开始时间：星期日 / 星期一 两个胶囊（选中浅青底+青字+对勾圆）
-// 选择均经 SettingsFlags 持久化，设置页角标实时同步
+// 选择均经 SettingsFlags 持久化，设置页角标实时同步；
+// 保存后同步重载所有按逻辑日聚合的 Provider（当日记录/统计/打卡/
+// 签到/年视图），保证「今天」口径立即切换
 // ============================================================
 
-class ResetTimeScreen extends StatefulWidget {
+class ResetTimeScreen extends ConsumerStatefulWidget {
   const ResetTimeScreen({super.key});
 
   @override
-  State<ResetTimeScreen> createState() => _ResetTimeScreenState();
+  ConsumerState<ResetTimeScreen> createState() => _ResetTimeScreenState();
 }
 
-class _ResetTimeScreenState extends State<ResetTimeScreen> {
+class _ResetTimeScreenState extends ConsumerState<ResetTimeScreen> {
   static const _cyan = Color(0xFF35B5D6);
   static const _textDark = Color(0xFF1C1C1E);
 
@@ -29,6 +38,9 @@ class _ResetTimeScreenState extends State<ResetTimeScreen> {
 
   final _hourCtrl = FixedExtentScrollController();
   final _minuteCtrl = FixedExtentScrollController();
+
+  /// 轮盘每跳一格都全量刷新代价太高，这里只写盘 + 防抖重算
+  Timer? _refreshTimer;
 
   @override
   void initState() {
@@ -47,6 +59,13 @@ class _ResetTimeScreenState extends State<ResetTimeScreen> {
 
   @override
   void dispose() {
+    _refreshTimer?.cancel();
+    // 用户可能在防抖窗口内直接返回：这里补一次轻量落盘（不做重算）
+    SettingsFlags.instance.save(
+      resetHour: _hour,
+      resetMinute: _minute * 5,
+      weekStart: _weekStart,
+    );
     _hourCtrl.dispose();
     _minuteCtrl.dispose();
     super.dispose();
@@ -54,12 +73,52 @@ class _ResetTimeScreenState extends State<ResetTimeScreen> {
 
   String _two(int v) => v.toString().padLeft(2, '0');
 
+  /// 轮盘滚动：设置立即落盘，重算合并到 400ms 后
+  void _touch() {
+    unawaited(SettingsFlags.instance.save(
+      resetHour: _hour,
+      resetMinute: _minute * 5,
+      weekStart: _weekStart,
+    ));
+    _refreshTimer?.cancel();
+    _refreshTimer = Timer(const Duration(milliseconds: 400), _persist);
+  }
+
+  /// 返回前调用：把未执行的重算立即做完，避免回到统计页看到旧口径
+  Future<void> _flush() async {
+    _refreshTimer?.cancel();
+    _refreshTimer = null;
+    await _persist();
+  }
+
   Future<void> _persist() async {
     await SettingsFlags.instance.save(
       resetHour: _hour,
       resetMinute: _minute * 5,
       weekStart: _weekStart,
     );
+    if (!mounted) return;
+    // 逻辑日口径已变化：重载当日记录并让所有按日聚合的 Provider 重算
+    // （否则重启前「今天」/统计/月历仍沿用旧分界）
+    await ref.read(todayEntriesProvider.notifier).refresh();
+    if (!mounted) return;
+    ref
+      ..invalidate(last7DaysProvider)
+      ..invalidate(monthDataProvider)
+      ..invalidate(dayEntriesForProvider)
+      ..invalidate(streakProvider)
+      ..invalidate(checkinDaysProvider)
+      ..invalidate(bestCheckinDaysProvider)
+      ..invalidate(yearDailyProvider)
+      ..invalidate(filteredLast7DaysProvider)
+      ..invalidate(filteredYearDailyProvider)
+      ..invalidate(yearEntriesProvider)
+      ..invalidate(dailyAnimalProvider);
+    // 「30 分钟内喝过水跳过提醒」与今日进度都按逻辑日统计，重置后必须重排
+    await ref.read(reminderProvider.notifier).rescheduleNow();
+    if (!mounted) return;
+    // 桌面小组件的「今天水量」同样跟随逻辑日
+    unawaited(ref.read(widgetSettingsProvider.notifier).refreshWidget());
   }
 
   @override
@@ -78,7 +137,11 @@ class _ResetTimeScreenState extends State<ResetTimeScreen> {
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                   child: Align(
                     alignment: Alignment.centerLeft,
-                    child: _BackButton(onTap: () => Navigator.pop(context)),
+                    child: _BackButton(onTap: () async {
+                      // 先把防抖的重算补齐再返回，保证统计页口径已切换
+                      await _flush();
+                      if (mounted) Navigator.pop(context);
+                    }),
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -163,11 +226,11 @@ class _ResetTimeScreenState extends State<ResetTimeScreen> {
               children: [
                 Expanded(child: _wheel(_hourCtrl, 24, (i) {
                   _hour = i;
-                  _persist();
+                  _touch();
                 })),
                 Expanded(child: _wheel(_minuteCtrl, 12, (i) {
                   _minute = i;
-                  _persist();
+                  _touch();
                 })),
               ],
             ),
@@ -220,7 +283,7 @@ class _ResetTimeScreenState extends State<ResetTimeScreen> {
     return GestureDetector(
       onTap: () {
         setState(() => _weekStart = value);
-        _persist();
+        _touch();
       },
       child: Container(
         height: 54,

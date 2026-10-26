@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/time/logical_day.dart';
+import '../../shared/models/preferred_unit.dart';
 import '../home/providers/home_providers.dart';
 import 'providers/stats_providers.dart';
 import 'widgets/month_calendar.dart';
@@ -16,11 +18,12 @@ class StatsScreen extends ConsumerStatefulWidget {
 }
 
 class _StatsScreenState extends ConsumerState<StatsScreen> {
-  DateTime _selectedDay = DateTime.now();
+  DateTime _selectedDay = LogicalDay.today();
   DateTime _month = DateTime.now();
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(preferredUnitProvider);
     final theme = Theme.of(context);
     final streakAsync = ref.watch(streakProvider);
     final goal = ref.watch(profileProvider)?.dailyGoalMl ?? 2000;
@@ -103,9 +106,7 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
   Widget _dayTab(ThemeData theme, int goal) {
     final dayEntriesAsync =
         ref.watch(dayEntriesForProvider(_selectedDay));
-    final isFuture = _selectedDay.isAfter(
-      DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day),
-    );
+    final isFuture = _selectedDay.isAfter(LogicalDay.today());
     return Column(
       children: [
         Row(
@@ -153,7 +154,8 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
                             mainAxisAlignment:
                                 MainAxisAlignment.spaceBetween,
                             children: [
-                              Text('有效水分  $eff / $goal ml',
+                              Text(
+                                  '有效水分  ${UnitFormat.number(eff)} / ${UnitFormat.volume(goal)}',
                                   style: theme.textTheme.titleLarge),
                               Icon(
                                 complete
@@ -171,7 +173,7 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            '原始摄入 $vol ml · 记录 ${entries.length} 次'
+                            '原始摄入 ${UnitFormat.volume(vol)} · 记录 ${entries.length} 次'
                             '${complete ? ' · 达标' : ''}',
                             style: theme.textTheme.bodyMedium,
                           ),
@@ -193,9 +195,10 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
                       (e) => ListTile(
                         leading: Icon(e.beverageCategory.icon,
                             color: e.beverageCategory.color),
-                        title: Text('${e.beverageName} · ${e.volumeMl} ml'),
+                        title: Text(
+                            '${e.beverageName} · ${UnitFormat.volume(e.volumeMl)}'),
                         subtitle: Text(
-                            '有效 ${e.effectiveMl} ml · ${DateFormat('HH:mm').format(e.drankAt)}'),
+                            '有效 ${UnitFormat.volume(e.effectiveMl)} · ${DateFormat('HH:mm').format(e.drankAt)}'),
                       ),
                     ),
                 ],
@@ -281,7 +284,8 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
-                        Text('日均 $avg ml', style: theme.textTheme.bodyLarge),
+                        Text('日均 ${UnitFormat.volume(avg)}',
+                            style: theme.textTheme.bodyLarge),
                         Text('达标 $completeCount / 7 天',
                             style: theme.textTheme.bodyLarge),
                       ],
@@ -291,7 +295,7 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
               ),
             ),
             const SizedBox(height: 8),
-            Text('柱形满格 = 当日目标 $goal ml',
+            Text('柱形满格 = 当日目标 ${UnitFormat.volume(goal)}',
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodyMedium),
           ],

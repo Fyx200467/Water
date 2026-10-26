@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../shared/models/preferred_unit.dart';
+
 /// 设置项共享标志（重置时间 / 一周开始 / 卡路里开关），
 /// 供设置页角标与对应子页面实时同步，持久化为单条 JSON
 class SettingsFlags extends ChangeNotifier {
@@ -17,12 +19,14 @@ class SettingsFlags extends ChangeNotifier {
   int resetMinute = 0;
   int weekStart = 0; // 0 = 星期日，1 = 星期一
 
-  // 「App、声音、动画」页五个开关（对标原版默认全开）
-  bool dailyReview = true;
+  // 「App、声音、动画」页四个开关（对标原版默认全开）
   bool celebrateDay = true;
   bool appSounds = true;
   bool widgetSounds = true;
   bool cupAnimations = true;
+
+  /// 首页饮品栏玩法：true = 娱乐玩法（弧线弹弓轨道），false = 经典直线栏
+  bool funPlay = true;
 
   bool _loaded = false;
 
@@ -37,11 +41,11 @@ class SettingsFlags extends ChangeNotifier {
     resetHour = 0;
     resetMinute = 0;
     weekStart = 0;
-    dailyReview = true;
     celebrateDay = true;
     appSounds = true;
     widgetSounds = true;
     cupAnimations = true;
+    funPlay = true;
     notifyListeners();
   }
 
@@ -50,6 +54,10 @@ class SettingsFlags extends ChangeNotifier {
     _loaded = true;
     try {
       final prefs = await SharedPreferences.getInstance();
+      // 单位偏好与 PreferredUnitNotifier 共用同一个 key：
+      // 启动时先同步到全局 UnitFormat，保证首屏就按用户单位显示
+      UnitFormat.unit =
+          prefs.getString('preferred_unit') == 'oz' ? PreferredUnit.oz : PreferredUnit.ml;
       final raw = prefs.getString(_kKey);
       if (raw != null) {
         final m = jsonDecode(raw) as Map<String, dynamic>;
@@ -58,11 +66,11 @@ class SettingsFlags extends ChangeNotifier {
         resetHour = (m['resetHour'] as num?)?.toInt() ?? 0;
         resetMinute = (m['resetMinute'] as num?)?.toInt() ?? 0;
         weekStart = (m['weekStart'] as num?)?.toInt() ?? 0;
-        dailyReview = (m['dailyReview'] as bool?) ?? true;
         celebrateDay = (m['celebrateDay'] as bool?) ?? true;
         appSounds = (m['appSounds'] as bool?) ?? true;
         widgetSounds = (m['widgetSounds'] as bool?) ?? true;
         cupAnimations = (m['cupAnimations'] as bool?) ?? true;
+        funPlay = (m['funPlay'] as bool?) ?? true;
         notifyListeners();
       }
     } catch (_) {
@@ -77,22 +85,22 @@ class SettingsFlags extends ChangeNotifier {
     int? resetHour,
     int? resetMinute,
     int? weekStart,
-    bool? dailyReview,
     bool? celebrateDay,
     bool? appSounds,
     bool? widgetSounds,
     bool? cupAnimations,
+    bool? funPlay,
   }) async {
     if (trackCalories != null) this.trackCalories = trackCalories;
     if (foodCalories != null) this.foodCalories = foodCalories;
     if (resetHour != null) this.resetHour = resetHour;
     if (resetMinute != null) this.resetMinute = resetMinute;
     if (weekStart != null) this.weekStart = weekStart;
-    if (dailyReview != null) this.dailyReview = dailyReview;
     if (celebrateDay != null) this.celebrateDay = celebrateDay;
     if (appSounds != null) this.appSounds = appSounds;
     if (widgetSounds != null) this.widgetSounds = widgetSounds;
     if (cupAnimations != null) this.cupAnimations = cupAnimations;
+    if (funPlay != null) this.funPlay = funPlay;
     notifyListeners();
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -102,11 +110,11 @@ class SettingsFlags extends ChangeNotifier {
         'resetHour': this.resetHour,
         'resetMinute': this.resetMinute,
         'weekStart': this.weekStart,
-        'dailyReview': this.dailyReview,
         'celebrateDay': this.celebrateDay,
         'appSounds': this.appSounds,
         'widgetSounds': this.widgetSounds,
         'cupAnimations': this.cupAnimations,
+        'funPlay': this.funPlay,
       }));
     } catch (_) {
       // 持久化失败不阻塞 UI

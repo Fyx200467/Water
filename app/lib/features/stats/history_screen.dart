@@ -10,14 +10,17 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/storage/providers.dart';
+import '../../core/time/logical_day.dart';
 import '../../shared/models/beverage.dart';
 import '../../shared/models/drink_entry.dart';
+import '../../shared/models/preferred_unit.dart';
 import '../../shared/widgets/drink_illustration.dart';
 import '../characters/current_character_provider.dart';
 import '../drink/providers/custom_beverage_provider.dart';
 import '../drink/widgets/svg_container.dart';
 import '../home/providers/home_providers.dart';
 import '../onboarding/widgets/animal_silhouette.dart';
+import '../settings/settings_flags.dart';
 import '../settings/widget_settings_screen.dart';
 import 'providers/stats_providers.dart';
 
@@ -77,6 +80,12 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
   /// 底部悬浮视图切换：0=日期 1=趋势 2=列表
   int _viewTab = 0;
 
+  // 底部 tab 栏固定尺寸：三个标签都是两字，等宽排布才能让下划线
+  // 按 PageView 页码连续滑动（84 = 图标 18 + 间距 6 + 两字 30 + 内边距 28）
+  static const double _kTabItemW = 84;
+  static const double _kTabSepW = 9; // 1px 竖线 + 左右各 4 间距
+  static const double _kTabUnderlineW = 40;
+
   /// 三页横向滑动控制器（与底部 tab 双向联动）
   late final PageController _viewPageController =
       PageController(initialPage: _viewTab);
@@ -96,18 +105,21 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
   /// 日历当前展示的月份（每月 1 日；列表里点选其它月份的日期时同步切换）
   late DateTime _calMonth;
 
-  /// 列表视图本地已删除的日期（滑动删除后先即时移除，等 provider 重算再以数据为准）
+  /// 列表视图本地已删除的日期（删除后先即时移除，等 provider 重算完成再摘掉占位）
   final Set<String> _pendingDeletedDays = <String>{};
 
   /// 列表页删除模式：开启后每天右上角出现红色「−」，点击行弹出删除确认卡
   bool _listDeleteMode = false;
 
+  /// 补录写入中（防重复点击导致同一条记录入库多次）
+  bool _backfilling = false;
+
   @override
   void initState() {
     super.initState();
-    final now = DateTime.now();
-    _selectedDate = DateTime(now.year, now.month, now.day);
-    _calMonth = DateTime(now.year, now.month, 1);
+    final today = LogicalDay.today();
+    _selectedDate = today;
+    _calMonth = DateTime(today.year, today.month, 1);
   }
 
   @override
@@ -118,12 +130,12 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(preferredUnitProvider);
     final progress = ref.watch(dailyProgressProvider);
     final checkin = ref.watch(checkinDaysProvider);
     final currentChar = ref.watch(currentCharacterProvider);
     final profile = ref.watch(profileProvider);
-    final now = DateTime.now();
-    final todayKey = DateTime(now.year, now.month, now.day);
+    final todayKey = LogicalDay.today();
     final isToday = _selectedDate.year == todayKey.year &&
         _selectedDate.month == todayKey.month &&
         _selectedDate.day == todayKey.day;
@@ -291,19 +303,52 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
             ),
           ],
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
+        // 高度交给 Row 自身撑开（中文行高会略高于图标 18），
+        // 不写死高度，避免字体行高变化时底部溢出
+        child: Stack(
           children: [
-            for (var i = 0; i < items.length; i++) ...[
-              if (i > 0)
-                Container(
-                  width: 1,
-                  height: 18,
-                  margin: const EdgeInsets.symmetric(horizontal: 4),
-                  color: const Color(0xFFE7E7EA),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (var i = 0; i < items.length; i++) ...[
+                  if (i > 0)
+                    Container(
+                      width: 1,
+                      height: 18,
+                      margin: const EdgeInsets.symmetric(horizontal: 4),
+                      color: const Color(0xFFE7E7EA),
+                    ),
+                  _viewTabItem(items[i].$1, items[i].$2, i),
+                ],
+              ],
+            ),
+            // 珊瑚色下划线：跟随 PageView 的翻页进度连续移动
+            // （点按走 animateToPage、左右滑动走拖拽，都是同一个 page）
+            // 而不是每个 tab 各自淡入淡出——那样切换时会跳变
+            AnimatedBuilder(
+              animation: _viewPageController,
+              builder: (context, child) {
+                var page = _viewTab.toDouble();
+                if (_viewPageController.hasClients &&
+                    _viewPageController.position.haveDimensions) {
+                  page = _viewPageController.page ?? page;
+                }
+                return Positioned(
+                  left: page * (_kTabItemW + _kTabSepW) +
+                      (_kTabItemW - _kTabUnderlineW) / 2,
+                  bottom: 0,
+                  width: _kTabUnderlineW,
+                  height: 3,
+                  child: child!,
+                );
+              },
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF2695C),
+                  borderRadius: BorderRadius.circular(2),
                 ),
-              _viewTabItem(items[i].$1, items[i].$2, i),
-            ],
+              ),
+            ),
           ],
         ),
       ),
@@ -315,59 +360,52 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     final color = selected
         ? const Color(0xFF33383E)
         : const Color(0xFFB4B9C0);
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () {
-        if (selected) return;
-        HapticFeedback.selectionClick();
-        setState(() => _viewTab = index);
-        // 滑动到相邻页（与左右滑动共用同一动画）
-        _viewPageController.animateToPage(
-          index,
-          duration: const Duration(milliseconds: 280),
-          curve: Curves.easeOutCubic,
-        );
-      },
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // 用户自绘图标：单色 SVG 统一染色（选中深灰/未选中浅灰）
-                SvgPicture.asset(
-                  assetPath,
-                  width: 18,
-                  height: 18,
-                  colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: color,
-                    fontSize: 15,
-                    fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+    return SizedBox(
+      width: _kTabItemW,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          if (selected) return;
+          HapticFeedback.selectionClick();
+          setState(() => _viewTab = index);
+          // 滑动到相邻页（与左右滑动共用同一动画，下划线跟着 page 走）
+          _viewPageController.animateToPage(
+            index,
+            duration: const Duration(milliseconds: 280),
+            curve: Curves.easeOutCubic,
+          );
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // 用户自绘图标：单色 SVG 统一染色（选中深灰/未选中浅灰）
+                  SvgPicture.asset(
+                    assetPath,
+                    width: 18,
+                    height: 18,
+                    colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            // 选中项下划线（珊瑚色）
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              width: 30,
-              height: 3,
-              decoration: BoxDecoration(
-                color: selected
-                    ? const Color(0xFFF2695C)
-                    : Colors.transparent,
-                borderRadius: BorderRadius.circular(2),
+                  const SizedBox(width: 6),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 15,
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ],
+              const SizedBox(height: 4),
+              // 下划线占位（真正的珊瑚色横线由 tab 栏的滑动指示器绘制）
+              const SizedBox(height: 3),
+            ],
+          ),
         ),
       ),
     );
@@ -375,7 +413,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
 
   // ---------------- 列表视图 ----------------
 
-  /// 列表视图：近一年有饮水记录的日期按天倒序、按月分组展示。
+  /// 列表视图：近 3 年有饮水记录的日期按天倒序、按月分组展示。
   /// 行内小进度环沿用日历口径（蓝≥100% / 橙≥70% / 红<70%）；
   /// 点击任意日期切回「日期」视图并定位到该月该日。
   Widget _buildListView() {
@@ -391,10 +429,11 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
         ),
       ),
       data: (entries) {
-        // 按自然日聚合（近 365 天，key 统一为当日零点）
+        // 按逻辑日聚合（近 3 年，key 统一为逻辑日零点；
+        // 重置时刻之前的记录计入前一天）
         final byDay = <DateTime, List<DrinkEntry>>{};
         for (final e in entries) {
-          final d = DateTime(e.drankAt.year, e.drankAt.month, e.drankAt.day);
+          final d = LogicalDay.of(e.drankAt);
           byDay.putIfAbsent(d, () => []).add(e);
         }
         final days = byDay.keys
@@ -520,11 +559,8 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
 
     const weekdays = ['一', '二', '三', '四', '五', '六', '日'];
     final diffDays = today.difference(day).inDays;
-    final label = diffDays == 0
-        ? '今天'
-        : diffDays == 1
-            ? '昨天'
-            : '${day.month}月${day.day}日';
+    // 今天由行尾的「今天」小标签标识，这里统一显示日期，避免同一行出现两次「今天」
+    final label = diffDays == 1 ? '昨天' : '${day.month}月${day.day}日';
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -690,16 +726,16 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                   TextSpan(
                     children: [
                       TextSpan(
-                        text: '$totalMl',
+                        text: '${UnitFormat.number(totalMl)}',
                         style: const TextStyle(
                           color: _kTextDark,
                           fontSize: 17,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
-                      const TextSpan(
-                        text: ' ml',
-                        style: TextStyle(
+                      TextSpan(
+                        text: ' ${UnitFormat.unit.symbol}',
+                        style: const TextStyle(
                           color: _kHintGray,
                           fontSize: 10,
                           fontWeight: FontWeight.w600,
@@ -710,7 +746,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '${(ratio * 100).round()}%',
+                  '${(ratio * 100).round().clamp(0, 100)}%',
                   style: TextStyle(
                     color: ringColor,
                     fontSize: 12,
@@ -872,9 +908,9 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
         ),
       ),
     );
-    if (ok == true) {
+    if (ok == true && mounted) {
       setState(() => _pendingDeletedDays.add(_dayKey(day)));
-      await _deleteDayEntries(entries);
+      await _deleteDayEntries(day, entries);
     }
   }
 
@@ -915,7 +951,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                   ),
                 ),
                 Text(
-                  '共 ${list.length} 次 · 合计 $total ml',
+                  '共 ${list.length} 次 · 合计 ${UnitFormat.volume(total)}',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     color: _kHintGray,
@@ -959,7 +995,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                                     ),
                                   ),
                                   Text(
-                                    '${e.volumeMl}ml · '
+                                    '${UnitFormat.volume(e.volumeMl, compact: true)} · '
                                     '${DateFormat('HH:mm').format(e.drankAt)}',
                                     style: const TextStyle(
                                         color: _kHintGray, fontSize: 12),
@@ -1004,7 +1040,8 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
   }
 
   /// 删除某天全部记录（软删 + 全链刷新 + 同步桌面小组件）
-  Future<void> _deleteDayEntries(List<DrinkEntry> entries) async {
+  Future<void> _deleteDayEntries(
+      DateTime day, List<DrinkEntry> entries) async {
     final storage = await ref.read(localStorageProvider.future);
     for (final e in entries) {
       await storage.softDeleteEntry(e.clientId);
@@ -1014,8 +1051,12 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     ref.invalidate(todayEntriesProvider);
     ref.invalidate(checkinDaysProvider);
     ref.invalidate(streakProvider);
-    // 同步桌面小组件：删除后从存储重算今日合计
-    final todayEntries = await storage.loadEntriesForDay(DateTime.now());
+    // 等列表数据重算完成后再摘掉本地占位，否则该日期会永久停留在隐藏集合里
+    await ref.read(yearEntriesProvider.future);
+    if (!mounted) return;
+    setState(() => _pendingDeletedDays.remove(_dayKey(day)));
+    // 同步桌面小组件：删除后从存储重算今日合计（按逻辑日取，避免重置时间前出错）
+    final todayEntries = await storage.loadEntriesForDay(LogicalDay.today());
     if (!mounted) return;
     final streak = await ref.read(checkinDaysProvider.future);
     if (!mounted) return;
@@ -1048,6 +1089,18 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
             _selectedDate = d;
             _calMonth = DateTime(d.year, d.month, 1);
           }),
+          // 翻月：可以回看更早的月份；不允许翻到未来月份
+          onPrevMonth: () => setState(() {
+            _calMonth =
+                DateTime(_calMonth.year, _calMonth.month - 1, 1);
+          }),
+          onNextMonth: _calMonth.year == todayKey.year &&
+                  _calMonth.month == todayKey.month
+              ? null
+              : () => setState(() {
+                    _calMonth =
+                        DateTime(_calMonth.year, _calMonth.month + 1, 1);
+                  }),
         ),
       ),
     );
@@ -1117,7 +1170,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
         ),
         const SizedBox(height: 8),
         Text(
-          '${displayMl}ml',
+          UnitFormat.volume(displayMl, compact: true),
           style: const TextStyle(
             color: _kCyan,
             fontSize: 32,
@@ -1247,7 +1300,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                                           ),
                                         ),
                                         Text(
-                                          '${e.volumeMl}ml · ${DateFormat('HH:mm').format(e.drankAt)}',
+                                          '${UnitFormat.volume(e.volumeMl, compact: true)} · ${DateFormat('HH:mm').format(e.drankAt)}',
                                           style: const TextStyle(
                                               color: _kHintGray, fontSize: 12),
                                         ),
@@ -1267,9 +1320,11 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                                       // 同步桌面小组件：删除后从存储重算今日合计（
                                       // todayEntriesProvider 已失效重载，直读存储才准确）
                                       final todayEntries = await storage
-                                          .loadEntriesForDay(DateTime.now());
+                                          .loadEntriesForDay(LogicalDay.today());
+                                      if (!ctx.mounted) return;
                                       final streak = await ref
                                           .read(checkinDaysProvider.future);
+                                      if (!ctx.mounted) return;
                                       await syncWidgetFromSettings(
                                         ref.read,
                                         todayMl: todayEntries.fold<int>(
@@ -1279,6 +1334,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                                                 2000,
                                         streakDays: streak,
                                       );
+                                      if (!ctx.mounted) return;
                                       setSheet(() => list.remove(e));
                                     },
                                     icon: const Icon(Icons.delete_outline,
@@ -1330,29 +1386,53 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     int volume,
     DateTime drankAt,
   ) async {
-    final v = volume.clamp(10, 2000);
-    final entry = DrinkEntry.create(
-      beverage: selected,
-      volumeMl: v,
-      drankAt: drankAt,
-    );
-    final storage = await ref.read(localStorageProvider.future);
-    await storage.insertDrinkEntry(entry);
-    // 补录日凭「有饮水记录」自动计入签到，无需另写活跃天——
-    // 这样删除该日全部记录后签到会正确回退
-    // 全链刷新：当日明细/柱形图/月历/首页进度/连续签到/连续达标
-    ref.invalidate(todayEntriesProvider);
-    ref.invalidate(checkinDaysProvider);
-    ref.invalidate(streakProvider);
-    if (ctx.mounted) Navigator.pop(ctx);
+    // 防抖：快速连点「补上」只入库一次
+    if (_backfilling) return;
+    if (volume <= 0) {
+      _showTip('请先输入容量');
+      return;
+    }
+    _backfilling = true;
+    try {
+      final v = volume.clamp(10, 2000);
+      final entry = DrinkEntry.create(
+        beverage: selected,
+        volumeMl: v,
+        drankAt: drankAt,
+      );
+      final storage = await ref.read(localStorageProvider.future);
+      await storage.insertDrinkEntry(entry);
+      // 补录日凭「有饮水记录」自动计入签到，无需另写活跃天——
+      // 这样删除该日全部记录后签到会正确回退
+      // 全链刷新：当日明细/柱形图/月历/首页进度/连续签到/连续达标
+      ref.invalidate(todayEntriesProvider);
+      ref.invalidate(checkinDaysProvider);
+      ref.invalidate(streakProvider);
+      // 同步桌面小组件：补录今天的数据时小组件要立刻反映新总量
+      final todayEntries = await storage.loadEntriesForDay(LogicalDay.today());
+      final streak = await ref.read(checkinDaysProvider.future);
+      await syncWidgetFromSettings(
+        ref.read,
+        todayMl: todayEntries.fold<int>(0, (s, e) => s + e.effectiveMl),
+        goalMl: ref.read(profileProvider)?.dailyGoalMl ?? 2000,
+        streakDays: streak,
+      );
+      if (ctx.mounted) Navigator.pop(ctx);
+    } finally {
+      _backfilling = false;
+    }
   }
 
   /// 补上遗漏弹层：选择饮品 + 输入量，写入选中日期并全链刷新
   Future<void> _showBackfillSheet() async {
     final day = _selectedDate;
     final now = DateTime.now();
-    final drankAt =
-        DateTime(day.year, day.month, day.day, now.hour, now.minute);
+    // 补录时刻默认取当前时分；但必须落在选中「逻辑日」的区间内，
+    // 否则重置时间 > 0 时（例如 03:00 重置、当前 01:30）记录会落到前一天。
+    var drankAt = DateTime(day.year, day.month, day.day, now.hour, now.minute);
+    if (!LogicalDay.sameDay(drankAt, day)) {
+      drankAt = LogicalDay.startOf(day);
+    }
     // 饮品池与首页/管理页同源（预设 + 自定义），图标用 _beverageIcon 一一对应
     final pool = _drinkPool();
     var selected = pool.first;
@@ -1394,7 +1474,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                             ),
                           ),
                           Text(
-                            DateFormat('HH:mm').format(now),
+                            DateFormat('HH:mm').format(drankAt),
                             style: const TextStyle(
                               color: _kHintGray,
                               fontSize: 14,
@@ -1906,7 +1986,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '${e.volumeMl}ml',
+                  UnitFormat.volume(e.volumeMl, compact: true),
                   style: const TextStyle(
                     color: _kTextDark,
                     fontSize: 12,
@@ -1921,7 +2001,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                '${e.effectiveMl >= 0 ? '+' : ''}${e.effectiveMl}ml',
+                '${e.effectiveMl >= 0 ? '+' : '-'}${UnitFormat.volume(e.effectiveMl.abs(), compact: true)}',
                 style: TextStyle(
                   color: e.effectiveMl >= 0
                       ? _kCyan
@@ -2042,7 +2122,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
       );
     }
     // 选中具体饮品：渲染与管理页/首页一致的图标（浅灰圆底承托）
-    final b = _beverageByName(_beverageFilter);
+    final b = _filterBeverage();
     return GestureDetector(
       onTap: () => _showFilterSheet(),
       child: Container(
@@ -2069,67 +2149,101 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
         skipLoadingOnReload: true,
         loading: () => const SizedBox(height: 140),
         error: (_, __) => const SizedBox(height: 140),
-        data: (days) => _BarChart(
-          title: '过去 7 天',
-          barWidth: 26,
-          line: _chartLine,
-          bars: [
-            for (final d in days)
-              _BarData(
-                label: const ['日', '一', '二', '三', '四', '五', '六'][d.day.weekday % 7],
-                value: d.effectiveMl,
-                // 非零都标注数值：负数日显示 -xxxml（红色柱）
-                valueLabel: d.effectiveMl != 0 ? _fmtMl(d.effectiveMl) : null,
-                highlighted: _isToday(d.day),
-              ),
-          ],
-        ),
+        data: (days) {
+          // 筛选后该时段没有记录：给出空态，避免只显示一排空柱子
+          if (_beverageFilter != '全部' &&
+              days.every((d) => d.count == 0)) {
+            return _chartEmptyHint();
+          }
+          return _BarChart(
+            title: '过去 7 天',
+            barWidth: 26,
+            line: _chartLine,
+            bars: [
+              for (final d in days)
+                _BarData(
+                  label: const ['日', '一', '二', '三', '四', '五', '六'][d.day.weekday % 7],
+                  value: d.effectiveMl,
+                  // 非零都标注数值：负数日显示 -xxxml（红色柱）
+                  valueLabel: d.effectiveMl != 0 ? _fmtMl(d.effectiveMl) : null,
+                  highlighted: _isToday(d.day),
+                ),
+            ],
+          );
+        },
       );
     }
-    // 周 / 月：近一年每日聚合后本地计算（按彩色按钮筛选的饮品过滤）
+    // 周 / 月：近 3 年每日聚合后本地计算（按彩色按钮筛选的饮品过滤）
     final year = ref.watch(filteredYearDailyProvider(_beverageFilter));
     return year.when(
       skipLoadingOnReload: true,
       loading: () => const SizedBox(height: 140),
       error: (_, __) => const SizedBox(height: 140),
-      data: (data) => _tab == 1
-          ? _BarChart(
-              title: '每日平均\n过去 4 周',
-              barWidth: 40,
-              line: _chartLine,
-              bars: _weekBars(data),
-            )
-          : _BarChart(
-              title: '每日平均\n过去 12 个月',
-              barWidth: 16,
-              line: _chartLine,
-              bars: _monthBars(data),
-            ),
+      data: (data) {
+        if (_beverageFilter != '全部' && data.isEmpty) {
+          return _chartEmptyHint();
+        }
+        return _tab == 1
+            ? _BarChart(
+                title: '每日平均\n过去 4 周',
+                barWidth: 40,
+                line: _chartLine,
+                bars: _weekBars(data),
+              )
+            : _BarChart(
+                title: '每日平均\n过去 12 个月',
+                barWidth: 16,
+                line: _chartLine,
+                bars: _monthBars(data),
+              );
+      },
+    );
+  }
+
+  /// 筛选后无数据时的图表空态（与图表等高，保持统计卡高度稳定）
+  Widget _chartEmptyHint() {
+    return const SizedBox(
+      height: 144,
+      child: Center(
+        child: Text(
+          '这段时间没有该饮品的记录',
+          style: TextStyle(color: _kHintGray, fontSize: 13),
+        ),
+      ),
     );
   }
 
   // ---------------- 各饮品摄入量面板 ----------------
 
-  /// 面板聚合窗口：天=今天，周=本周（周一起始，与日历一致），月=本月
+  /// 面板聚合窗口：天=今天，周=本周（按「一周开始时间」设置，与日历一致），
+  /// 月=本月；均按「逻辑日」边界切窗（重置时刻之前的记录属于前一天）
   (DateTime, DateTime) _panelWindow() {
     final today = _today();
     switch (_tab) {
-      case 0: // 天：今天 0 点起
-        return (today, today.add(const Duration(days: 1)));
-      case 1: // 周：本周周一 0 点 ~ 下周一 0 点
-        final monday = today.subtract(Duration(days: today.weekday - 1));
-        return (monday, monday.add(const Duration(days: 7)));
-      default: // 月：本月 1 日 ~ 下月 1 日
+      case 0: // 天：当前逻辑日
+        return (LogicalDay.startOf(today), LogicalDay.endOf(today));
+      case 1: // 周：本周起始逻辑日 ~ 本周最后一天结束
+        final weekStart = LogicalDay.weekStartOf(today);
+        final weekEnd = weekStart.add(const Duration(days: 6));
+        return (LogicalDay.startOf(weekStart), LogicalDay.endOf(weekEnd));
+      default: // 月：本月 1 号 ~ 下月 1 号（逻辑日边界）
+        final first = DateTime(today.year, today.month, 1);
         return (
-          DateTime(today.year, today.month, 1),
-          DateTime(today.year, today.month + 1, 1),
+          LogicalDay.startOf(first),
+          LogicalDay.startOf(DateTime(today.year, today.month + 1, 1)),
         );
     }
   }
 
   /// 当前指标取值：0=总摄入量(实际容量) 1=水份(有效进水量) 2=热量(kcal)
+  /// 卡路里关闭时强制回退到「总摄入量」，避免面板仍展示已被隐藏的热量
+  int get _activeMetric =>
+      (_intakeMetric == 2 && !SettingsFlags.instance.trackCalories)
+          ? 0
+          : _intakeMetric;
+
   int _metricValue(_BeverageTotal t) {
-    switch (_intakeMetric) {
+    switch (_activeMetric) {
       case 0:
         return t.volumeMl;
       case 1:
@@ -2140,13 +2254,13 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
   }
 
   String _metricValueText(_BeverageTotal t) {
-    switch (_intakeMetric) {
+    switch (_activeMetric) {
       case 0:
         return _fmtMl(t.volumeMl);
       case 1:
         return _fmtMl(t.effectiveMl);
       default:
-        return '${t.calories} kcal';
+        return '${t.calories} 千卡';
     }
   }
 
@@ -2162,20 +2276,28 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
       );
       t.volumeMl += e.volumeMl;
       t.effectiveMl += e.effectiveMl;
-      // 热量：饮品定义的每份 kcal × 实际容量折算（已删除的自定义饮品忽略）
-      final b = _beverageByName(e.beverageName);
-      if (b != null && (b.calories ?? 0) > 0 && b.defaultMl > 0) {
-        t.calories += (b.calories! * e.volumeMl / b.defaultMl).round();
+      // 热量优先用录入时的快照（改饮品定义不会回写历史）；
+      // 旧记录（-1）才回退到饮品当前定义折算
+      if (e.calories >= 0) {
+        t.calories += e.calories;
+      } else {
+        final b = _beverageById(e.beverageId) ?? _beverageByName(e.beverageName);
+        if (b != null && (b.calories ?? 0) > 0 && b.defaultMl > 0) {
+          t.calories += (b.calories! * e.volumeMl / b.defaultMl).round();
+        }
       }
     }
     final list = map.values.toList()
       ..sort((a, b) => _metricValue(b).compareTo(_metricValue(a)));
-    final grand = list.fold<int>(0, (s, t) => s + _metricValue(t));
+    // 占比按绝对值计算：纯酒日（水份为负）也能得到 100% 而不是全 0
+    final grand = list.fold<int>(0, (s, t) => s + _metricValue(t).abs());
     return [
       for (final t in list)
         (
           t,
-          grand > 0 ? (_metricValue(t) / grand * 100).round().clamp(0, 100) : 0,
+          grand > 0
+              ? (_metricValue(t).abs() / grand * 100).round().clamp(0, 100)
+              : 0,
         ),
     ];
   }
@@ -2187,12 +2309,14 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
       skipLoadingOnReload: true,
       loading: () => const SizedBox.shrink(),
       error: (_, __) => const SizedBox.shrink(),
-      data: (entries) {
-        final rows = _panelRows(entries);
-        if (rows.isEmpty) return const SizedBox.shrink();
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+      data: (entries) => ListenableBuilder(
+        listenable: SettingsFlags.instance,
+        builder: (_, __) {
+          final rows = _panelRows(entries);
+          if (rows.isEmpty) return const SizedBox.shrink();
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
             // 标题行：左标题（小号常规字重）+ 右侧三指标切换（竖线分隔，选中加粗深色）
             Row(
               children: [
@@ -2208,16 +2332,19 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                 _metricTab('总摄入量', 0),
                 _metricSeparator(),
                 _metricTab('水份', 1),
-                _metricSeparator(),
-                _metricTab('热量', 2),
+                if (SettingsFlags.instance.trackCalories) ...[
+                  _metricSeparator(),
+                  _metricTab('热量', 2),
+                ],
               ],
             ),
             const SizedBox(height: 14),
             // 每个饮品一张白色圆角卡
             for (final (t, percent) in rows) _panelCard(t, percent),
           ],
-        );
-      },
+          );
+        },
+      ),
     );
   }
 
@@ -2229,7 +2356,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
       );
 
   Widget _metricTab(String label, int index) {
-    final selected = _intakeMetric == index;
+    final selected = _activeMetric == index;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () {
@@ -2338,28 +2465,27 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     );
   }
 
-  /// 周 Tab：过去 4 周（周一起始，与日历/面板一致，本周截至今天）每日平均
+  /// 周 Tab：过去 4 周（按「一周开始时间」设置，与日历/面板一致，本周截至今天）每日平均
   List<_BarData> _weekBars(Map<DateTime, DayTotal> year) {
     final today = _today();
-    final thisMonday = today.subtract(Duration(days: today.weekday - 1));
+    final thisWeekStart = LogicalDay.weekStartOf(today);
     final bars = <_BarData>[];
     for (var i = 3; i >= 0; i--) {
-      final start = thisMonday.subtract(Duration(days: 7 * i));
+      final start = thisWeekStart.subtract(Duration(days: 7 * i));
       final isCurrent = i == 0;
       final end = isCurrent
           ? today.add(const Duration(days: 1))
           : start.add(const Duration(days: 7));
       var sum = 0;
-      var daysWith = 0;
+      // 分母 = 窗口内实际天数（本周只算到今天），没记录的日子按 0 计入日均
+      var dayCount = 0;
       for (var day = start; day.isBefore(end); day = day.add(const Duration(days: 1))) {
+        dayCount++;
         final dt = year[DateTime(day.year, day.month, day.day)];
-        // 负数日同样计入日均（map 只含有条目的日子）
-        if (dt != null) {
-          sum += dt.effectiveMl;
-          daysWith++;
-        }
+        // 负数日同样计入（净量为负说明当天以酒类为主）
+        if (dt != null) sum += dt.effectiveMl;
       }
-      final avg = daysWith == 0 ? 0 : sum ~/ daysWith;
+      final avg = dayCount == 0 ? 0 : sum ~/ dayCount;
       bars.add(_BarData(
         label: _weekLabel(start, isCurrent),
         value: avg,
@@ -2381,16 +2507,15 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
           ? today.add(const Duration(days: 1))
           : next;
       var sum = 0;
-      var daysWith = 0;
+      // 分母 = 窗口内实际天数（本月只算到今天），没记录的日子按 0 计入日均
+      var dayCount = 0;
       for (var day = m; day.isBefore(end); day = day.add(const Duration(days: 1))) {
+        dayCount++;
         final dt = year[DateTime(day.year, day.month, day.day)];
-        // 负数日同样计入日均（map 只含有条目的日子）
-        if (dt != null) {
-          sum += dt.effectiveMl;
-          daysWith++;
-        }
+        // 负数日同样计入（净量为负说明当天以酒类为主）
+        if (dt != null) sum += dt.effectiveMl;
       }
-      final avg = daysWith == 0 ? 0 : sum ~/ daysWith;
+      final avg = dayCount == 0 ? 0 : sum ~/ dayCount;
       final isCurrent = k == 0;
       // 去年月份显示纯数字，今年显示 N 月，当前月纯数字
       final label = isCurrent || m.year < today.year ? '${m.month}' : '${m.month}月';
@@ -2411,13 +2536,9 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
         : '${start.month}.${start.day}-${end.month}.${end.day}';
   }
 
-  String _fmtMl(int ml) =>
-      ml >= 1000 ? '${(ml / 1000).toStringAsFixed(1)}升' : '$ml ml';
+  String _fmtMl(int ml) => UnitFormat.smart(ml);
 
-  DateTime _today() {
-    final n = DateTime.now();
-    return DateTime(n.year, n.month, n.day);
-  }
+  DateTime _today() => LogicalDay.today();
 
   bool _isToday(DateTime d) {
     final t = _today();
@@ -2427,8 +2548,9 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
   // ---------------- 筛选弹层（原版样式：全屏底部弹层 + 彩色饮品图标行） ----------------
 
   void _showFilterSheet() {
-    final entries =
-        ref.read(dayEntriesForProvider(_selectedDate)).valueOrNull ?? const [];
+    // 候选饮品来自近 3 年全部历史记录，而不是只来自当前选中日期，
+    // 避免「前几天喝过但今天没喝」的饮品无法筛选
+    final entries = ref.read(yearEntriesProvider).valueOrNull ?? const [];
 
     showModalBottomSheet(
       context: context,
@@ -2446,6 +2568,15 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
   /// 首页/管理页同款饮品池（预设 + 自定义）
   List<Beverage> _drinkPool() =>
       [...Beverage.presets, ...ref.read(customBeveragesProvider)];
+
+  /// 把筛选 token 还原成饮品对象（筛选按钮图标用）
+  Beverage? _filterBeverage() {
+    final f = _beverageFilter;
+    if (f == '全部') return null;
+    if (f.startsWith('id:')) return _beverageById(f.substring(3));
+    if (f.startsWith('name:')) return _beverageByName(f.substring(5));
+    return _beverageByName(f);
+  }
 
   /// 按名称查找饮品（筛选按钮用）
   Beverage? _beverageByName(String name) {
@@ -2751,6 +2882,8 @@ class _MonthCalendar extends StatelessWidget {
     required this.month,
     required this.today,
     required this.onSelect,
+    this.onPrevMonth,
+    this.onNextMonth,
   });
   final Map<int, DayTotal> data;
 
@@ -2762,6 +2895,10 @@ class _MonthCalendar extends StatelessWidget {
   final DateTime today;
   final ValueChanged<DateTime> onSelect;
 
+  /// 上/下一个月（null = 不可翻，例如已是当前月）
+  final VoidCallback? onPrevMonth;
+  final VoidCallback? onNextMonth;
+
   /// 进度环颜色：蓝=达标 / 橙=≥70% / 红=<70%（统计结果说明口径）
   static const _kOrange = Color(0xFFF5A623);
   static const _kRed = Color(0xFFE5484D);
@@ -2769,8 +2906,8 @@ class _MonthCalendar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final first = DateTime(month.year, month.month, 1);
-    // 周一起始（对标竞品 M T W T F S S）：周一偏移 0，周日偏移 6
-    final leading = first.weekday - 1;
+    // 一周起始随「一周开始时间」设置（周日或周一）
+    final leading = LogicalDay.leadingBlanksOf(first);
     final daysInMonth = DateTime(month.year, month.month + 1, 0).day;
     final rowCount = (leading + daysInMonth + 6) ~/ 7;
 
@@ -2791,6 +2928,11 @@ class _MonthCalendar extends StatelessWidget {
               ),
             ),
             const Spacer(),
+            // 翻月箭头：左侧看更早月份，右侧回到更近月份（当前月禁用）
+            _monthArrow(Icons.chevron_left, onPrevMonth),
+            const SizedBox(width: 2),
+            _monthArrow(Icons.chevron_right, onNextMonth),
+            const SizedBox(width: 8),
             // 用户自绘日历图标（assets/icons/menu/calendar_header.svg）
             SvgPicture.asset(
               'assets/icons/menu/calendar_header.svg',
@@ -2800,10 +2942,10 @@ class _MonthCalendar extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 14),
-        // 表头：一二三四五六日（周一起始，灰蓝色）
+        // 表头：随「一周开始时间」轮转（周日或周一起始，灰蓝色）
         Row(
           children: [
-            for (final w in const ['一', '二', '三', '四', '五', '六', '日'])
+            for (final w in LogicalDay.weekHeaderLabels)
               Expanded(
                 child: Center(
                   child: Text(
@@ -2830,6 +2972,29 @@ class _MonthCalendar extends StatelessWidget {
             ),
           ),
       ],
+      ),
+    );
+  }
+
+  /// 翻月箭头（禁用态变浅灰）
+  Widget _monthArrow(IconData icon, VoidCallback? onTap) {
+    final enabled = onTap != null;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: enabled
+          ? () {
+              HapticFeedback.selectionClick();
+              onTap();
+            }
+          : null,
+      child: SizedBox(
+        width: 26,
+        height: 26,
+        child: Icon(
+          icon,
+          size: 20,
+          color: enabled ? _kTextDark : const Color(0xFFC7CDD4),
+        ),
       ),
     );
   }
@@ -2978,22 +3143,26 @@ class _FilterSheet extends StatelessWidget {
   final List<Beverage> pool;
   final ValueChanged<String> onSelect;
 
-  /// (名称, 饮品对象[池内命中], 回退图标[仅条目但饮品已删除])
-  List<(String, Beverage?, IconData?, Color?)> _options() {
-    final out = <(String, Beverage?, IconData?, Color?)>[];
-    void add(String name, [Beverage? b, IconData? icon, Color? color]) {
-      if (!out.any((o) => o.$1 == name)) out.add((name, b, icon, color));
+  /// (筛选 token, 展示名, 饮品对象[池内命中], 回退图标[仅条目但饮品已删除])
+  ///
+  /// token 用 `id:<beverageId>` 定位饮品，饮品改名后历史记录仍能连续筛选；
+  /// 已删除的饮品只能用 `name:<name>` 匹配它留下的历史记录。
+  List<(String, String, Beverage?, IconData?, Color?)> _options() {
+    final out = <(String, String, Beverage?, IconData?, Color?)>[];
+    void add(String token, String label,
+        [Beverage? b, IconData? icon, Color? color]) {
+      if (!out.any((o) => o.$1 == token)) out.add((token, label, b, icon, color));
     }
 
-    add('全部');
+    add('全部', '全部');
     for (final b in pool) {
-      add(b.name, b);
+      add('id:${b.id}', b.name, b);
     }
-    // 仅出现在当日记录中、但饮品已被删除的条目：回退分类图标
+    // 仅出现在历史记录中、但饮品已被删除的条目：回退分类图标
     for (final e in entries) {
-      if (!pool.any((b) => b.name == e.beverageName)) {
-        add(e.beverageName, null, e.beverageCategory.icon,
-            e.beverageCategory.color);
+      if (!pool.any((b) => b.id == e.beverageId)) {
+        add('name:${e.beverageName}', e.beverageName, null,
+            e.beverageCategory.icon, e.beverageCategory.color);
       }
     }
     return out;
@@ -3068,16 +3237,16 @@ class _FilterSheet extends StatelessWidget {
                                           size: Size(28, 28),
                                           painter: _WaterDropPainter(),
                                         )
-                                      : o.$2 != null
-                                          ? _beverageIcon(o.$2!, 28)
-                                          : Icon(o.$3,
-                                              size: 24, color: o.$4),
+                                      : o.$3 != null
+                                          ? _beverageIcon(o.$3!, 28)
+                                          : Icon(o.$4,
+                                              size: 24, color: o.$5),
                                 ),
                               ),
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Text(
-                                  o.$1,
+                                  o.$2,
                                   style: const TextStyle(
                                     color: Color(0xFF1C1C1E),
                                     fontSize: 15,
@@ -3198,7 +3367,8 @@ class _BarChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final maxVal = bars.fold<int>(0, (a, b) => a > b.value ? a : b.value);
+    // 取绝对值最大值：全是负数时也能正确归一（maxVal=0 会除零）
+    final maxVal = bars.fold<int>(0, (a, b) => math.max(a, b.value.abs()));
 
     return Column(
       children: [
@@ -3256,7 +3426,7 @@ class _BarChart extends StatelessWidget {
                           // 负值（负容量记录/负日均）画红色柱，高度取绝对值
                           Container(
                             width: barWidth,
-                            height: b.value != 0
+                            height: b.value != 0 && maxVal > 0
                                 ? (b.value.abs() / maxVal * 88).clamp(6.0, 88.0)
                                 : 0.0,
                             decoration: BoxDecoration(
@@ -3367,7 +3537,8 @@ class _LinePainter extends CustomPainter {
       final y = yOf(v);
       canvas.drawLine(Offset(_padLeft, y), Offset(size.width - _padRight, y),
           s == 0 ? axisPaint : gridPaint);
-      final label = v == 0 ? '0' : '${v.toInt()}ml';
+      final label =
+          v == 0 ? '0' : UnitFormat.volume(v, compact: true);
       final p = tp(label);
       p.paint(canvas, Offset(_padLeft - 5 - p.width, y - p.height / 2));
     }

@@ -12,14 +12,17 @@ import 'package:home_widget/home_widget.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/storage/providers.dart';
+import '../../core/time/logical_day.dart';
 import '../../core/widget/home_widget_sync.dart';
 import '../characters/current_character_provider.dart';
 import '../drink/providers/custom_beverage_provider.dart';
 import '../drink/widgets/svg_container.dart';
 import '../../shared/models/beverage.dart';
+import '../../shared/models/preferred_unit.dart';
 import '../../shared/widgets/drink_illustration.dart';
 import '../home/providers/home_providers.dart';
 import '../onboarding/widgets/animal_silhouette.dart';
+import 'settings_flags.dart';
 import '../stats/providers/stats_providers.dart';
 
 // ============================================================
@@ -43,15 +46,15 @@ class WidgetSettingsState {
   const WidgetSettingsState({
     this.colorIndex = 0,
     this.customColor,
-    this.drink1 = 'milk_juice',
+    this.drink1 = 'water_pure',
     this.vol1 = 250,
     this.drink2 = 'milk_juice',
-    this.vol2 = 250,
+    this.vol2 = 300,
     this.drink3 = 'soda',
     this.vol3 = 330,
-    this.colorfulButtons = false,
-    this.colorfulCharacter = true,
-    this.followDarkMode = true,
+    this.colorfulButtons = true,
+    this.colorfulCharacter = false,
+    this.followDarkMode = false,
     this.streakBadge = true,
   });
 
@@ -65,7 +68,7 @@ class WidgetSettingsState {
   final int vol3;
   final bool colorfulButtons; // 彩色饮料按钮
   final bool colorfulCharacter; // 彩色字符层
-  final bool followDarkMode; // 遵循深色模式规则（页面已隐藏，逻辑沿用默认值）
+  final bool followDarkMode; // 遵循深色模式规则（系统深色时强制深色底）
   final bool streakBadge; // 连续徽章
 
   Color get themeColor => colorIndex >= 0
@@ -117,15 +120,15 @@ class WidgetSettingsState {
       WidgetSettingsState(
         colorIndex: (m['colorIndex'] as num?)?.toInt() ?? 0,
         customColor: (m['customColor'] as num?)?.toInt(),
-        drink1: m['drink1'] as String? ?? 'milk_juice',
+        drink1: m['drink1'] as String? ?? 'water_pure',
         vol1: (m['vol1'] as num?)?.toInt() ?? 250,
         drink2: m['drink2'] as String? ?? 'milk_juice',
-        vol2: (m['vol2'] as num?)?.toInt() ?? 250,
+        vol2: (m['vol2'] as num?)?.toInt() ?? 300,
         drink3: m['drink3'] as String? ?? 'soda',
         vol3: (m['vol3'] as num?)?.toInt() ?? 330,
-        colorfulButtons: m['colorfulButtons'] as bool? ?? false,
-        colorfulCharacter: m['colorfulCharacter'] as bool? ?? true,
-        followDarkMode: m['followDarkMode'] as bool? ?? true,
+        colorfulButtons: m['colorfulButtons'] as bool? ?? true,
+        colorfulCharacter: m['colorfulCharacter'] as bool? ?? false,
+        followDarkMode: m['followDarkMode'] as bool? ?? false,
         streakBadge: m['streakBadge'] as bool? ?? true,
       );
 }
@@ -162,6 +165,11 @@ class WidgetSettingsNotifier extends StateNotifier<WidgetSettingsState> {
     // 设置变化即时刷新桌面小组件（饮料格/主题色/徽章与预览卡保持一致）
     syncWidgetFromSettings(ref.read);
   }
+
+  /// 外部数据（自定义饮品增删改）变更后主动刷新桌面小组件。
+  /// 走 notifier 的 ref（Provider 级生命周期），避免页面销毁后
+  /// 继续使用已释放的 WidgetRef
+  Future<void> refreshWidget() => syncWidgetFromSettings(ref.read);
 }
 
 /// 色板（对标原版 5 列 × 4 行）
@@ -202,6 +210,7 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(preferredUnitProvider);
     final s = ref.watch(widgetSettingsProvider);
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.dark,
@@ -242,6 +251,13 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
                   subtitle: '角色饮料图层的颜色将与小组件的色彩主题保持一致',
                   value: s.colorfulCharacter,
                   onChanged: (v) => _mutate((x) => x.copyWith(colorfulCharacter: v)),
+                ),
+                const SizedBox(height: 10),
+                _toggleCard(
+                  title: '遵循深色模式',
+                  subtitle: '系统处于深色模式时，小组件背景自动切换为深色',
+                  value: s.followDarkMode,
+                  onChanged: (v) => _mutate((x) => x.copyWith(followDarkMode: v)),
                 ),
                 _sectionDivider(),
                 _toggleCard(
@@ -320,9 +336,9 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
     // 全宽卡，角色居中偏右，饮料格右侧竖排（唯一固定样式，对标竞品
     // 「柠檬喝水」：单一布局强制不变，跨厂商/iOS 观感一致）
     final drinks = [
-      _findBeverage(s.drink1),
-      _findBeverage(s.drink2),
-      _findBeverage(s.drink3),
+      (_findBeverage(s.drink1), s.vol1),
+      (_findBeverage(s.drink2), s.vol2),
+      (_findBeverage(s.drink3), s.vol3),
     ];
     return Container(
       height: 210,
@@ -396,7 +412,7 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                for (final b in drinks) _widgetDrinkTile(b, s),
+                for (final (b, vol) in drinks) _widgetDrinkTile(b, vol, s),
               ],
             ),
           ),
@@ -411,8 +427,9 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
     return all.firstWhere((b) => b.id == id, orElse: () => all.first);
   }
 
-  /// 预览卡内单个饮料格：容量/名称 + 灰底圆角容器
-  Widget _widgetDrinkTile(Beverage b, WidgetSettingsState s) {
+  /// 预览卡内单个饮料格：容量/名称 + 灰底圆角容器（容量按槽位取，
+  /// 文案与桌面同一套 tileMlLabel：1000→1L、1500→1.5L）
+  Widget _widgetDrinkTile(Beverage b, int vol, WidgetSettingsState s) {
     // 格底/文字深浅与桌面同规则：彩色按钮染「实际生效底色」（含深色
     // 强制）；容量/名称落在卡面上，深浅随卡面亮度（桌面 dark_text 同源）
     final themeColor = effectiveWidgetThemeColor(s);
@@ -426,7 +443,7 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
         Column(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            Text('${s.volOf(b)}ml',
+            Text(tileMlLabel(vol),
                 style: TextStyle(
                     color: textMain,
                     fontSize: 15,
@@ -464,16 +481,8 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
     return DrinkIllustration(beverageId: illustId, color: b.color, size: size);
   }
 
-  /// 目标容量显示：整千显示「N升」，其余千位以上一位小数，小目标直接 ml
-  String _goalLabel(int ml) {
-    if (ml >= 1000) {
-      final liters = ml / 1000;
-      return liters == liters.roundToDouble()
-          ? '${liters.toStringAsFixed(0)}升'
-          : '${liters.toStringAsFixed(1)}升';
-    }
-    return '${ml}ml';
-  }
+  /// 目标容量显示（跟随全局测量单位）
+  String _goalLabel(int ml) => UnitFormat.smart(ml);
 
   // ---------------- 色板卡 ----------------
 
@@ -615,7 +624,7 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
                     fontSize: 16,
                     fontWeight: FontWeight.w700)),
             const Spacer(),
-            Text('${b.name}, ${ml}ml',
+            Text('${b.name}, ${UnitFormat.volume(ml, compact: true)}',
                 style: const TextStyle(color: Color(0xFFB0B0B6), fontSize: 15)),
             const SizedBox(width: 6),
             const Icon(Icons.chevron_right,
@@ -713,7 +722,7 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
                     children: [
                       for (final v in b.volumes)
                         ChoiceChip(
-                          label: Text('$v ml'),
+                          label: Text(UnitFormat.volume(v, compact: true)),
                           selected: v == b.defaultMl,
                           onSelected: (_) {
                             Navigator.pop(ctx);
@@ -1135,6 +1144,7 @@ Future<void> _renderFramesOnce(
       '${(progress.progress.clamp(0.0, 1.0) * 200).round()}|${progress.isComplete}';
   final savedSig = await HomeWidget.getWidgetData<String>('character_frames_sig');
   if (savedSig == sig) return;
+  var rendered = 0;
   try {
     for (var i = 0; i < kWidgetFrameCount; i++) {
       final key = 'character_frame_$i';
@@ -1149,20 +1159,37 @@ Future<void> _renderFramesOnce(
           fullArt: progress.isComplete,
         ),
         key: key,
+        // 100dp 角色在 2x 屏上约 260px，2 倍像素足够清晰；16/176 帧都要
+        // 逐张渲染，3 倍会让「改液体色」等十几秒才上桌（用户以为没生效）
         logicalSize: const ui.Size(128, 128),
-        pixelRatio: 3,
+        pixelRatio: 2,
       );
       path ??= await HomeWidget.getWidgetData<String>(key);
       if (path != null && path.isNotEmpty) {
-        // 先写全 8 帧文件，末尾统一 updateWidget：launcher 解码发生在
-        // RemoteViews 应用时，不会读到半写图像
         await HomeWidget.saveWidgetData<String>(key, path);
+        rendered++;
+        if (i == 0) {
+          // 新液体色先上桌：其余 15 帧暂用第 0 帧占位并立即刷新，
+          // 之后逐帧回填相位（桌面同一时间只有一种液色，不会闪旧色）
+          for (var j = 1; j < kWidgetFrameCount; j++) {
+            await HomeWidget.saveWidgetData<String>('character_frame_$j', path);
+          }
+          await HomeWidget.updateWidget(
+            name: 'WaterLlamaWidgetProvider',
+            androidName: 'WaterLlamaWidgetProvider',
+          );
+        }
       }
     }
   } catch (_) {
     // 帧渲染失败静默跳过（下次数据变化同步时自动补上）
   }
-  await HomeWidget.saveWidgetData<String>('character_frames_sig', sig);
+  // 签名只在**真的渲出多帧**时才落盘：headless 引擎（小组件后台录入）
+  // 无 implicitView，渲染必抛错——此前无条件写签名会让此后所有同步都
+  // 命中「签名未变」直接跳过，动画帧永久停在旧画面
+  if (rendered >= 2) {
+    await HomeWidget.saveWidgetData<String>('character_frames_sig', sig);
+  }
   // updateWidget 必须无条件执行：小组件后台录入跑在 headless 引擎里，
   // 帧渲染必然抛错（无 implicitView），若 updateWidget 放在 try 内则
   // 会被跳过——数据虽已写入但桌面 RemoteViews 不重绘，数字永远不更新
@@ -1194,6 +1221,7 @@ Future<void> _renderLevelFrames(
   final sig = '$characterId|${liquidColor.toARGB32().toSigned(32)}|v3';
   final saved = await HomeWidget.getWidgetData<String>('character_levels_sig');
   if (saved == sig) return;
+  var rendered = 0;
   for (var pct = 0; pct <= 100; pct += 10) {
     for (var phase = 0; phase < 16; phase++) {
       final key = 'character_level_${pct}_$phase';
@@ -1209,15 +1237,20 @@ Future<void> _renderLevelFrames(
         ),
         key: key,
         logicalSize: const ui.Size(128, 128),
-        pixelRatio: 3,
+        pixelRatio: 2, // 与动画帧同倍率：176 帧逐张渲染，3 倍会慢一倍以上
       );
       path ??= await HomeWidget.getWidgetData<String>(key);
       if (path != null && path.isNotEmpty) {
         await HomeWidget.saveWidgetData<String>(key, path);
+        rendered++;
       }
     }
   }
-  await HomeWidget.saveWidgetData<String>('character_levels_sig', sig);
+  // 与动画帧同理：只有真正渲出绝大部分档位才落签名，否则 headless
+  // 引擎下的失败会被签名「记住」导致等级帧永久缺失
+  if (rendered >= 160) {
+    await HomeWidget.saveWidgetData<String>('character_levels_sig', sig);
+  }
 }
 
 /// 同步防交错：连续快速改设置时合并请求（渲染/写键交错会产生脏数据）
@@ -1316,10 +1349,28 @@ Future<void> _syncWidgetFromSettingsOnce(
         WidgetDrinkData(
             ml: slots[i].$2,
             name: beverages[i].name,
+            id: slots[i].$1, // 原生点按队列随条目携带，补录不认错饮品
             // 折算后水量：原生点按累加/百分比用它，与 App 内 sumEffective 口径一致
             effectiveMl: beverages[i].effectiveMl(slots[i].$2),
             iconFile: icons[i]),
     ];
+    // 连续徽章：streak 已把「今天」纳入当且仅当今天已有记录；原生点按
+    // 首笔时按 anchor 判断该 +1 还是断签重置（避免隔天没喝水也照样 +1）
+    final streakAsync = read(checkinDaysProvider);
+    final streak = streakDays ?? streakAsync.asData?.value ?? 0;
+    final today = LogicalDay.today();
+    final hasTodayEntry =
+        read(todayEntriesProvider).any((e) => LogicalDay.sameDay(e.drankAt, today));
+    // streak 还没算出来时不要下发 anchor：否则会把「昨天有记录」误写成
+    // 空 → 原生点按把连续天数重置为 1
+    final streakKnown = streakDays != null || streakAsync.hasValue;
+    final streakAnchor = !streakKnown
+        ? null
+        : hasTodayEntry
+            ? LogicalDay.keyString(today)
+            : (streak > 0
+                ? LogicalDay.keyString(today.subtract(const Duration(days: 1)))
+                : '');
     // 主题色：与预览卡同规则（「遵循深色模式规则」+ 系统深色 → 强制
     // 深色底，详见 effectiveWidgetThemeColor 注释）。恒定有值：默认
     // 白底也显式推白色，行为与 -1 相同且省去空值分支
@@ -1327,12 +1378,17 @@ Future<void> _syncWidgetFromSettingsOnce(
     await syncHomeWidget(
       todayMl: todayMl ?? progress.totalEffectiveMl,
       goalMl: goalMl ?? progress.goalMl,
-      streakDays: streakDays ?? read(checkinDaysProvider).asData?.value ?? 0,
+      streakDays: streak,
       themeColor: themeColor,
       showStreak: s.streakBadge,
-      tileColor: s.colorfulButtons ? themeColor.toARGB32() : -1,
+      // 必须转有符号 32 位：白色 0xFFFFFFFF 按无符号存进去原生只会读成
+      // -1，而 -1 曾是「默认灰底」哨兵 → 白底主题下彩色按钮永远不生效
+      tileColor: s.colorfulButtons ? themeColor.toARGB32().toSigned(32) : -2,
       drinks: drinks,
       recordEnabled: recordEnabled,
+      resetMinutes: LogicalDay.resetMinutes,
+      streakAnchor: streakAnchor,
+      widgetSounds: SettingsFlags.instance.widgetSounds,
     );
     // 角色动画帧由 syncWidgetFromSettings 在数据推送完成后异步补推
     // （不阻塞数据同步锁，见其函数注释）
@@ -1435,12 +1491,3 @@ Future<File?> _rasterizeDrinkIcon(Beverage b, {int dim = 96}) async {
 }
 
 // StateNotifier 内访问 storage 的辅助（避开构造参数改动）
-extension _WidgetSettingsVol on WidgetSettingsState {
-  int volOf(Beverage b) {
-    // 预览格显示的容量：与所选饮料对应的 vol 字段
-    if (b.id == drink1) return vol1;
-    if (b.id == drink2) return vol2;
-    if (b.id == drink3) return vol3;
-    return b.defaultMl;
-  }
-}

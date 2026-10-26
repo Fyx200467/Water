@@ -2,7 +2,12 @@ package com.waterllama.water_llama
 
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.MediaPlayer
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -12,6 +17,9 @@ class MainActivity : FlutterActivity() {
     /// 立刻应用会停用正在运行的 LAUNCHER 别名，系统随即结束当前
     /// Activity——用户看到的就是「切个图标 app 却闪退」
     private var pendingIconAlias: String? = null
+
+    /// 音效通道：Dart 侧按 kind 请求播放，原生播放「加水成功」音效
+    private var waterPlayer: MediaPlayer? = null
 
     /// App 图标切换通道：Dart 侧传完整 alias 类名，原生侧暂存，
     /// 在 onUserLeaveHint/onStop 统一应用（停用当前启用的别名、启用目标
@@ -33,6 +41,68 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+        // 通知设置通道：用户已永久拒绝通知权限时，系统不会再弹权限框，
+        // 只能跳本应用的系统通知设置页让用户手动开启
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "app.notification.settings")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "open" -> {
+                        val ok = try {
+                            val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                    .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                            } else {
+                                Intent(
+                                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                    Uri.parse("package:$packageName"),
+                                )
+                            }
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            startActivity(intent)
+                            true
+                        } catch (_: Exception) {
+                            false
+                        }
+                        result.success(ok)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        // App 音效通道：目标完成 / 弹弓命中
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "waterllama/sound")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "play" -> {
+                        playSound(call.argument<String>("kind") ?: "")
+                        result.success(true)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+    }
+
+    /**
+     * 播放「加水成功」音效（res/raw/water_add.m4a）
+     * 参考竞品喝水提示音的水流感，替代原 ToneGenerator 拨号式提示音；
+     * kind 暂不区分（goal / hit / widget 同一音色，goal 由 Dart 侧叠加震动）
+     */
+    private fun playSound(kind: String) {
+        try {
+            waterPlayer?.release()
+            val mp = MediaPlayer.create(this, R.raw.water_add) ?: return
+            waterPlayer = mp
+            mp.setVolume(0.9f, 0.9f)
+            mp.setOnCompletionListener {
+                try {
+                    it.release()
+                } catch (_: Exception) {
+                }
+                if (waterPlayer === it) waterPlayer = null
+            }
+            mp.start()
+        } catch (_: Exception) {
+            // 音频设备不可用时静默，不影响主流程
+        }
     }
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
@@ -66,6 +136,15 @@ class MainActivity : FlutterActivity() {
         // 兜底：下拉通知栏/锁屏/跳其他应用等非 onUserLeaveHint 的离开路径
         applyPendingIcon()
         super.onStop()
+    }
+
+    override fun onDestroy() {
+        try {
+            waterPlayer?.release()
+        } catch (_: Exception) {
+        }
+        waterPlayer = null
+        super.onDestroy()
     }
 
     private fun applyPendingIcon() {

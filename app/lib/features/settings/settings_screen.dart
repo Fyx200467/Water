@@ -125,6 +125,29 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             ),
                           ),
                         ),
+                        // 「水滴发射」行：一键切换首页饮品栏（弧线弹弓 / 经典直线）
+                        ListenableBuilder(
+                          listenable: SettingsFlags.instance,
+                          builder: (ctx, _) => _settingRow(
+                            iconAsset: 'launch.svg',
+                            title: '水滴发射',
+                            showArrow: false,
+                            onTap: () => SettingsFlags.instance
+                                .save(funPlay: !SettingsFlags.instance.funPlay),
+                            trailing: Switch(
+                              value: SettingsFlags.instance.funPlay,
+                              activeThumbColor: const Color(0xFF4DB8D8),
+                              onChanged: (v) =>
+                                  SettingsFlags.instance.save(funPlay: v),
+                            ),
+                          ),
+                        ),
+                        // 「消消乐」行：进入饮品三消小游戏
+                        _settingRow(
+                          iconAsset: 'match3.svg',
+                          title: '消消乐',
+                          onTap: () => context.push('/game/match3'),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 28),
@@ -367,7 +390,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '${profile.dailyGoalMl}ml',
+                        UnitFormat.volume(profile.dailyGoalMl, compact: true),
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 46,
@@ -467,6 +490,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     Widget? leading,
     required String title,
     String? trailingText,
+    Widget? trailing,
     bool showArrow = true,
     VoidCallback? onTap,
     bool isDestructive = false,
@@ -511,6 +535,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   fontSize: 15,
                 ),
               ),
+            if (trailing != null) trailing,
             if (showArrow)
               const Padding(
                 padding: EdgeInsets.only(left: 6),
@@ -741,6 +766,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   /// 测量单位弹层（对标原版：「你使用什么单位」+ 两个青色胶囊按钮）
   void _showUnitPicker() {
+    final selected = ref.read(preferredUnitProvider);
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.white,
@@ -768,6 +794,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   child: FilledButton(
                     onPressed: () {
                       ref.read(preferredUnitProvider.notifier).select(u);
+                      // 单位切换后桌面小组件文案立即跟随（ml ↔ oz）
+                      ref.read(widgetSettingsProvider.notifier).refreshWidget();
                       Navigator.pop(ctx);
                     },
                     style: FilledButton.styleFrom(
@@ -776,9 +804,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(26)),
                     ),
-                    child: Text(u.label == 'ml（毫升）' ? 'ml (毫升)' : u.label,
-                        style: const TextStyle(
-                            fontSize: 17, fontWeight: FontWeight.w800)),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(u.label == 'ml（毫升）' ? 'ml (毫升)' : u.label,
+                            style: const TextStyle(
+                                fontSize: 17, fontWeight: FontWeight.w800)),
+                        if (u == selected) ...[
+                          const SizedBox(width: 8),
+                          const Icon(Icons.check_rounded, size: 20),
+                        ],
+                      ],
+                    ),
                   ),
                 ),
                 if (u != PreferredUnit.values.last) const SizedBox(height: 14),

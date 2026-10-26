@@ -33,7 +33,12 @@ const Set<String> kHiddenContainerIds = {
   'svg:water_cup_2',
 };
 
+/// 资产扫描结果缓存：图标库在运行期不变，避免每次进编辑页重复全量扫描
+List<String>? _containerIdsCache;
+
 Future<List<String>> loadSvgContainerIds() async {
+  final cached = _containerIdsCache;
+  if (cached != null) return cached;
   try {
     final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
     const prefix = 'assets/images/containers/';
@@ -44,6 +49,7 @@ Future<List<String>> loadSvgContainerIds() async {
         .where((id) => !kHiddenContainerIds.contains(id))
         .toList()
       ..sort();
+    _containerIdsCache = ids;
     return ids;
   } catch (_) {
     return const [];

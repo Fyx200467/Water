@@ -5,14 +5,15 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- 重启后恢复已排定的提醒 -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <!-- 精确闹钟（提醒准点触发）：Android 12 用 SCHEDULE_EXACT_ALARM，
-         Android 13+ 用 USE_EXACT_ALARM（声明即授予），二者并存按系统版本生效 -->
+    <!-- 精确闹钟：提醒统一用 setAlarmClock（alarmClock 调度模式）触发，
+         该模式本身不需要精确闹钟权限；保留 SCHEDULE_EXACT_ALARM 供插件
+         其它调度模式兜底。USE_EXACT_ALARM 仅限闹钟/日历类应用，上架
+         Google Play 需额外说明，故不声明 -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <application
         android:label="喝水养成"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_v_char_alpaca_0">
+        android:icon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -81,12 +82,12 @@
             android:permission="android.permission.BIND_JOB_SERVICE"
             android:exported="false"/>
         <!-- 默认桌面图标别名（LAUNCHER 唯一入口；App 内切换图标=启用对应别名并停用当前别名）
-             默认即图标页第一个（天蓝底羊驼），用户未主动更换时桌面显示它 -->
+             默认为品牌水滴图标 -->
         <activity-alias
             android:name=".AppIcon_default"
             android:enabled="true"
             android:exported="true"
-            android:icon="@mipmap/ic_v_char_alpaca_0"
+            android:icon="@mipmap/ic_launcher"
             android:label="喝水养成"
             android:targetActivity=".MainActivity">
             <intent-filter>

@@ -8,6 +8,7 @@ import 'package:home_widget/home_widget.dart';
 
 import '../../shared/models/beverage.dart';
 import '../../shared/models/drink_entry.dart';
+import '../../shared/models/preferred_unit.dart';
 import '../../shared/widgets/drink_illustration.dart';
 import '../settings/widget_settings_screen.dart';
 import '../characters/character_art.dart';
@@ -30,6 +31,7 @@ import 'habit_module.dart';
 import 'confetti_rain.dart';
 import 'daily_review_screen.dart';
 import 'providers/home_providers.dart';
+import 'widgets/slingshot_track.dart';
 
 /// PRD §2.2 首页（对标原版 WaterLlama 主页）
 ///
@@ -67,6 +69,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// 挑战面板滚动联动：滚动位置 + 「酒红卡『31 天挑战』已滚入视口」状态
   final ScrollController _scrollCtrl = ScrollController();
   final ValueNotifier<bool> _challengeCompact = ValueNotifier(false);
+  /// 弹弓发射命中检测用：角色卡片 bounds 的全局 key
+  final GlobalKey _animalKey = GlobalKey();
 
   @override
   void initState() {
@@ -110,10 +114,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   /// 排空原生快捷录入队列：vivo 冻结窗口内点按由 QuickAddReceiver 纯原生
-  /// 写偏好（"slot:ml:ts|..."）并即时重绘桌面，正式记录在这里补入 DB——
+  /// 写偏好（"slot:ml:ts:beverageId|..."）并即时重绘桌面，正式记录在这里补入 DB——
   /// 走与手动录入完全相同的 DrinkEntry.create 折算管线，统计/回看一致。
-  /// 成功后清空队列；失败保留待下次重试（小组件数字以缓存累计，不丢数据）
+  /// 每成功补录一条即回写剩余队列（中途失败/被杀不会重复入账）；失败
+  /// 保留当前及后续条目待下次重试（小组件数字以缓存累计，不丢数据）
+  ///
+  /// _draining 互斥：resume 与 1s 防抖同步会同时触发，并发 drain 会把同一
+  /// 批条目各入账一次
+  bool _draining = false;
+
   Future<void> _drainNativeWidgetAdds() async {
+    if (_draining) return;
+    _draining = true;
     try {
       final pending =
           await HomeWidget.getWidgetData<String>('native_pending_adds');
@@ -126,30 +138,55 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         ...Beverage.presets,
         ...ref.read(customBeveragesProvider),
       ];
-      for (final raw in pending.split('|')) {
-        final parts = raw.split(':');
-        if (parts.length != 3) continue;
+      final items = pending.split('|').where((e) => e.isNotEmpty).toList();
+      for (var i = 0; i < items.length; i++) {
+        final parts = items[i].split(':');
+        // 兼容旧格式（3 段，无饮品 id）与新格式（4 段）
+        if (parts.length < 3) continue;
         final slot = int.tryParse(parts[0]);
         final ml = int.tryParse(parts[1]);
         final ts = int.tryParse(parts[2]);
         if (slot == null || ml == null || ml <= 0) continue;
         if (slot < 1 || slot > 3) continue;
-        final (String id, _) = switch (slot) {
-          1 => (s.drink1, s.vol1),
-          2 => (s.drink2, s.vol2),
-          _ => (s.drink3, s.vol3),
+        // 优先用点按当时下发的饮品 id（用户之后改配置也不会入错饮品）
+        final carriedId = parts.length >= 4 ? parts[3] : null;
+        final fallbackId = switch (slot) {
+          1 => s.drink1,
+          2 => s.drink2,
+          _ => s.drink3,
         };
-        final b = all.firstWhere((x) => x.id == id, orElse: () => all.first);
-        await ref.read(todayEntriesProvider.notifier).add(DrinkEntry.create(
-              beverage: b,
-              volumeMl: ml,
-              drankAt:
-                  ts == null ? null : DateTime.fromMillisecondsSinceEpoch(ts),
-            ));
+        Beverage? carried;
+        if (carriedId != null && carriedId.isNotEmpty) {
+          for (final x in all) {
+            if (x.id == carriedId) {
+              carried = x;
+              break;
+            }
+          }
+        }
+        final beverage = carried ??
+            all.firstWhere((x) => x.id == fallbackId,
+                orElse: () => all.first);
+        try {
+          await ref.read(todayEntriesProvider.notifier).add(DrinkEntry.create(
+                beverage: beverage,
+                volumeMl: ml,
+                drankAt:
+                    ts == null ? null : DateTime.fromMillisecondsSinceEpoch(ts),
+              ));
+        } catch (e) {
+          // 入库失败：保留本条及后续条目，下次前台再重试
+          debugPrint('[home] drain native widget add failed: $e');
+          return;
+        }
+        final rest = items.sublist(i + 1);
+        await HomeWidget.saveWidgetData<String>(
+            'native_pending_adds', rest.isEmpty ? null : rest.join('|'));
       }
-      await HomeWidget.saveWidgetData<String>('native_pending_adds', null);
     } catch (e) {
       debugPrint('[home] drain native widget adds failed: $e');
+    } finally {
+      _draining = false;
     }
   }
 
@@ -224,7 +261,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('已通过桌面小组件录入 ${b.name} ${vol}ml'),
+        content: Text(
+            '已通过桌面小组件录入 ${b.name} ${UnitFormat.volume(vol, compact: true)}'),
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 2),
       ),
@@ -374,14 +412,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final progress = ref.watch(dailyProgressProvider);
     final checkin = ref.watch(checkinDaysProvider);
     final currentChar = ref.watch(currentCharacterProvider);
+    // 单位切换后首页数字需要立即按新单位重绘
+    ref.watch(preferredUnitProvider);
     // 角色目录（上传素材路径；内置素材为 null，watch 以保证切换角色后按钮刷新）
     final catalogAsync = ref.watch(characterCatalogProvider);
 
-    // 监听 dailyProgress：从未完成→完成时自动触发点亮 + 礼炮
-    ref.listen(dailyProgressProvider, (prev, next) {
-      if (prev?.isComplete == false && next.isComplete) {
-        _triggerLit();
-      }
+    // 监听「刚跨过目标」信号：真实加水跨线时由 TodayEntriesNotifier 发出，
+    // 删除记录 / 重载数据不会误触发点亮与庆祝音效
+    ref.listen(goalCrossedProvider, (prev, next) {
+      if (next > (prev ?? 0)) _triggerLit();
     });
 
     // 仅当已完成目标且处于点亮态时显示彩色插画
@@ -430,7 +469,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
-                                      '${progress.totalEffectiveMl}ml 进水量 · $percent% 的目标',
+                                      '${UnitFormat.volume(progress.totalEffectiveMl, compact: true)} 进水量 · $percent% 的目标',
                                       style: const TextStyle(
                                           color: _hintGray, fontSize: 14),
                                     ),
@@ -444,7 +483,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                                           const Duration(milliseconds: 700),
                                       curve: Curves.easeOutCubic,
                                       builder: (_, v) => _LiquidShimmerText(
-                                        text: '${v.round()}ml',
+                                        text: UnitFormat.volume(v, compact: true),
                                         style: const TextStyle(
                                           color: _brandCyan,
                                           fontSize: 56,
@@ -468,23 +507,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                             // 已完成目标时可点击重新点亮 2 秒
                             Expanded(
                               child: Center(
-                                child: GestureDetector(
-                                  onTap: done ? _triggerLit : null,
-                                  // 液面过渡：返回首页后液体从旧液位慢慢
-                                  // 涨到新液位（1.1s easeOut，非跳变）
-                                  child: _DeferredTween(
-                                    end: progress.progress.clamp(0.0, 1.0),
-                                    duration:
-                                        const Duration(milliseconds: 1100),
-                                    curve: Curves.easeOutCubic,
-                                    builder: (_, v) => AnimalSilhouette(
-                                      animalId: currentChar,
-                                      fillRatio: v,
-                                      accentColor: _brandCyan,
-                                      solidFillColor: _brandCyan,
-                                      size: 280,
-                                      // 点亮态显示全彩插画，否则剪影+液体填充
-                                      fullArt: isLit,
+                                child: Container(
+                                  key: _animalKey,
+                                  child: GestureDetector(
+                                    onTap: done ? _triggerLit : null,
+                                    // 液面过渡：返回首页后液体从旧液位慢慢
+                                    // 涨到新液位（1.1s easeOut，非跳变）
+                                    child: _DeferredTween(
+                                      end: progress.progress.clamp(0.0, 1.0),
+                                      duration:
+                                          const Duration(milliseconds: 1100),
+                                      curve: Curves.easeOutCubic,
+                                      builder: (_, v) => AnimalSilhouette(
+                                        animalId: currentChar,
+                                        fillRatio: v,
+                                        accentColor: _brandCyan,
+                                        solidFillColor: _brandCyan,
+                                        size: 280,
+                                        // 点亮态显示全彩插画，否则剪影+液体填充
+                                        fullArt: isLit,
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -499,14 +541,30 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                                 animalId: currentChar,
                               ),
                             const SizedBox(height: 8),
-                            // 3. 底部操作栏：水平滚动的饮品快捷栏（对标原版）
-                            SizedBox(
-                              height: 96,
-                              child: _buildDrinkBar(
-                                currentChar,
-                                catalogAsync
-                                    .value?.uploadedFilePaths[currentChar],
-                              ),
+                            // 3. 底部饮品栏：设置页「功能 → 娱乐玩法」一键切换
+                            //  开：弧线轨道（弹弓发射水滴击中角色）
+                            //  关：经典直线饮品栏（进入加量页选容量）
+                            ListenableBuilder(
+                              listenable: SettingsFlags.instance,
+                              builder: (ctx, _) =>
+                                  SettingsFlags.instance.funPlay
+                                      ? Transform.translate(
+                                          offset: const Offset(0, -26),
+                                          child: SlingshotDrinkTrack(
+                                            targetKey: _animalKey,
+                                            height: 206,
+                                          ),
+                                        )
+                                      : SizedBox(
+                                          // 横向 ListView 必须有确定高度，否则
+                                          // 会撑满 Column 剩余空间把角色挤没
+                                          height: 96,
+                                          child: _buildDrinkBar(
+                                            currentChar,
+                                            catalogAsync.value
+                                                ?.uploadedFilePaths[currentChar],
+                                          ),
+                                        ),
                             ),
                           ],
                         ),
@@ -1039,7 +1097,8 @@ class _LiquidShimmerTextState extends State<_LiquidShimmerText>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 2000),
+    // 一轮 4s：前一半时间光带扫过（约 2s），后一半完全静止
+    duration: const Duration(milliseconds: 4000),
   )..repeat();
 
   @override
@@ -1052,23 +1111,27 @@ class _LiquidShimmerTextState extends State<_LiquidShimmerText>
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _ctrl,
-      builder: (ctx, _) => ShaderMask(
-        blendMode: BlendMode.srcATop,
-        shaderCallback: (bounds) => LinearGradient(
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-          // 亮带：透明 → 白 → 透明（软边光带，占画框 40% 宽）
-          colors: [
-            Colors.transparent,
-            Colors.white.withOpacity(0.85),
-            Colors.transparent,
-          ],
-          stops: const [0.3, 0.5, 0.7],
-          transform:
-              _SlidingHighlightTransform(shift: _ctrl.value),
-        ).createShader(bounds),
-        child: Text(widget.text, style: widget.style),
-      ),
+      builder: (ctx, _) {
+        // 前半周期扫光，后半周期停在字外（亮带不可见）
+        final sweep = (_ctrl.value / 0.5).clamp(0.0, 1.0);
+        return ShaderMask(
+          blendMode: BlendMode.srcATop,
+          shaderCallback: (bounds) => LinearGradient(
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+            // 亮带：透明 → 白 → 透明（软边光带，占画框 40% 宽）
+            colors: [
+              Colors.transparent,
+              Colors.white.withOpacity(0.25),
+              Colors.transparent,
+            ],
+            stops: const [0.3, 0.5, 0.7],
+            transform: _SlidingHighlightTransform(
+                shift: Curves.easeInOut.transform(sweep)),
+          ).createShader(bounds),
+          child: Text(widget.text, style: widget.style),
+        );
+      },
     );
   }
 }
@@ -1200,9 +1263,7 @@ class _CelebrationCarouselState extends State<_CelebrationCarousel> {
     super.initState();
     // 自动轮播：1.5 秒后自动滑到第 2 页（对标原版节奏）
     _autoTimer = Timer(const Duration(milliseconds: 1500), () {
-      if (mounted &&
-          SettingsFlags.instance.celebrateDay &&
-          _page == 0) {
+      if (mounted && _page == 0) {
         _pageCtrl.animateToPage(
           1,
           duration: const Duration(milliseconds: 450),
@@ -1366,10 +1427,11 @@ class _CelebrationCarouselState extends State<_CelebrationCarousel> {
     return ListenableBuilder(
       listenable: SettingsFlags.instance,
       builder: (ctx, _) {
-        // celebrateDay 开关控制第1页显隐（设置页实时生效）
-        final showCelebrate = SettingsFlags.instance.celebrateDay;
-        final pageCount = showCelebrate ? 2 : 1;
-        if (_page > pageCount - 1) _page = pageCount - 1;
+        // 「庆祝我的一天！」总开关：关闭后整个完成态庆祝轮播不出现（实时生效）
+        if (!SettingsFlags.instance.celebrateDay) {
+          return const SizedBox.shrink();
+        }
+        if (_page > 1) _page = 1;
 
         return Column(
           children: [
@@ -1383,32 +1445,30 @@ class _CelebrationCarouselState extends State<_CelebrationCarousel> {
                   setState(() => _page = i);
                 },
                 children: [
-                  if (showCelebrate) _celebrateButton(),
+                  _celebrateButton(),
                   _tipBanner(),
                 ],
               ),
             ),
-            // 翻页圆点（单页时隐藏）
-            if (pageCount > 1) ...[
-              const SizedBox(height: 6),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  for (var i = 0; i < pageCount; i++)
-                    Container(
-                      width: 7,
-                      height: 7,
-                      margin: const EdgeInsets.symmetric(horizontal: 3),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: i == _page
-                            ? const Color(0xFF1C1C22)
-                            : const Color(0xFFD9D9DE),
-                      ),
+            // 翻页圆点
+            const SizedBox(height: 6),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                for (var i = 0; i < 2; i++)
+                  Container(
+                    width: 7,
+                    height: 7,
+                    margin: const EdgeInsets.symmetric(horizontal: 3),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: i == _page
+                          ? const Color(0xFF1C1C22)
+                          : const Color(0xFFD9D9DE),
                     ),
-                ],
-              ),
-            ],
+                  ),
+              ],
+            ),
           ],
         );
       },

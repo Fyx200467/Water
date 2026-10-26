@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../../core/time/logical_day.dart';
 import 'beverage.dart';
 
 /// PRD §2.3 单次饮水记录
@@ -17,6 +18,7 @@ class DrinkEntry {
     required this.synced,
     this.serverId,
     this.deleted = false,
+    this.calories = -1,
   });
 
   /// 客户端 UUID，断网写入后联网去重
@@ -30,6 +32,9 @@ class DrinkEntry {
   final DateTime drankAt;
   final bool synced;
   final bool deleted;
+
+  /// 录入时快照的热量（kcal）；-1 = 历史旧记录未记录，展示时回退到饮品当前定义
+  final int calories;
 
   DrinkEntry copyWith({
     String? serverId,
@@ -47,15 +52,12 @@ class DrinkEntry {
       synced: synced ?? this.synced,
       serverId: serverId ?? this.serverId,
       deleted: deleted ?? this.deleted,
+      calories: calories,
     );
   }
 
-  /// 判断记录是否属于指定自然日（用户本地时区）
-  bool belongsToDay(DateTime day) {
-    return drankAt.year == day.year &&
-        drankAt.month == day.month &&
-        drankAt.day == day.day;
-  }
+  /// 判断记录是否属于指定逻辑日（尊重「一天中的重置时间」设置）
+  bool belongsToDay(DateTime day) => LogicalDay.sameDay(drankAt, day);
 
   Map<String, dynamic> toMap() {
     return {
@@ -69,6 +71,7 @@ class DrinkEntry {
       'drank_at': drankAt.toIso8601String(),
       'synced': synced ? 1 : 0,
       'deleted': deleted ? 1 : 0,
+      'calories': calories,
     };
   }
 
@@ -93,6 +96,7 @@ class DrinkEntry {
       drankAt: DateTime.parse(m['drank_at']?.toString() ?? DateTime.now().toIso8601String()),
       synced: toInt(m['synced'], 0) == 1,
       deleted: toInt(m['deleted'], 0) == 1,
+      calories: toInt(m['calories'], -1),
     );
   }
 
@@ -103,6 +107,10 @@ class DrinkEntry {
     DateTime? drankAt,
   }) {
     final at = drankAt ?? DateTime.now();
+    final perDefault = beverage.calories;
+    final calories = (perDefault == null || perDefault <= 0 || beverage.defaultMl <= 0)
+        ? 0
+        : (perDefault * volumeMl / beverage.defaultMl).round();
     return DrinkEntry(
       clientId: _uuid(),
       beverageId: beverage.id,
@@ -112,6 +120,7 @@ class DrinkEntry {
       effectiveMl: beverage.effectiveMl(volumeMl),
       drankAt: at,
       synced: false,
+      calories: calories,
     );
   }
 

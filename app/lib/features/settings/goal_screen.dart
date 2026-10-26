@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/storage/providers.dart';
+import '../../shared/models/preferred_unit.dart';
 import '../../shared/models/user_profile.dart';
 import '../characters/character_art.dart';
 import '../characters/character_catalog.dart';
@@ -217,7 +218,7 @@ class _GoalScreenState extends ConsumerState<GoalScreen>
                         const SizedBox(height: 6),
                         // 目标大字（实时联动）
                         Text(
-                          '${_goal}ml',
+                          UnitFormat.volume(_goal, compact: true),
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 48,
@@ -480,7 +481,7 @@ class _GoalScreenState extends ConsumerState<GoalScreen>
                 const SizedBox(height: 4),
                 Center(
                   child: Text(
-                    '推荐目标 ${_previewGoalWith(weight: v)}ml',
+                    '推荐目标 ${UnitFormat.volume(_previewGoalWith(weight: v), compact: true)}',
                     style: const TextStyle(
                       fontSize: 14,
                       color: Color(0xFF8E8E93),
@@ -508,9 +509,10 @@ class _GoalScreenState extends ConsumerState<GoalScreen>
     return (base + _temp.deltaMl).clamp(1500, 4500);
   }
 
-  /// 自定义目标输入弹层（覆盖推荐值，500~5000ml）
+  /// 自定义目标输入弹层（覆盖推荐值，500~5000ml；显示与输入跟随单位）
   Future<void> _editCustomGoal() async {
-    final ctrl = TextEditingController(text: '$_goal');
+    final decimals = UnitFormat.unit == PreferredUnit.oz;
+    final ctrl = TextEditingController(text: UnitFormat.number(_goal));
     final result = await showDialog<int>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -520,17 +522,25 @@ class _GoalScreenState extends ConsumerState<GoalScreen>
         content: TextField(
           controller: ctrl,
           autofocus: true,
-          keyboardType: TextInputType.number,
-          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          keyboardType: TextInputType.numberWithOptions(decimal: decimals),
+          inputFormatters: [
+            decimals
+                ? FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))
+                : FilteringTextInputFormatter.digitsOnly,
+          ],
           textAlign: TextAlign.center,
           style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w700),
-          decoration: const InputDecoration(
-            suffixText: 'ml',
-            helperText: '范围 500 ~ 5000 ml',
+          decoration: InputDecoration(
+            suffixText: UnitFormat.unit.symbol,
+            helperText:
+                '范围 ${UnitFormat.volume(500, compact: true)} ~ ${UnitFormat.volume(5000, compact: true)}',
           ),
           onSubmitted: (v) {
-            final n = int.tryParse(v);
-            if (n != null) Navigator.pop(ctx, n.clamp(500, 5000));
+            final n = double.tryParse(v);
+            if (n != null) {
+              Navigator.pop(
+                  ctx, UnitFormat.unit.toMl(n).round().clamp(500, 5000));
+            }
           },
         ),
         actions: [
@@ -611,7 +621,17 @@ enum GoalTemperature {
 
 /// 自带循环动画的水下背景层：青色渐变 + 两侧缓旋冰晶 + 升起气泡
 class UnderwaterBackground extends StatefulWidget {
-  const UnderwaterBackground({super.key});
+  const UnderwaterBackground({
+    super.key,
+    this.gradientColors,
+    this.decorTint = Colors.white,
+  });
+
+  /// 自定义背景渐变（上→下）；为空时使用默认水体配色
+  final List<Color>? gradientColors;
+
+  /// 气泡/冰晶的着色；深色底用白色，浅色底需换成淡青灰
+  final Color decorTint;
 
   @override
   State<UnderwaterBackground> createState() => _UnderwaterBackgroundState();
@@ -644,25 +664,27 @@ class _UnderwaterBackgroundState extends State<UnderwaterBackground>
         final t = _anim.value;
         return Stack(
           children: [
-            const Positioned.fill(
+            Positioned.fill(
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
-                    colors: [_waterTop, _waterBottom],
+                    colors: widget.gradientColors ?? [_waterTop, _waterBottom],
                   ),
                 ),
               ),
             ),
             Positioned.fill(
               child: IgnorePointer(
-                child: CustomPaint(painter: IceCubesPainter(t: t)),
+                child: CustomPaint(
+                    painter: IceCubesPainter(t: t, tint: widget.decorTint)),
               ),
             ),
             Positioned.fill(
               child: IgnorePointer(
-                child: CustomPaint(painter: BubblesPainter(t: t)),
+                child: CustomPaint(
+                    painter: BubblesPainter(t: t, tint: widget.decorTint)),
               ),
             ),
           ],
@@ -863,9 +885,10 @@ class _WaterSurfacePainter extends CustomPainter {
 
 /// 气泡层：随机分布的气泡自然升起、放大、淡出消失
 class BubblesPainter extends CustomPainter {
-  BubblesPainter({required this.t});
+  BubblesPainter({required this.t, this.tint = Colors.white});
 
   final double t;
+  final Color tint;
 
   static final List<_BubbleSpec> _specs = () {
     final rnd = math.Random(11);
@@ -895,7 +918,7 @@ class BubblesPainter extends CustomPainter {
       // 自然出现又自然消失：透明度按正弦半波包络
       final opacity = math.sin(math.pi * local) * 0.55;
       final paint = Paint()
-        ..color = Colors.white.withOpacity(opacity)
+        ..color = tint.withOpacity(opacity)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.4;
       canvas.drawCircle(Offset(x, y), r, paint);
@@ -903,13 +926,13 @@ class BubblesPainter extends CustomPainter {
       canvas.drawCircle(
         Offset(x - r * 0.35, y - r * 0.35),
         r * 0.22,
-        Paint()..color = Colors.white.withOpacity(opacity),
+        Paint()..color = tint.withOpacity(opacity),
       );
     }
   }
 
   @override
-  bool shouldRepaint(BubblesPainter old) => old.t != t;
+  bool shouldRepaint(BubblesPainter old) => old.t != t || old.tint != tint;
 }
 
 class _BubbleSpec {
@@ -930,9 +953,10 @@ class _BubbleSpec {
 
 /// 冰晶六边形层：屏幕两侧分布，缓慢旋转 + 上下轻微浮动
 class IceCubesPainter extends CustomPainter {
-  IceCubesPainter({required this.t});
+  IceCubesPainter({required this.t, this.tint = Colors.white});
 
   final double t;
+  final Color tint;
 
   static final List<_CubeSpec> _specs = () {
     final rnd = math.Random(7);
@@ -962,7 +986,7 @@ class IceCubesPainter extends CustomPainter {
       final rotation = 2 * math.pi * (t * s.rotSpeed + s.phase);
       final paint = Paint()
         ..color = s.bright
-            ? Colors.white.withOpacity(s.opacity)
+            ? tint.withOpacity(s.opacity)
             : const Color(0xFF1B7A99).withOpacity(s.opacity * 0.9);
       _drawHexagon(canvas, Offset(cx, cy), s.size * 0.5, rotation, paint);
     }

@@ -21,6 +21,7 @@ import android.widget.RemoteViews
 import es.antonborri.home_widget.HomeWidgetLaunchIntent
 import es.antonborri.home_widget.HomeWidgetPlugin
 import es.antonborri.home_widget.HomeWidgetProvider
+import java.util.Random
 
 /**
  * home_widget 的存储经 MethodChannel 写入：Dart 侧无符号 32 位 ARGB
@@ -219,8 +220,10 @@ class WaterLlamaWidgetProvider : HomeWidgetProvider() {
         manager: AppWidgetManager,
         appWidgetId: Int
     ) {
+        val confetti = confettiFor(context, manager, appWidgetId, widgetData)
         for (downshift in 0..2) {
-            val views = buildRemoteViews(context, widgetData, frameDownshift = downshift)
+            val views = buildRemoteViews(
+                context, widgetData, frameDownshift = downshift, confetti = confetti)
             applySizeProfile(context, widgetData, views, manager, appWidgetId)
             try {
                 manager.updateAppWidget(appWidgetId, views)
@@ -238,6 +241,8 @@ class WaterLlamaWidgetProvider : HomeWidgetProvider() {
         context: Context,
         widgetData: SharedPreferences,
         frameDownshift: Int = 0,
+        confetti: Bitmap? = null,
+        dataOnly: Boolean = false,
     ): RemoteViews {
         val views = RemoteViews(
             context.packageName,
@@ -341,11 +346,22 @@ class WaterLlamaWidgetProvider : HomeWidgetProvider() {
             views.setViewVisibility(R.id.widget_character_flipper, View.INVISIBLE)
         }
 
-        // 饮料格底色（彩色饮料按钮开关；-1 = 默认灰底 #F1F1F4，同样要
-        // 显式覆盖滤镜防止残留上次的颜色）
-        val tileColor = widgetData.readIntSafe(KEY_TILE_COLOR, -1)
+        // 达标礼炮彩带：贴在卡面上的静态彩带（背景层之上、角色/内容层之下，
+        // 不遮挡也不拦截点击）。未达标/未初始化时显式隐藏，防 RemoteViews
+        // 动作跨次残留
+        if (confetti != null && initialized) {
+            views.setImageViewBitmap(R.id.widget_confetti, confetti)
+            views.setViewVisibility(R.id.widget_confetti, View.VISIBLE)
+        } else {
+            views.setViewVisibility(R.id.widget_confetti, View.GONE)
+        }
+
+        // 饮料格底色（彩色饮料按钮开关；-2 = 默认灰底 #F1F1F4，同样要
+        // 显式覆盖滤镜防止残留上次的颜色）。哨兵必须避开 -1：白色主题
+        // 0xFFFFFFFF 收窄到 Int 正是 -1，用 -1 当哨兵会让白色永远变灰
+        val tileColor = widgetData.readIntSafe(KEY_TILE_COLOR, -2)
         val tileFilter =
-            if (tileColor != -1) tileColor else 0xFFF1F1F4.toInt()
+            if (tileColor != -2) tileColor else 0xFFF1F1F4.toInt()
         for (i in 1..3) {
             views.setInt(tileId(i), "setColorFilter", tileFilter)
         }
@@ -388,7 +404,7 @@ class WaterLlamaWidgetProvider : HomeWidgetProvider() {
         // 贴死按钮左缘（MIUI Android 10 实测）。setViewPadding 是远古
         // API 全版本可用，垫起左内边距让 + 离开边缘。仅 <31 设置：
         // 31+ 的 + 由 applySizeProfile 固定宽盒居中定位，不受此影响
-        if (Build.VERSION.SDK_INT < 31) {
+        if (Build.VERSION.SDK_INT < 31 && !dataOnly) {
             val plusInset = (12 * context.resources.displayMetrics.density).toInt()
             for (i in 1..3) {
                 views.setViewPadding(plusId(i), plusInset, 0, 0, 0)
@@ -415,6 +431,92 @@ class WaterLlamaWidgetProvider : HomeWidgetProvider() {
             )
         }
         return views
+    }
+
+    /** 达标彩带位图：仅当日达标且已完成初始化时生成（尺寸按该实例的
+     *  分配宽高，像素密度封顶 2x、最长边 ≤900px——RemoteViews 位图内存
+     *  硬限很紧，彩带不能按卡面全分辨率存） */
+    private fun confettiFor(
+        context: Context,
+        manager: AppWidgetManager,
+        appWidgetId: Int,
+        widgetData: SharedPreferences
+    ): Bitmap? {
+        if (!widgetData.getBoolean(KEY_STREAK_DONE, false)) return null
+        if (!widgetData.getBoolean("profile_initialized", false)) return null
+        val opts = try {
+            manager.getAppWidgetOptions(appWidgetId)
+        } catch (_: Exception) {
+            null
+        }
+        val wDp = opts?.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, 0) ?: 0
+        val hDp = opts?.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 0) ?: 0
+        return confettiBitmap(
+            context,
+            if (wDp in 80..480) wDp else 296,
+            if (hDp in 80..320) hDp else 180
+        )
+    }
+
+    /** 礼炮彩带：左上/右上/左下三处礼炮向内喷射的圆角短带（固定种子，
+     *  同尺寸复用缓存，尺寸变化才重绘） */
+    private fun confettiBitmap(context: Context, wDp: Int, hDp: Int): Bitmap? {
+        val key = "${wDp}x$hDp"
+        synchronized(confettiCache) {
+            confettiCache[key]?.let { if (!it.isRecycled) return it }
+        }
+        return try {
+            val density = context.resources.displayMetrics.density.coerceIn(1f, 2f)
+            var w = (wDp * density).toInt()
+            var h = (hDp * density).toInt()
+            if (w < 40 || h < 40) return null
+            val longest = maxOf(w, h).toFloat()
+            if (longest > 900f) {
+                val f = 900f / longest
+                w = (w * f).toInt()
+                h = (h * f).toInt()
+            }
+            val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bmp)
+            val rnd = Random(key.hashCode().toLong())
+            val colors = intArrayOf(
+                0xFF4DB8D8.toInt(), 0xFFFFC94D.toInt(), 0xFFF48FB1.toInt(),
+                0xFF7C4DFF.toInt(), 0xFF8FE388.toInt(), 0xFFFF8A65.toInt()
+            )
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+            val minSide = minOf(w, h).toFloat()
+
+            fun burst(cx: Float, cy: Float, from: Float, to: Float, count: Int, scale: Float) {
+                for (i in 0 until count) {
+                    val deg = from + rnd.nextFloat() * (to - from)
+                    val rad = Math.toRadians(deg.toDouble())
+                    val dist = (0.06f + rnd.nextFloat() * 0.22f) * minSide * scale
+                    val x = cx + (Math.cos(rad) * dist).toFloat()
+                    val y = cy + (Math.sin(rad) * dist).toFloat()
+                    if (x < 0f || y < 0f || x > w || y > h) continue
+                    val ribbonW = w * (0.008f + rnd.nextFloat() * 0.008f)
+                    val ribbonH = h * (0.05f + rnd.nextFloat() * 0.08f)
+                    paint.color = colors[rnd.nextInt(colors.size)]
+                    paint.alpha = 140 + rnd.nextInt(100)
+                    canvas.save()
+                    canvas.rotate(deg + 90f, x, y)
+                    canvas.drawRoundRect(
+                        x - ribbonW / 2f, y - ribbonH / 2f,
+                        x + ribbonW / 2f, y + ribbonH / 2f,
+                        ribbonW / 2f, ribbonW / 2f, paint
+                    )
+                    canvas.restore()
+                }
+            }
+
+            burst(0f, 0f, 8f, 82f, 14, 1f)
+            burst(w.toFloat(), 0f, 98f, 172f, 12, 1f)
+            burst(0f, h.toFloat(), -84f, -8f, 9, 0.9f)
+            synchronized(confettiCache) { confettiCache[key] = bmp }
+            bmp
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     private fun mlId(i: Int) =
@@ -479,6 +581,32 @@ class WaterLlamaWidgetProvider : HomeWidgetProvider() {
             if (ids.isEmpty()) return
             WaterLlamaWidgetProvider()
                 .onUpdate(context, manager, ids, HomeWidgetPlugin.getData(context))
+        }
+
+        /** 彩带位图缓存（同尺寸复用；随实例尺寸变化自然增长，量级极小） */
+        private val confettiCache = HashMap<String, Bitmap>()
+
+        /** 只推数据、不重排版面的刷新（小组件饮品格点按后使用）。
+         *  全量 updateAppWidget 会让 launcher 重新应用整套 RemoteViews 并
+         *  重设尺寸档位，卡面瞬时重新测量，观感就是「点一下整个小组件
+         *  动了一下」；局部更新只覆盖文案/位图/颜色，尺寸与布局保持原样。
+         *  局部更新失败时退回全量刷新兜底 */
+        fun updateDataOnly(context: Context, manager: AppWidgetManager, ids: IntArray) {
+            if (ids.isEmpty()) return
+            val data = HomeWidgetPlugin.getData(context)
+            val provider = WaterLlamaWidgetProvider()
+            for (id in ids) {
+                val views = provider.buildRemoteViews(
+                    context, data,
+                    confetti = provider.confettiFor(context, manager, id, data),
+                    dataOnly = true
+                )
+                try {
+                    manager.partiallyUpdateAppWidget(id, views)
+                } catch (_: Exception) {
+                    provider.renderAndPush(context, data, manager, id)
+                }
+            }
         }
     }
 }

@@ -49,7 +49,9 @@ Future<void> homeWidgetBackgroundCallback(Uri? uri) async {
       final b = all.firstWhere((x) => x.id == id, orElse: () => all.first);
       final entry = DrinkEntry.create(beverage: b, volumeMl: vol);
       debugPrint('[widget-bg] adding ${b.id} $vol ml');
-      await container.read(todayEntriesProvider.notifier).add(entry);
+      // 后台 isolate 不播庆祝音效（无 UI 且用户不在前台）；
+      // 小组件点按音效由原生 QuickAddReceiver 负责
+      await container.read(todayEntriesProvider.notifier).add(entry, celebrate: false);
       debugPrint('[widget-bg] inserted ok');
       // add() 内部的 pushHomeWidget 是 unawaited，而容器马上要销毁——
       // 那条推送会在容器 disposed 后读状态而失败，updateWidget 永远不执行

@@ -50,28 +50,57 @@ class _DrinkColorScreenState extends State<DrinkColorScreen> {
   static const _plusIcon = Color(0xFF8E8E93);
   static const _divider = Color(0xFFE3E3E8);
 
-  late Color _color = widget.initial;
+  late Color _color;
 
-  /// 色相 0~1
-  double get _hue => HSVColor.fromColor(_color).hue / 360;
-  double get _sat => HSVColor.fromColor(_color).saturation;
-  double get _val => HSVColor.fromColor(_color).value;
+  /// 滑杆区域锚点：自定义「+」点击后滚动到滑杆处
+  final GlobalKey _slidersKey = GlobalKey();
+
+  // HSV 是滑杆的唯一真值来源（色相 0~1 / 饱和度 0~1 / 亮度 0~1）。
+  // 不能每次从 RGB 反推：色相 360° 会回绕成 0°、低饱和/低亮度时色相
+  // 会被抹掉，导致拖动时滑块位置与手指不一致、在原位左右跳动
+  late double _hue;
+  late double _sat;
+  late double _val;
+
+  @override
+  void initState() {
+    super.initState();
+    _color = widget.initial;
+    final hsv = HSVColor.fromColor(_color);
+    _hue = hsv.hue / 360;
+    _sat = hsv.saturation;
+    _val = hsv.value;
+  }
 
   /// 当前颜色是否命中预设（未命中 = 自定义模式，「+」高亮）
   bool get _isCustom =>
       !drinkColorPresets.any((c) => c.toARGB32() == _color.toARGB32());
 
-  void _setColor(Color c) => setState(() => _color = c);
+  /// 点选预设色：以 RGB 为准确颜色，同时反向同步三个滑杆的值
+  void _setColor(Color c) {
+    final hsv = HSVColor.fromColor(c);
+    setState(() {
+      _color = c;
+      _hue = hsv.hue / 360;
+      _sat = hsv.saturation;
+      _val = hsv.value;
+    });
+  }
 
   void _setHsv({double? hue, double? sat, double? val}) {
-    final h = HSVColor.fromColor(_color);
-    final next = HSVColor.fromAHSV(
-      1,
-      (hue ?? _hue) * 360,
-      sat ?? h.saturation,
-      val ?? h.value,
-    );
-    setState(() => _color = next.toColor());
+    setState(() {
+      _hue = hue ?? _hue;
+      _sat = sat ?? _sat;
+      _val = val ?? _val;
+      // 360° 与 0° 是同一颜色：取模避免色相滑到最右端时颜色回绕
+      // （滑杆自身仍保留 1.0，滑块不会跳回左端）
+      _color = HSVColor.fromAHSV(
+        1,
+        (_hue * 360) % 360,
+        _sat,
+        _val,
+      ).toColor();
+    });
   }
 
   @override
@@ -122,35 +151,40 @@ class _DrinkColorScreenState extends State<DrinkColorScreen> {
               ]),
               const SizedBox(height: 22),
               // 色相 / 饱和度 / 亮度 滑杆（实时渲染顶部预览）
-              _GradSlider(
-                value: _hue,
-                colors: const [
-                  Color(0xFFFF3B30),
-                  Color(0xFFFFCC00),
-                  Color(0xFF34C759),
-                  Color(0xFF32ADE6),
-                  Color(0xFF007AFF),
-                  Color(0xFFAF52DE),
-                  Color(0xFFFF3B30),
+              Column(
+                key: _slidersKey,
+                children: [
+                  _GradSlider(
+                    value: _hue,
+                    colors: const [
+                      Color(0xFFFF3B30),
+                      Color(0xFFFFCC00),
+                      Color(0xFF34C759),
+                      Color(0xFF32ADE6),
+                      Color(0xFF007AFF),
+                      Color(0xFFAF52DE),
+                      Color(0xFFFF3B30),
+                    ],
+                    thumbColor: _color,
+                    onChanged: (v) => _setHsv(hue: v),
+                  ),
+                  const SizedBox(height: 18),
+                  _GradSlider(
+                    value: _sat,
+                    colors: const [Colors.white, Color(0x00FFFFFF)],
+                    solidEnd: pureHue,
+                    thumbColor: _color,
+                    onChanged: (v) => _setHsv(sat: v),
+                  ),
+                  const SizedBox(height: 18),
+                  _GradSlider(
+                    value: _val,
+                    colors: const [Colors.black, Color(0x00FFFFFF)],
+                    solidEnd: brightHue,
+                    thumbColor: _color,
+                    onChanged: (v) => _setHsv(val: v),
+                  ),
                 ],
-                thumbColor: _color,
-                onChanged: (v) => _setHsv(hue: v),
-              ),
-              const SizedBox(height: 18),
-              _GradSlider(
-                value: _sat,
-                colors: const [Colors.white, Color(0x00FFFFFF)],
-                solidEnd: pureHue,
-                thumbColor: _color,
-                onChanged: (v) => _setHsv(sat: v),
-              ),
-              const SizedBox(height: 18),
-              _GradSlider(
-                value: _val,
-                colors: const [Colors.black, Color(0x00FFFFFF)],
-                solidEnd: brightHue,
-                thumbColor: _color,
-                onChanged: (v) => _setHsv(val: v),
               ),
             ],
           ),
@@ -198,9 +232,18 @@ class _DrinkColorScreenState extends State<DrinkColorScreen> {
   }
 
   /// 自定义色圆钮：滑杆调出的颜色不在预设中时高亮描边
+  /// （点击滚动到下方三条滑杆，自定义色由滑杆实时调节）
   Widget _plusDot() {
     return GestureDetector(
-      onTap: () {}, // 自定义色直接由下方滑杆实时调节
+      onTap: () {
+        final ctx = _slidersKey.currentContext;
+        if (ctx == null) return;
+        Scrollable.ensureVisible(
+          ctx,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      },
       child: Container(
         width: 46,
         height: 46,

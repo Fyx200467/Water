@@ -10,6 +10,7 @@ import 'package:flutter/services.dart'
 import '../../../core/storage/providers.dart';
 import '../../../shared/models/beverage.dart';
 import '../../../shared/models/drink_entry.dart';
+import '../../../shared/models/preferred_unit.dart';
 import '../../home/providers/home_providers.dart';
 import '../../settings/settings_flags.dart';
 import '../providers/custom_beverage_provider.dart';
@@ -23,9 +24,16 @@ import '../widgets/svg_container.dart';
 /// 3. 容量滚轮选择预设档位，选中项放大加粗
 /// 4. 气泡从容器底部随机向上冒出（仅在有液体部分）
 class AddDrinkScreen extends ConsumerStatefulWidget {
-  const AddDrinkScreen({super.key, this.beverageId = 'water_pure'});
+  const AddDrinkScreen({
+    super.key,
+    this.beverageId = 'water_pure',
+    this.pickOnly = false,
+  });
 
   final String beverageId;
+
+  /// 只选容量不记账：供首页娱乐玩法（弹弓）复用，确认后返回选中 ml
+  final bool pickOnly;
 
   @override
   ConsumerState<AddDrinkScreen> createState() => _AddDrinkScreenState();
@@ -88,12 +96,32 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
     _waveCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1600),
-    )..repeat();
+    );
     _bubbleCtrl = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 14), // 气泡序列循环周期
-    )..repeat();
+    );
+    // 「杯子里的动画」总开关：关闭时液面波浪/气泡/茶叶/米粒全部静止
+    _syncCupAnimation(notify: false);
+    SettingsFlags.instance.addListener(_onFlagsChanged);
     _applyPersistedCustom();
+  }
+
+  void _onFlagsChanged() => _syncCupAnimation();
+
+  /// 按总开关启停杯子动画（实时联动：设置页切换后立即生效）
+  void _syncCupAnimation({bool notify = true}) {
+    final on = SettingsFlags.instance.cupAnimations;
+    if (on) {
+      if (!_waveCtrl.isAnimating) _waveCtrl.repeat();
+      if (!_bubbleCtrl.isAnimating) _bubbleCtrl.repeat();
+    } else {
+      _waveCtrl.stop();
+      _bubbleCtrl.stop();
+      _waveCtrl.value = 0;
+      _bubbleCtrl.value = 0;
+    }
+    if (notify && mounted) setState(() {});
   }
 
   /// 加载持久化的自定义档位覆盖（永久覆盖直到下次自定义）
@@ -149,6 +177,7 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
 
   @override
   void dispose() {
+    SettingsFlags.instance.removeListener(_onFlagsChanged);
     _pageCtrl.dispose();
     _waveCtrl.dispose();
     _bubbleCtrl.dispose();
@@ -174,6 +203,11 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
   }
 
   Future<void> _submit() async {
+    // 娱乐玩法选容量：只把容量回传给弹弓轨道，由命中后再记账
+    if (widget.pickOnly) {
+      if (mounted) Navigator.pop(context, _selected);
+      return;
+    }
     final entry = DrinkEntry.create(
       beverage: _beverage,
       volumeMl: _selected,
@@ -186,7 +220,8 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
   /// 确认后覆盖当前档位并永久持久化
   Future<void> _showCustomInput() async {
     final maxMl = _volumes.last;
-    final ctrl = TextEditingController(text: '$_selected');
+    final ctrl = TextEditingController(text: UnitFormat.number(_selected));
+    final decimals = UnitFormat.unit == PreferredUnit.oz;
     final result = await showDialog<int>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -196,17 +231,25 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
         content: TextField(
           controller: ctrl,
           autofocus: true,
-          keyboardType: TextInputType.number,
-          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          keyboardType: TextInputType.numberWithOptions(decimal: decimals),
+          inputFormatters: [
+            decimals
+                ? FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))
+                : FilteringTextInputFormatter.digitsOnly,
+          ],
           textAlign: TextAlign.center,
           style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w700),
           decoration: InputDecoration(
-            suffixText: 'ml',
-            helperText: '范围 10 ~ $maxMl ml',
+            suffixText: UnitFormat.unit.symbol,
+            helperText:
+                '范围 ${UnitFormat.volume(10, compact: true)} ~ ${UnitFormat.volume(maxMl, compact: true)}',
           ),
           onSubmitted: (v) {
-            final n = int.tryParse(v);
-            if (n != null) Navigator.pop(ctx, n.clamp(10, maxMl));
+            final n = double.tryParse(v);
+            if (n != null) {
+              Navigator.pop(
+                  ctx, UnitFormat.unit.toMl(n).round().clamp(10, maxMl));
+            }
           },
         ),
         actions: [
@@ -216,8 +259,11 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
           ),
           ElevatedButton(
             onPressed: () {
-              final n = int.tryParse(ctrl.text);
-              if (n != null) Navigator.pop(ctx, n.clamp(10, maxMl));
+              final n = double.tryParse(ctrl.text);
+              if (n != null) {
+                Navigator.pop(
+                    ctx, UnitFormat.unit.toMl(n).round().clamp(10, maxMl));
+              }
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: _drinkColor,
@@ -238,6 +284,8 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
 
   @override
   Widget build(BuildContext context) {
+    // 单位切换后容量档位文案需要立即重绘
+    ref.watch(preferredUnitProvider);
     return PopScope(
       canPop: true,
       child: AnnotatedRegion<SystemUiOverlayStyle>(
@@ -275,7 +323,9 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
                             builder: (ctx, _) =>
                                 TweenAnimationBuilder<double>(
                               tween: Tween(end: _fillRatio),
-                              duration: const Duration(milliseconds: 300),
+                              duration: SettingsFlags.instance.cupAnimations
+                                  ? const Duration(milliseconds: 300)
+                                  : Duration.zero,
                               curve: Curves.easeOutCubic,
                               builder: (ctx, ratio, __) {
                                 // SVG 矢量容器：液体按 SVG alpha 蒙版填充
@@ -287,9 +337,14 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
                                     color: _drinkColor,
                                     fillRatio: ratio,
                                     capacityMl: _cupMax.toDouble(),
-                                    phase:
-                                        _waveCtrl.value * math.pi * 2,
-                                    bubbleSeed: _bubbleCtrl.value,
+                                    phase: SettingsFlags
+                                            .instance.cupAnimations
+                                        ? _waveCtrl.value * math.pi * 2
+                                        : 0,
+                                    bubbleSeed: SettingsFlags
+                                            .instance.cupAnimations
+                                        ? _bubbleCtrl.value
+                                        : 0,
                                   );
                                 }
                                 return CustomPaint(
@@ -299,10 +354,18 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
                                     fillRatio: ratio,
                                     capacityMl: _cupMax.toDouble(),
                                     color: _drinkColor,
-                                    phase: _waveCtrl.value * math.pi * 2,
-                                    bubbleSeed: _bubbleCtrl.value,
+                                    phase: SettingsFlags.instance.cupAnimations
+                                        ? _waveCtrl.value * math.pi * 2
+                                        : 0,
+                                    bubbleSeed:
+                                        SettingsFlags.instance.cupAnimations
+                                            ? _bubbleCtrl.value
+                                            : 0,
                                     tSec:
-                                        _animClock.elapsedMilliseconds / 1000,
+                                        SettingsFlags.instance.cupAnimations
+                                            ? _animClock.elapsedMilliseconds /
+                                                1000
+                                            : 0,
                                   ),
                                 );
                               },
@@ -330,8 +393,9 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
                           itemBuilder: (ctx, i) {
                             final dist = (i - page).abs();
                             final selected = dist < 0.5;
-                            final label =
-                                selected ? '${_selected}ml' : '${_volumes[i]}ml';
+                            final label = UnitFormat.volume(
+                                selected ? _selected : _volumes[i],
+                                compact: true);
                             return GestureDetector(
                               onTap: () {
                                 _pageCtrl.animateToPage(i,
@@ -384,7 +448,8 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
                         _ShimmerCtaButton(
                           color: _drinkColor,
                           foreground: _onDrinkColor,
-                          label: _beverage.name,
+                          label: widget.pickOnly ? '确定' : _beverage.name,
+                          showPlus: !widget.pickOnly,
                           onTap: _submit,
                         ),
                         // 右侧空 Expanded：与左侧等宽 → CTA 恒为屏幕水平居中
@@ -413,12 +478,14 @@ class _ShimmerCtaButton extends StatefulWidget {
     required this.foreground,
     required this.label,
     required this.onTap,
+    this.showPlus = true,
   });
 
   final Color color;
   final Color foreground;
   final String label;
   final VoidCallback onTap;
+  final bool showPlus;
 
   @override
   State<_ShimmerCtaButton> createState() => _ShimmerCtaButtonState();
@@ -456,14 +523,15 @@ class _ShimmerCtaButtonState extends State<_ShimmerCtaButton>
                 mainAxisAlignment: MainAxisAlignment.center,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    '+ ',
-                    style: TextStyle(
-                      color: widget.foreground,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
+                  if (widget.showPlus)
+                    Text(
+                      '+ ',
+                      style: TextStyle(
+                        color: widget.foreground,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                  ),
                   Flexible(
                     child: Text(
                       widget.label,

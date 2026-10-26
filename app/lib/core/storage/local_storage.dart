@@ -8,6 +8,7 @@ import 'package:sqflite/sqflite.dart';
 import '../../shared/models/animal_character.dart';
 import '../../shared/models/drink_entry.dart';
 import '../../shared/models/user_profile.dart';
+import '../time/logical_day.dart';
 
 /// PRD §4.2 断网可写、联网同步
 /// PRD §4.4 用户数据加密存储（V1.0 仅本地，加密留 V2.0）
@@ -21,7 +22,7 @@ class LocalStorage {
   }) : _db = db;
 
   static const String _dbName = 'water_llama.db';
-  static const int _dbVersion = 1;
+  static const int _dbVersion = 2;
 
   late final SharedPreferences prefs;
   final Database? _db;
@@ -50,6 +51,7 @@ class LocalStorage {
         dbPath,
         version: _dbVersion,
         onCreate: _onCreate,
+        onUpgrade: _onUpgrade,
       );
       return LocalStorage._(prefs: prefs, db: db);
     } catch (e) {
@@ -71,7 +73,8 @@ class LocalStorage {
         effective_ml INTEGER NOT NULL,
         drank_at TEXT NOT NULL,
         synced INTEGER NOT NULL DEFAULT 0,
-        deleted INTEGER NOT NULL DEFAULT 0
+        deleted INTEGER NOT NULL DEFAULT 0,
+        calories INTEGER NOT NULL DEFAULT -1
       )
     ''');
     await db.execute(
@@ -80,6 +83,16 @@ class LocalStorage {
     await db.execute(
       'CREATE INDEX idx_synced ON drink_entries(synced, deleted)',
     );
+  }
+
+  /// v1 → v2：补上录入时快照的热量列（旧记录默认 -1 = 未记录）
+  static Future<void> _onUpgrade(
+      Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute(
+        'ALTER TABLE drink_entries ADD COLUMN calories INTEGER NOT NULL DEFAULT -1',
+      );
+    }
   }
 
   // ---------- UserProfile ----------
@@ -125,9 +138,9 @@ class LocalStorage {
     await prefs.setString(_kDailyAnimalKey + _dayKey(day), animalId);
   }
 
-  /// 自动选动物：当天未选过则按日期 hash 选一个
+  /// 自动选动物：当天（逻辑日）未选过则按日期 hash 选一个
   AnimalCharacter pickOrLoadDailyAnimal() {
-    final today = DateTime.now();
+    final today = LogicalDay.today();
     final saved = loadDailyAnimalId(today);
     if (saved != null) {
       final match = AnimalCharacter.all.where((a) => a.id == saved).firstOrNull;
@@ -174,10 +187,12 @@ class LocalStorage {
     await _prefsMarkDeleted(clientId);
   }
 
+  /// 查询某逻辑日的记录（[day] 为逻辑日 key：时间部分为零点；
+  /// 有效区间 = [day + 重置时刻, day+1 + 重置时刻)）
   Future<List<DrinkEntry>> loadEntriesForDay(DateTime day) async {
     if (_hasDb) {
-      final start = DateTime(day.year, day.month, day.day);
-      final end = start.add(const Duration(days: 1));
+      final start = LogicalDay.startOf(day);
+      final end = LogicalDay.endOf(day);
       final rows = await _db!.query(
         'drink_entries',
         where: 'drank_at >= ? AND drank_at < ? AND deleted = 0',
@@ -188,7 +203,7 @@ class LocalStorage {
     }
     final all = await _prefsLoadAllEntries();
     return all
-        .where((e) => !e.deleted && e.belongsToDay(day))
+        .where((e) => !e.deleted && LogicalDay.sameDay(e.drankAt, day))
         .toList()
       ..sort((a, b) => b.drankAt.compareTo(a.drankAt));
   }

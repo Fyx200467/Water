@@ -116,21 +116,22 @@ class ReminderNotifier extends StateNotifier<ReminderSettings> {
   Future<void> rescheduleNow() async {
     await _ensureLoaded();
     final s = state;
-    final intervalOn = ref.read(intervalEnabledProvider);
     final intervalMin = ref.read(notificationIntervalMinutesProvider);
     final entries = ref.read(todayEntriesProvider);
     final goalMl = ref.read(profileProvider)?.dailyGoalMl ?? 2000;
+    final now = DateTime.now();
     await NotificationService.reschedule(
       enabled: s.enabled,
       times: s.activeTimes,
       message: s.message,
       customMessage: ref.read(customMessageProvider),
-      intervalMinutes: intervalOn ? intervalMin : null,
+      intervalMinutes: intervalMin,
       windowStartMin: ref.read(reminderWindowStartProvider),
       windowEndMin: ref.read(reminderWindowEndProvider),
       weekdays: ref.read(reminderWeekdaysProvider),
       todayDrinkMinutes: [
-        for (final e in entries) e.drankAt.hour * 60 + e.drankAt.minute,
+        for (final e in entries)
+          NotificationService.relativeMinute(now, e.drankAt),
       ],
       todayEffectiveMl: HydrationCalculator.sumEffective(entries),
       goalMl: goalMl,
@@ -207,14 +208,8 @@ class NotificationToggleNotifier extends StateNotifier<bool> {
 }
 
 // ============================================================
-// 间隔提醒与高级设置（间隔开关/分钟数、杯子、开关组）
+// 间隔提醒与高级设置（间隔分钟数、杯子、开关组）
 // ============================================================
-
-/// 间隔提醒开关（「每隔 N 分钟提醒一次」行）
-final intervalEnabledProvider =
-    StateNotifierProvider<NotificationToggleNotifier, bool>((ref) {
-  return NotificationToggleNotifier(ref, 'reminder_interval_enabled', true);
-});
 
 /// 高级设置开关：达到目标停止
 final stopAtGoalEnabledProvider =
