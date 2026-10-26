@@ -4,15 +4,13 @@ import UIKit
 import UserNotifications
 
 @main
-@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate,
-  UNUserNotificationCenterDelegate
-{
+@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    // 通知中心回调交给 FlutterAppDelegate 转发（前台横幅 + 点击通知），
-    // flutter_local_notifications 依赖这一步才能在前台展示提醒
+    // FlutterAppDelegate 已遵循 UNUserNotificationCenterDelegate，
+    // 这里只需把通知中心回调指向它，flutter_local_notifications 才能在前台展示提醒
     UNUserNotificationCenter.current().delegate = self
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
