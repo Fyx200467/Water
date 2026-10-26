@@ -48,6 +48,42 @@ import UserNotifications
           result(opened)
         }
       }
+
+    // 图标切换通道：与 Android MainActivity 的 app.icon.switcher 同名同参数
+    FlutterMethodChannel(name: "app.icon.switcher", binaryMessenger: messenger)
+      .setMethodCallHandler { call, result in
+        guard call.method == "setIcon" else {
+          result(FlutterMethodNotImplemented)
+          return
+        }
+        let args = call.arguments as? [String: Any]
+        let alias = (args?["alias"] as? String) ?? ""
+        // Android 传的是 activity-alias 全名（包名.AppIcon_<id>），
+        // iOS 取 "<id>" 映射到 Assets.xcassets 里的 Icon_<id> 图标集
+        let iconId = alias.components(separatedBy: "AppIcon_").last ?? alias
+        // 默认图标（glyph2_drop0 就是主图标，不单独做备用图标集）
+        let alternate: String? =
+          (iconId.isEmpty || iconId == "default" || iconId == "glyph2_drop0")
+          ? nil : "Icon_\(iconId)"
+        DispatchQueue.main.async {
+          guard UIApplication.shared.supportsAlternateIcons else {
+            result(false)
+            return
+          }
+          if UIApplication.shared.alternateIconName == alternate {
+            result(true)
+            return
+          }
+          UIApplication.shared.setAlternateIconName(alternate) { error in
+            if let error = error {
+              NSLog("[icon] setAlternateIconName failed: \(error)")
+              result(false)
+            } else {
+              result(true)
+            }
+          }
+        }
+      }
   }
 
   /// 加水音效播放器（懒加载，复用同一份素材）

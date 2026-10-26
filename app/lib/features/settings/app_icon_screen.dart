@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -194,7 +196,10 @@ class _AppIconScreenState extends ConsumerState<AppIconScreen> {
           'setIcon', {'alias': 'com.waterllama.water_llama.AppIcon_$id'});
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('已选择，返回桌面后生效')),
+          // iOS 走 setAlternateIconName，立即生效（系统会弹一次确认框）
+          SnackBar(
+            content: Text(Platform.isIOS ? '已切换图标' : '已选择，返回桌面后生效'),
+          ),
         );
       }
     } on PlatformException {
