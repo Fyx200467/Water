@@ -14,12 +14,17 @@ class ReminderSettings {
     required this.enabled,
     required this.times, // "HH:mm" 全部已添加时间
     this.disabledTimes = const [], // 其中被单独关闭的时间
+    this.hiddenTimes = const [], // 被改走的整点：不再出现在默认整点网格里
     required this.message,
   });
 
   final bool enabled;
   final List<String> times;
   final List<String> disabledTimes;
+
+  /// 07:00~22:00 默认整点网格中被「编辑成别的时刻」的整点，
+  /// 用于把该格从网格中移除，避免一次编辑同时出现旧整点和新时刻
+  final List<String> hiddenTimes;
   final String message;
 
   /// 当前生效（参与调度）的时间 = 全部时间 - 单独关闭的
@@ -35,12 +40,14 @@ class ReminderSettings {
     bool? enabled,
     List<String>? times,
     List<String>? disabledTimes,
+    List<String>? hiddenTimes,
     String? message,
   }) {
     return ReminderSettings(
       enabled: enabled ?? this.enabled,
       times: times ?? this.times,
       disabledTimes: disabledTimes ?? this.disabledTimes,
+      hiddenTimes: hiddenTimes ?? this.hiddenTimes,
       message: message ?? this.message,
     );
   }
@@ -65,6 +72,7 @@ class ReminderNotifier extends StateNotifier<ReminderSettings> {
   static const _kEnabled = 'reminder_enabled';
   static const _kTimes = 'reminder_times';
   static const _kDisabledTimes = 'reminder_disabled_times';
+  static const _kHiddenTimes = 'reminder_hidden_times';
   static const _kMessage = 'reminder_message';
 
   /// 初始异步加载完成信号：重排前必须等待，否则会用默认值排一轮
@@ -77,6 +85,7 @@ class ReminderNotifier extends StateNotifier<ReminderSettings> {
     final p = storage.prefs;
     final timesRaw = p.getString(_kTimes);
     final disabledRaw = p.getString(_kDisabledTimes);
+    final hiddenRaw = p.getString(_kHiddenTimes);
     state = ReminderSettings(
       // 总开关（「饮水提醒」卡）：持久化，关闭即取消全部已排提醒
       enabled: p.getBool(_kEnabled) ?? true,
@@ -86,6 +95,9 @@ class ReminderNotifier extends StateNotifier<ReminderSettings> {
       disabledTimes: disabledRaw == null || disabledRaw.isEmpty
           ? const []
           : disabledRaw.split(','),
+      hiddenTimes: hiddenRaw == null || hiddenRaw.isEmpty
+          ? const []
+          : hiddenRaw.split(','),
       message: _migrateMessage(p.getString(_kMessage)),
     );
     _loaded.complete();
@@ -108,6 +120,7 @@ class ReminderNotifier extends StateNotifier<ReminderSettings> {
     await p.setBool(_kEnabled, next.enabled);
     await p.setString(_kTimes, next.times.join(','));
     await p.setString(_kDisabledTimes, next.disabledTimes.join(','));
+    await p.setString(_kHiddenTimes, next.hiddenTimes.join(','));
     await p.setString(_kMessage, next.message);
     state = next;
     await rescheduleNow();

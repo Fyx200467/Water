@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -17,6 +19,8 @@ import '../stats/providers/stats_providers.dart';
 import 'app_icon_screen.dart';
 import 'app_prefs_screen.dart';
 import 'calorie_screen.dart';
+import 'cloud_backup_screen.dart';
+import 'health_sync_screen.dart';
 import 'reset_time_screen.dart';
 import 'settings_flags.dart';
 import 'widget_settings_screen.dart';
@@ -89,6 +93,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ListView(
               padding: EdgeInsets.fromLTRB(16, topInset + 56, 16, 40),
               children: [
+                    // ---- 卡片0：账号信息 ----
+                    _buildAccountCard(
+                      ref
+                              .watch(cloudBackupStateProvider)
+                              .valueOrNull
+                              ?.nickname ??
+                          '喝水羊驼',
+                    ),
+                    const SizedBox(height: 12),
                     // ---- 卡片1：提醒 ----
                     _buildReminderCard(reminder),
                     const SizedBox(height: 12),
@@ -198,27 +211,30 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 builder: (_) => const AppPrefsScreen()),
                           ),
                         ),
-                        _settingRow(
-                          iconAsset: 'health.svg',
-                          title: '"健康"同步',
-                          trailingText: '连接',
-                        ),
-                        _settingRow(
-                          iconAsset: 'watch.svg',
-                          title: '手表',
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 28),
-
-                    // ---- 分组3：云备份 ----
-                    _buildSection(
-                      '',
-                      [
-                        _settingRow(
-                          iconAsset: 'cloud_backup.svg',
-                          title: '云备份',
-                        ),
+                        // 「健康」同步与手表联动仅 iOS 提供；Android 不展示
+                        if (Platform.isIOS) ...[
+                          _settingRow(
+                            iconAsset: 'health.svg',
+                            title: '"健康"同步',
+                            trailingText: ref
+                                        .watch(healthSyncEnabledProvider)
+                                        .valueOrNull ==
+                                    true
+                                ? '已连接'
+                                : '连接',
+                            onTap: () async {
+                              await Navigator.of(context).push(
+                                MaterialPageRoute(
+                                    builder: (_) => const HealthSyncScreen()),
+                              );
+                              ref.invalidate(healthSyncEnabledProvider);
+                            },
+                          ),
+                          _settingRow(
+                            iconAsset: 'watch.svg',
+                            title: '手表',
+                          ),
+                        ],
                       ],
                     ),
                     const SizedBox(height: 28),
@@ -315,6 +331,77 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           Icons.arrow_back_ios_new,
           size: 15,
           color: _textPrimary,
+        ),
+      ),
+    );
+  }
+
+  // ==================== 卡片0：账号信息 ====================
+
+  /// 头像 + 昵称（含会员角标），点击进入账号信息页
+  Widget _buildAccountCard(String nickname) {
+    return GestureDetector(
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const CloudBackupScreen()),
+      ),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(22),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              padding: const EdgeInsets.all(2.5),
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white,
+                boxShadow: [
+                  BoxShadow(
+                    color: Color(0x14000000),
+                    blurRadius: 8,
+                    offset: Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: ClipOval(
+                child: Container(
+                  color: const Color(0xFFEAF4FB),
+                  alignment: Alignment.center,
+                  child: SvgPicture.asset(
+                    'assets/images/characters/alpaca.svg',
+                    width: 46,
+                    height: 46,
+                    fit: BoxFit.contain,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Row(
+                children: [
+                  Text(
+                    nickname,
+                    style: const TextStyle(
+                      color: _textPrimary,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      height: 1.2,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  SvgPicture.asset('assets/icons/menu/crown.svg',
+                      width: 17, height: 17),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right,
+                color: _arrowColor, size: 22),
+          ],
         ),
       ),
     );

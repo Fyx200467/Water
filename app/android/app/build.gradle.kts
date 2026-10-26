@@ -21,7 +21,8 @@ android {
         applicationId = "com.waterllama.water_llama"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        // health 插件（Health Connect 客户端）要求 API 26+
+        minSdk = 26
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName

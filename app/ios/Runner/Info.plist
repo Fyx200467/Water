@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Water Llama</string>
+	<string>吨吨</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -26,6 +26,11 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- 健康同步：读取 / 写入 Apple 健康里的饮水数据 -->
+	<key>NSHealthShareUsageDescription</key>
+	<string>用于读取 Apple 健康中的饮水记录，并同步到喝水养成中</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>用于把喝水养成里的饮水记录写入 Apple 健康</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

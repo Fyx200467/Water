@@ -1,5 +1,8 @@
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -195,14 +198,16 @@ class HabitData {
   ];
 }
 
-/// 「养成健康的日常习惯」模块（今日小贴士下方）
+/// 「养成健康的日常习惯」模块
 ///
 /// 结构：居中灰色标题「养成健康的日常习惯 N/9 🏆」（N=已参加数，
-/// 实时联动）→ 纵向习惯卡列表（宽度与限时挑战卡/堆叠贴士卡视觉一致：
-/// contentW = w − 52，整体 Transform.scale 0.9）→ 底部可横滑提示卡
-/// 轮播（每张可「隐藏提示」）。
+/// 实时联动）→ 习惯卡堆叠区（滚动到顶部后依次吸附堆叠，参考
+/// VueBits card-stack 效果）→ 底部可横滑提示卡轮播（每张可「隐藏提示」）。
 class HabitModule extends StatefulWidget {
-  const HabitModule({super.key});
+  const HabitModule({super.key, required this.scrollPixels});
+
+  /// 首页外层 CustomScrollView 的滚动像素
+  final ValueListenable<double> scrollPixels;
 
   @override
   State<HabitModule> createState() => _HabitModuleState();
@@ -222,59 +227,166 @@ class _HabitModuleState extends State<HabitModule> {
     return LayoutBuilder(
       builder: (context, cons) {
         final w = cons.maxWidth;
-        // 与限时挑战卡视觉同宽：卡布局宽 = w − 52，再整体 0.9 缩放
-        final cardW = w - 52;
-        const cardH = 196.0;
-        return Transform.scale(
-          scale: 0.9,
-          alignment: Alignment.topCenter,
-          child: Padding(
-            padding: const EdgeInsets.only(top: 14, bottom: 44),
-            child: Column(
-              children: [
-                // 标题行：养成健康的日常习惯 N/9 🏆
-                ValueListenableBuilder<Set<String>>(
-                  valueListenable: habitsJoined,
-                  builder: (context, joined, _) => Text.rich(
-                    TextSpan(
-                      text: '养成健康的日常习惯 ',
-                      style: const TextStyle(
-                        color: Color(0xFF8E8E93),
-                        fontSize: 19,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      children: [
-                        TextSpan(
-                          text: '${joined.length}/${HabitData.all.length} ',
-                          style: const TextStyle(
-                            color: Color(0xFF6B6B70),
-                            fontSize: 19,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const TextSpan(text: '🏆'),
-                      ],
+        // 与限时挑战卡视觉同宽：原 w−52 再整体 0.9 缩放 → 直接按缩放后尺寸排布
+        final cardW = (w - 52) * 0.9;
+        const cardH = 196.0 * 0.9;
+        return Padding(
+          padding: const EdgeInsets.only(top: 14, bottom: 44),
+          child: Column(
+            children: [
+              // 标题行：养成健康的日常习惯 N/9 🏆
+              ValueListenableBuilder<Set<String>>(
+                valueListenable: habitsJoined,
+                builder: (context, joined, _) => Text.rich(
+                  TextSpan(
+                    text: '养成健康的日常习惯 ',
+                    style: const TextStyle(
+                      color: Color(0xFF8E8E93),
+                      fontSize: 17,
+                      fontWeight: FontWeight.w600,
                     ),
+                    children: [
+                      TextSpan(
+                        text: '${joined.length}/${HabitData.all.length} ',
+                        style: const TextStyle(
+                          color: Color(0xFF6B6B70),
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const TextSpan(text: '🏆'),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 20),
-                // 习惯卡列表
-                for (var i = 0; i < HabitData.all.length; i++) ...[
-                  _HabitCard(data: HabitData.all[i], w: cardW, h: cardH),
-                  const SizedBox(height: 16),
-                ],
-                const SizedBox(height: 8),
-                // 底部提示卡轮播（可横滑，逐张「隐藏提示」）
-                _HintPager(
-                  w: cardW,
-                  hidden: _hiddenHints,
-                  onHide: (idx) => setState(() => _hiddenHints.add(idx)),
-                ),
-              ],
-            ),
+              ),
+              const SizedBox(height: 18),
+              // 习惯卡堆叠区
+              _HabitDeck(
+                fullW: w,
+                cardW: cardW,
+                cardH: cardH,
+                scrollPixels: widget.scrollPixels,
+              ),
+              const SizedBox(height: 10),
+              // 底部提示卡轮播（可横滑，逐张「隐藏提示」）
+              _HintPager(
+                w: cardW,
+                hidden: _hiddenHints,
+                onHide: (idx) => setState(() => _hiddenHints.add(idx)),
+              ),
+            ],
           ),
         );
       },
+    );
+  }
+}
+
+/// 习惯卡堆叠区
+///
+/// 参考 VueBits card-stack：
+/// 1. 卡 0 保持自然位置（标题正下方），页面滚动把它带到距视口顶部
+///    [_stackTop] 后固定不动；
+/// 2. 后续卡片随页面滚动逐张升到同一位置，盖在前一张之上形成牌堆，
+///    被压住的卡片按层数轻微上移、缩小，露出牌堆边缘；
+/// 3. 全部叠完后（[_stackTop] 之上累计滚动 (n-1) 个步长），整摞牌堆
+///    随页面一起上滑退场；
+/// 4. 堆叠区高度 = 全部步长 + 一张卡，滚完刚好轮到下方提示卡轮播。
+class _HabitDeck extends StatefulWidget {
+  const _HabitDeck({
+    required this.fullW,
+    required this.cardW,
+    required this.cardH,
+    required this.scrollPixels,
+  });
+
+  final double fullW;
+  final double cardW;
+  final double cardH;
+  final ValueListenable<double> scrollPixels;
+
+  @override
+  State<_HabitDeck> createState() => _HabitDeckState();
+}
+
+class _HabitDeckState extends State<_HabitDeck> {
+  final GlobalKey _deckKey = GlobalKey();
+
+  /// 卡牌吸附位置（距视口顶部）
+  static const double _stackTop = 96;
+
+  /// 卡牌之间的原始间距（未吸附时首尾相隔）
+  static const double _gap = 16;
+
+  /// 被压住的卡片每层上移量 / 缩放量（露出牌堆边缘）
+  static const double _peek = 8;
+  static const double _depthScale = 0.04;
+  static const int _maxDepth = 3;
+
+  double get _stride => widget.cardH + _gap;
+
+  /// 视口顶部到堆叠区顶部的有符号距离（负值表示已滚过视口顶部）
+  double _sectionTop(double pixels) {
+    final box = _deckKey.currentContext?.findRenderObject() as RenderBox?;
+    // 首帧还没有布局结果：视为远在视口下方，避免误判成已吸附
+    if (box == null || !box.hasSize) return 1e6;
+    final viewport = RenderAbstractViewport.of(box);
+    return viewport.getOffsetToReveal(box, 0.0).offset - pixels;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final n = HabitData.all.length;
+    // 全部卡片升到堆叠位所需的滚动距离
+    final stackDone = (n - 1) * _stride;
+    final height = stackDone + widget.cardH;
+    return ValueListenableBuilder<double>(
+      valueListenable: widget.scrollPixels,
+      builder: (context, pixels, _) {
+        final sectionTop = _sectionTop(pixels);
+        // 堆叠区顶部越过吸附线之后继续滚动的距离：卡 0 在此距离内被
+        // 固定在视口 [_stackTop]，卡 i 在 i 个步长处升到堆叠位
+        final pinExcess = math.max(0.0, _stackTop - sectionTop);
+        // 全部叠完之后整摞随页面上滑退场（负值 = 上移量）
+        final release = math.min(0.0, stackDone - pinExcess);
+        // 已叠上来的卡片数量
+        final pinned =
+            math.min(n, (pinExcess / _stride).floor() + 1);
+        return SizedBox(
+          key: _deckKey,
+          height: height,
+          child: Stack(
+            clipBehavior: Clip.hardEdge,
+            children: [
+              for (var i = 0; i < n; i++)
+                _buildCard(i, pinExcess, pinned, release),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildCard(int i, double pinExcess, int pinned, double release) {
+    // 自然位置（未吸附时）与吸附位置取较大者：
+    // 前者 = 页面滚动带来的自然上移，后者 = 固定在 [_stackTop]；
+    // 叠加 release 后在整摞牌堆滚完时一起退场
+    final depth = math.min(_maxDepth, math.max(0, pinned - 1 - i));
+    final localTop =
+        math.max(i * _stride, pinExcess) + release - depth * _peek;
+    return Positioned(
+      top: localTop,
+      left: (widget.fullW - widget.cardW) / 2,
+      width: widget.cardW,
+      child: Transform.scale(
+        scale: 1 - _depthScale * depth,
+        alignment: Alignment.topCenter,
+        child: _HabitCard(
+          data: HabitData.all[i],
+          w: widget.cardW,
+          h: widget.cardH,
+        ),
+      ),
     );
   }
 }
@@ -314,25 +426,25 @@ class _HabitCard extends StatelessWidget {
         clipBehavior: Clip.hardEdge,
         decoration: BoxDecoration(
           color: data.bg,
-          borderRadius: BorderRadius.circular(28),
+          borderRadius: BorderRadius.circular(25),
         ),
         child: Stack(
           children: [
             // 角色插画：右侧底部锚定，压边溢出被裁剪
             Positioned(
-              right: -68,
-              bottom: -40,
+              right: -61,
+              bottom: -36,
               child: SizedBox(
-                width: 230,
-                height: 230,
+                width: 207,
+                height: 207,
                 child: SvgPicture.asset(data.asset, fit: BoxFit.contain),
               ),
             ),
             // 文案层：左侧垂直居中偏下
             Positioned(
-              left: 24,
-              right: 150,
-              bottom: 26,
+              left: 22,
+              right: 135,
+              bottom: 23,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -340,7 +452,7 @@ class _HabitCard extends StatelessWidget {
                     '10 天挑战',
                     style: TextStyle(
                       color: Colors.white.withOpacity(0.55),
-                      fontSize: 15,
+                      fontSize: 13.5,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -351,7 +463,7 @@ class _HabitCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       color: Colors.white,
-                      fontSize: 27,
+                      fontSize: 24,
                       fontWeight: FontWeight.w800,
                       height: 1.22,
                     ),
@@ -410,7 +522,7 @@ class _HintPager extends StatelessWidget {
     ];
     if (visible.isEmpty) return const SizedBox.shrink();
     return SizedBox(
-      height: 210,
+      height: 189,
       child: PageView.builder(
         itemCount: visible.length,
         controller: PageController(viewportFraction: 0.88),
@@ -420,38 +532,38 @@ class _HintPager extends StatelessWidget {
           return Padding(
             padding: const EdgeInsets.symmetric(horizontal: 7),
             child: Container(
-              padding: const EdgeInsets.fromLTRB(24, 26, 24, 14),
+              padding: const EdgeInsets.fromLTRB(22, 23, 22, 13),
               decoration: BoxDecoration(
                 color: bg,
-                borderRadius: BorderRadius.circular(28),
+                borderRadius: BorderRadius.circular(25),
               ),
               child: Column(
                 children: [
                   Container(
-                    width: 52,
-                    height: 52,
+                    width: 47,
+                    height: 47,
                     decoration: BoxDecoration(
                       color: fg,
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(13),
                     ),
-                    child: Icon(icon, color: Colors.white, size: 30),
+                    child: Icon(icon, color: Colors.white, size: 27),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 11),
                   Text(
                     title,
                     style: TextStyle(
                       color: fg,
-                      fontSize: 21,
+                      fontSize: 19,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 5),
                   Text(
                     desc,
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: fg.withOpacity(0.75),
-                      fontSize: 14,
+                      fontSize: 13,
                       height: 1.4,
                     ),
                   ),
@@ -462,7 +574,7 @@ class _HintPager extends StatelessWidget {
                       '隐藏提示',
                       style: TextStyle(
                         color: fg.withOpacity(0.45),
-                        fontSize: 13,
+                        fontSize: 12,
                         fontWeight: FontWeight.w600,
                       ),
                     ),

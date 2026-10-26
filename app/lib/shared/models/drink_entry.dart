@@ -19,7 +19,19 @@ class DrinkEntry {
     this.serverId,
     this.deleted = false,
     this.calories = -1,
+    this.healthSampleId,
+    this.healthState = healthNone,
+    this.updatedAt,
   });
+
+  /// 未与健康 App 交互
+  static const int healthNone = 0;
+
+  /// 本 App 写入健康 App 的记录（已导出）
+  static const int healthExported = 1;
+
+  /// 从健康 App 导入的记录（不再回写，避免重复）
+  static const int healthImported = 2;
 
   /// 客户端 UUID，断网写入后联网去重
   final String clientId;
@@ -36,10 +48,25 @@ class DrinkEntry {
   /// 录入时快照的热量（kcal）；-1 = 历史旧记录未记录，展示时回退到饮品当前定义
   final int calories;
 
+  /// 健康 App 里的样本 UUID（导入记录用来去重）
+  final String? healthSampleId;
+
+  /// 健康同步状态，见 [healthNone] / [healthExported] / [healthImported]
+  final int healthState;
+
+  /// 本记录最后一次修改时间（同步冲突按它做 LWW）；旧数据为空时按 [drankAt]
+  final DateTime? updatedAt;
+
+  DateTime get effectiveUpdatedAt => updatedAt ?? drankAt;
+
   DrinkEntry copyWith({
     String? serverId,
     bool? synced,
     bool? deleted,
+    int? calories,
+    String? healthSampleId,
+    int? healthState,
+    DateTime? updatedAt,
   }) {
     return DrinkEntry(
       clientId: clientId,
@@ -52,7 +79,10 @@ class DrinkEntry {
       synced: synced ?? this.synced,
       serverId: serverId ?? this.serverId,
       deleted: deleted ?? this.deleted,
-      calories: calories,
+      calories: calories ?? this.calories,
+      healthSampleId: healthSampleId ?? this.healthSampleId,
+      healthState: healthState ?? this.healthState,
+      updatedAt: updatedAt ?? this.updatedAt,
     );
   }
 
@@ -72,6 +102,9 @@ class DrinkEntry {
       'synced': synced ? 1 : 0,
       'deleted': deleted ? 1 : 0,
       'calories': calories,
+      'health_sample_id': healthSampleId,
+      'health_state': healthState,
+      'updated_at': effectiveUpdatedAt.toIso8601String(),
     };
   }
 
@@ -97,6 +130,9 @@ class DrinkEntry {
       synced: toInt(m['synced'], 0) == 1,
       deleted: toInt(m['deleted'], 0) == 1,
       calories: toInt(m['calories'], -1),
+      healthSampleId: m['health_sample_id']?.toString(),
+      healthState: toInt(m['health_state'], healthNone),
+      updatedAt: DateTime.tryParse(m['updated_at']?.toString() ?? ''),
     );
   }
 
@@ -121,6 +157,7 @@ class DrinkEntry {
       drankAt: at,
       synced: false,
       calories: calories,
+      updatedAt: at,
     );
   }
 

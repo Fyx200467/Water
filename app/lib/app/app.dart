@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/health/health_sync_service.dart';
+import '../core/storage/providers.dart';
+import '../core/sync/sync_service.dart';
 import '../features/home/providers/home_providers.dart';
 import '../features/reminder/reminder_providers.dart';
 import 'router.dart';
@@ -34,6 +37,25 @@ class _WaterLlamaAppState extends ConsumerState<WaterLlamaApp>
         ref.read(reminderProvider.notifier).rescheduleNow();
       }
     });
+    // 冷启动：健康同步开着就静默补跑一轮（6 小时内不重复），
+    // 补上小组件后台录入、以及在健康 App 里新增的外部饮水
+    Timer(const Duration(seconds: 3), () async {
+      if (!mounted) return;
+      final storage = await ref.read(localStorageProvider.future);
+      final report = await HealthSyncService.maybeAutoSync(storage);
+      if (report.imported > 0 && mounted) {
+        ref.invalidate(todayEntriesProvider);
+      }
+    });
+    // 冷启动：注册匿名身份并跑一轮云同步（断网失败不影响本地使用）
+    Timer(const Duration(seconds: 2), () async {
+      if (!mounted) return;
+      final storage = await ref.read(localStorageProvider.future);
+      final result = await SyncService.syncNow(storage);
+      if (result.pulled > 0 && mounted) {
+        ref.invalidate(todayEntriesProvider);
+      }
+    });
     // 当日记录 / 目标变化：达标停止与剩余水量随数据实时刷新
     ref.listenManual(todayEntriesProvider, (_, _) => _scheduleReschedule());
     ref.listenManual(profileProvider, (_, _) => _scheduleReschedule());
@@ -51,6 +73,14 @@ class _WaterLlamaAppState extends ConsumerState<WaterLlamaApp>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _scheduleReschedule();
+      // 回前台补跑一轮同步（可能在别的设备上改过数据）
+      unawaited(() async {
+        final storage = await ref.read(localStorageProvider.future);
+        final result = await SyncService.syncNow(storage);
+        if (result.pulled > 0 && mounted) {
+          ref.invalidate(todayEntriesProvider);
+        }
+      }());
     }
   }
 
@@ -69,7 +99,7 @@ class _WaterLlamaAppState extends ConsumerState<WaterLlamaApp>
     final router = ref.watch(routerProvider);
     final themeMode = ref.watch(themeModeProvider);
     return MaterialApp.router(
-      title: '喝水养成',
+      title: '吨吨',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),

@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/health/health_sync_service.dart';
 import '../../../core/sound/sound_service.dart';
 import '../../../core/storage/providers.dart';
+import '../../../core/sync/sync_service.dart';
 import '../../../core/time/logical_day.dart';
 import '../../../shared/models/animal_character.dart';
 import '../../../shared/models/drink_entry.dart';
@@ -129,6 +131,10 @@ class TodayEntriesNotifier extends StateNotifier<List<DrinkEntry>> {
     final beforeMl = HydrationCalculator.sumEffective(state);
     await storage.insertDrinkEntry(entry);
     await _load();
+    // 健康同步开启时，把这条新记录立刻写进健康 App（失败只记日志）
+    unawaited(HealthSyncService.afterEntryAdded(storage));
+    // 云同步：先把本地记录推到服务端（离线则留待下次启动/回前台）
+    unawaited(SyncService.syncNow(storage));
     final afterMl = HydrationCalculator.sumEffective(state);
     // 只有「真实加水后跨过目标」才庆祝：
     // 删除记录、回前台重载、数据抖动都不会触发（避免误播音效/误点亮）
@@ -147,6 +153,9 @@ class TodayEntriesNotifier extends StateNotifier<List<DrinkEntry>> {
     final storage = await ref.read(localStorageProvider.future);
     await storage.softDeleteEntry(clientId);
     await _load();
+    // 健康同步开启时，把已导出的样本从健康 App 撤掉
+    unawaited(HealthSyncService.afterEntryRemoved(storage));
+    unawaited(SyncService.syncNow(storage));
     unawaited(pushHomeWidget(ref));
   }
 }

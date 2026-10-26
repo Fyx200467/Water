@@ -26,7 +26,6 @@ import '../settings/settings_flags.dart';
 import '../stats/history_screen.dart';
 import '../stats/providers/stats_providers.dart';
 import 'challenge_sheet.dart';
-import 'tips_deck.dart';
 import 'habit_module.dart';
 import 'confetti_rain.dart';
 import 'daily_review_screen.dart';
@@ -69,6 +68,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// 挑战面板滚动联动：滚动位置 + 「酒红卡『31 天挑战』已滚入视口」状态
   final ScrollController _scrollCtrl = ScrollController();
   final ValueNotifier<bool> _challengeCompact = ValueNotifier(false);
+  /// 习惯卡堆叠效果用：把滚动像素透传给卡牌区（堆叠位置按滚动实时计算）
+  final ValueNotifier<double> _scrollPixels = ValueNotifier(0);
   /// 弹弓发射命中检测用：角色卡片 bounds 的全局 key
   final GlobalKey _animalKey = GlobalKey();
 
@@ -100,6 +101,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _scrollCtrl.removeListener(_onScroll);
     _scrollCtrl.dispose();
     _challengeCompact.dispose();
+    _scrollPixels.dispose();
     super.dispose();
   }
 
@@ -196,6 +198,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// 常驻露出 42 → 标签顶入视口时 offset≈26.4，取 28
   void _onScroll() {
     _challengeCompact.value = _scrollCtrl.offset > 28;
+    _scrollPixels.value = _scrollCtrl.offset;
   }
 
   /// 防抖调度小组件同步：复用 _widgetSyncTimer，1 秒内的连续变化
@@ -579,10 +582,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                         child: ChallengePanel(compact: _challengeCompact),
                       ),
                     ),
-                    // 5. 今日小贴士卡片牌堆：三卡层叠可左右滑动，插画区预留
-                    const SliverToBoxAdapter(child: TipsDeckModule()),
                     // 6. 习惯挑战列表（养成健康的日常习惯 N/9）+ 底部提示卡轮播
-                    const SliverToBoxAdapter(child: HabitModule()),
+                    SliverToBoxAdapter(
+                      child: HabitModule(scrollPixels: _scrollPixels),
+                    ),
                   ],
                 ),
               ),

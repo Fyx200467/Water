@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -22,7 +23,7 @@ class LocalStorage {
   }) : _db = db;
 
   static const String _dbName = 'water_llama.db';
-  static const int _dbVersion = 2;
+  static const int _dbVersion = 4;
 
   late final SharedPreferences prefs;
   final Database? _db;
@@ -74,7 +75,10 @@ class LocalStorage {
         drank_at TEXT NOT NULL,
         synced INTEGER NOT NULL DEFAULT 0,
         deleted INTEGER NOT NULL DEFAULT 0,
-        calories INTEGER NOT NULL DEFAULT -1
+        calories INTEGER NOT NULL DEFAULT -1,
+        health_sample_id TEXT,
+        health_state INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT
       )
     ''');
     await db.execute(
@@ -86,12 +90,25 @@ class LocalStorage {
   }
 
   /// v1 → v2：补上录入时快照的热量列（旧记录默认 -1 = 未记录）
+  /// v2 → v3：健康同步状态（0 未同步 / 1 已导出 / 2 已导入）
   static Future<void> _onUpgrade(
       Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       await db.execute(
         'ALTER TABLE drink_entries ADD COLUMN calories INTEGER NOT NULL DEFAULT -1',
       );
+    }
+    if (oldVersion < 3) {
+      await db.execute(
+        'ALTER TABLE drink_entries ADD COLUMN health_sample_id TEXT',
+      );
+      await db.execute(
+        'ALTER TABLE drink_entries ADD COLUMN health_state INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+    // v3 → v4：云同步的修改时间（冲突按 updated_at 取新）
+    if (oldVersion < 4) {
+      await db.execute('ALTER TABLE drink_entries ADD COLUMN updated_at TEXT');
     }
   }
 
@@ -179,7 +196,11 @@ class LocalStorage {
     if (_hasDb) {
       await _db!.update(
         'drink_entries',
-        {'deleted': 1, 'synced': 0},
+        {
+          'deleted': 1,
+          'synced': 0,
+          'updated_at': DateTime.now().toIso8601String(),
+        },
         where: 'client_id = ?',
         whereArgs: [clientId],
       );
@@ -256,6 +277,241 @@ class LocalStorage {
       all[idx] = all[idx].copyWith(synced: true, serverId: serverId);
       await prefs.setString('$_kEntriesPrefix$_storeKey', jsonEncode(all.map((e) => e.toMap()).toList()));
     }
+  }
+
+  // ---------- 健康同步（Apple Health / Health Connect） ----------
+
+  static const String _kHealthEnabled = 'health_sync_enabled';
+  static const String _kHealthLastSync = 'health_sync_last_at';
+
+  bool get healthSyncEnabled => prefs.getBool(_kHealthEnabled) ?? false;
+
+  Future<void> setHealthSyncEnabled(bool on) async {
+    await prefs.setBool(_kHealthEnabled, on);
+  }
+
+  DateTime? get healthLastSyncAt {
+    final s = prefs.getString(_kHealthLastSync);
+    return s == null ? null : DateTime.tryParse(s);
+  }
+
+  Future<void> setHealthLastSyncAt(DateTime at) async {
+    await prefs.setString(_kHealthLastSync, at.toIso8601String());
+  }
+
+  // ---------- 账号与云备份 ----------
+
+  static const String _kAccountAnonId = 'account_anon_id';
+  static const String _kAccountNickname = 'account_nickname';
+  static const String _kAccountLastBackup = 'account_last_backup_at';
+
+  /// 本机匿名标识：首次读取时生成并复用。
+  /// 仅用于服务端识别设备，卸载后随之丢失（匿名身份不保证跨重装恢复）。
+  String get accountAnonId {
+    final existing = prefs.getString(_kAccountAnonId);
+    if (existing != null && existing.isNotEmpty) return existing;
+    final rnd = math.Random();
+    const chars = '0123456789abcdef';
+    final id = List.generate(32, (_) => chars[rnd.nextInt(16)]).join();
+    prefs.setString(_kAccountAnonId, id);
+    return id;
+  }
+
+  /// 本机昵称：未登录时也允许修改，登录后由服务端同步
+  String get accountNickname {
+    final n = prefs.getString(_kAccountNickname);
+    return (n == null || n.trim().isEmpty) ? '喝水羊驼' : n;
+  }
+
+  Future<void> setAccountNickname(String name) async {
+    await prefs.setString(_kAccountNickname, name.trim());
+  }
+
+  DateTime? get accountLastBackupAt {
+    final s = prefs.getString(_kAccountLastBackup);
+    return s == null ? null : DateTime.tryParse(s);
+  }
+
+  Future<void> setAccountLastBackupAt(DateTime at) async {
+    await prefs.setString(_kAccountLastBackup, at.toIso8601String());
+  }
+
+  /// 待导出到健康 App 的记录（本地新增但还没写出去）
+  Future<List<DrinkEntry>> loadHealthPendingEntries({
+    DateTime? since,
+    int limit = 500,
+  }) async {
+    final sinceIso = since?.toIso8601String();
+    if (_hasDb) {
+      final rows = await _db!.query(
+        'drink_entries',
+        where: 'health_state = 0 AND deleted = 0'
+            '${sinceIso == null ? '' : ' AND drank_at >= ?'}',
+        whereArgs: sinceIso == null ? null : [sinceIso],
+        orderBy: 'drank_at ASC',
+        limit: limit,
+      );
+      return rows.map(DrinkEntry.fromMap).toList();
+    }
+    final all = await _prefsLoadAllEntries();
+    return all
+        .where((e) =>
+            !e.deleted &&
+            e.healthState == DrinkEntry.healthNone &&
+            (since == null || !e.drankAt.isBefore(since)))
+        .take(limit)
+        .toList();
+  }
+
+  /// 已导出、后来被删除的记录（需要从健康 App 撤掉）
+  Future<List<DrinkEntry>> loadHealthDeletedEntries({int limit = 200}) async {
+    if (_hasDb) {
+      final rows = await _db!.query(
+        'drink_entries',
+        where: 'health_state = 1 AND deleted = 1',
+        orderBy: 'drank_at ASC',
+        limit: limit,
+      );
+      return rows.map(DrinkEntry.fromMap).toList();
+    }
+    final all = await _prefsLoadAllEntries();
+    return all
+        .where((e) => e.deleted && e.healthState == DrinkEntry.healthExported)
+        .take(limit)
+        .toList();
+  }
+
+  /// 该健康样本是否已导入过（按样本 UUID 去重）
+  Future<bool> hasHealthSampleId(String sampleId) async {
+    if (_hasDb) {
+      final rows = await _db!.query(
+        'drink_entries',
+        columns: ['client_id'],
+        where: 'health_sample_id = ?',
+        whereArgs: [sampleId],
+        limit: 1,
+      );
+      return rows.isNotEmpty;
+    }
+    final all = await _prefsLoadAllEntries();
+    return all.any((e) => e.healthSampleId == sampleId);
+  }
+
+  /// 更新健康同步状态（导出成功后落库；从健康 App 删除成功后清零）
+  Future<void> setHealthState(
+    String clientId,
+    int state, {
+    String? sampleId,
+  }) async {
+    if (_hasDb) {
+      await _db!.update(
+        'drink_entries',
+        {
+          'health_state': state,
+          if (sampleId != null) 'health_sample_id': sampleId,
+        },
+        where: 'client_id = ?',
+        whereArgs: [clientId],
+      );
+    }
+    final all = await _prefsLoadAllEntries();
+    final idx = all.indexWhere((e) => e.clientId == clientId);
+    if (idx >= 0) {
+      all[idx] =
+          all[idx].copyWith(healthState: state, healthSampleId: sampleId);
+      await prefs.setString('$_kEntriesPrefix$_storeKey',
+          jsonEncode(all.map((e) => e.toMap()).toList()));
+    }
+  }
+
+  // ---------- 云同步（账号匿名身份 + 增量同步） ----------
+
+  static const String _kSyncUserId = 'sync_user_id';
+  static const String _kSyncToken = 'sync_token';
+  static const String _kSyncCursor = 'sync_cursor';
+  static const String _kSyncLastAt = 'sync_last_at';
+
+  String? get syncUserId => prefs.getString(_kSyncUserId);
+
+  String? get syncToken => prefs.getString(_kSyncToken);
+
+  int get syncCursor => prefs.getInt(_kSyncCursor) ?? 0;
+
+  DateTime? get syncLastSyncAt {
+    final s = prefs.getString(_kSyncLastAt);
+    return s == null ? null : DateTime.tryParse(s);
+  }
+
+  bool get hasSyncSession =>
+      (syncUserId ?? '').isNotEmpty && (syncToken ?? '').isNotEmpty;
+
+  Future<void> setSyncSession(String userId, String token) async {
+    await prefs.setString(_kSyncUserId, userId);
+    await prefs.setString(_kSyncToken, token);
+  }
+
+  Future<void> setSyncCursor(int cursor) async {
+    await prefs.setInt(_kSyncCursor, cursor);
+  }
+
+  Future<void> setSyncLastSyncAt(DateTime at) async {
+    await prefs.setString(_kSyncLastAt, at.toIso8601String());
+  }
+
+  /// 尚未上行到服务端的记录（含待同步的删除墓碑）
+  Future<List<DrinkEntry>> loadPendingSyncEntries({int limit = 200}) async {
+    if (_hasDb) {
+      final rows = await _db!.query(
+        'drink_entries',
+        where: 'synced = 0',
+        orderBy: 'drank_at ASC',
+        limit: limit,
+      );
+      return rows.map(DrinkEntry.fromMap).toList();
+    }
+    final all = await _prefsLoadAllEntries();
+    return all.where((e) => !e.synced).take(limit).toList();
+  }
+
+  Future<int> countPendingSyncEntries() async {
+    if (_hasDb) {
+      final rows = await _db!.rawQuery(
+        'SELECT COUNT(*) AS c FROM drink_entries WHERE synced = 0',
+      );
+      return (rows.first['c'] as int?) ?? 0;
+    }
+    final all = await _prefsLoadAllEntries();
+    return all.where((e) => !e.synced).length;
+  }
+
+  Future<void> markEntriesSynced(List<String> clientIds) async {
+    if (clientIds.isEmpty) return;
+    if (_hasDb) {
+      final batch = _db!.batch();
+      for (final id in clientIds) {
+        batch.update(
+          'drink_entries',
+          {'synced': 1},
+          where: 'client_id = ?',
+          whereArgs: [id],
+        );
+      }
+      await batch.commit(noResult: true);
+      return;
+    }
+    final all = await _prefsLoadAllEntries();
+    for (var i = 0; i < all.length; i++) {
+      if (clientIds.contains(all[i].clientId)) {
+        all[i] = all[i].copyWith(synced: true);
+      }
+    }
+    await prefs.setString('$_kEntriesPrefix$_storeKey',
+        jsonEncode(all.map((e) => e.toMap()).toList()));
+  }
+
+  /// 服务端下发的记录直接落库（视为已同步）
+  Future<void> applyRemoteEntry(DrinkEntry entry) async {
+    await insertDrinkEntry(entry.copyWith(synced: true));
   }
 
   // ---------- prefs 降级存储 ----------

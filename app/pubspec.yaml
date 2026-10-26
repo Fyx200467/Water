@@ -26,7 +26,7 @@ dependencies:
   path_provider: ^2.1.4
 
   # 工具
-  intl: ^0.19.0
+  intl: ^0.20.2
 
   # 图表（M3 起用）
   fl_chart: ^0.69.0
@@ -40,6 +40,9 @@ dependencies:
   flutter_svg: ^2.3.0
   share_plus: ^13.3.1
 
+  # 健康同步（Apple Health / Health Connect）
+  health: ^13.3.2
+
   # Android 桌面小组件（Home Screen Widget）
   home_widget: ^0.7.0
 
@@ -48,6 +51,9 @@ dependency_overrides:
   # （不经广播），规避 vivo 等厂商 ROM 对后台应用广播的延迟/丢弃
   home_widget:
     path: third_party/home_widget
+  # health 新版要求 json_annotation ^4.12，与旧版 json_serializable 的
+  # dev 约束冲突；这里统一到 4.12（生成代码只用 JsonKey/JsonSerializable 注解）
+  json_annotation: ^4.12.0
 
 dev_dependencies:
   flutter_test:

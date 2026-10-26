@@ -9,6 +9,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../../core/notification/notification_service.dart';
 import '../../core/time/logical_day.dart';
 import '../../shared/models/preferred_unit.dart';
+import '../../shared/widgets/wheel_time_picker.dart';
 import '../drink/services/hydration_calculator.dart';
 import '../home/providers/home_providers.dart';
 import 'reminder_providers.dart';
@@ -511,9 +512,9 @@ class _ReminderSettingsScreenState
 
   /// 选择窗口时间（开始/结束），校验开始 < 结束后持久化并重排
   Future<void> _pickWindowTime(bool isStart, int currentMin) async {
-    final picked = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay(hour: currentMin ~/ 60, minute: currentMin % 60),
+    final picked = await showWheelTimePicker(
+      context,
+      initial: TimeOfDay(hour: currentMin ~/ 60, minute: currentMin % 60),
     );
     if (picked == null || !mounted) return;
     final v = picked.hour * 60 + picked.minute;
@@ -534,7 +535,12 @@ class _ReminderSettingsScreenState
   Widget _customPanel() {
     final reminder = ref.watch(reminderProvider);
     final slots = <String>[
-      for (var h = 7; h <= 22; h++) '${h.toString().padLeft(2, '0')}:00',
+      // 默认整点网格：被改成别的时刻的整点不再占位（否则一次编辑会
+      // 同时出现旧整点和新时刻，看起来像"新增"而不是"修改"）
+      for (var h = 7; h <= 22; h++)
+        if (!reminder.hiddenTimes
+            .contains('${h.toString().padLeft(2, '0')}:00'))
+          '${h.toString().padLeft(2, '0')}:00',
       // 添加过或曾经关闭过的非整点时间都要保留在网格中，
       // 否则关闭某个自定义时间后它会从列表中消失、无法再打开
       ...({...reminder.times, ...reminder.disabledTimes}
@@ -608,7 +614,7 @@ class _ReminderSettingsScreenState
   }
 
   /// 网格时间格：开启 = 白底深字青开关；关闭 = 浅青底灰字灰开关；
-  /// 非整点自定义时间支持长按删除
+  /// 点击时间格可重新编辑时间，非整点自定义时间支持长按删除
   Widget _gridSlot(ReminderSettings reminder, String time) {
     // 开关状态 = 是否真实参与排程（times 中存在且未被单独关闭），
     // 否则会出现"显示开、实际不提醒"的假开启
@@ -616,6 +622,7 @@ class _ReminderSettingsScreenState
         !reminder.disabledTimes.contains(time);
     final deletable = !_isHourlySlot(time);
     return GestureDetector(
+      onTap: () => _editSlotTime(time),
       onLongPress: deletable ? () => _deleteCustomSlot(time) : null,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -672,11 +679,7 @@ class _ReminderSettingsScreenState
   Future<void> _addCustomTime() async {
     await _ensureNotificationPermission();
     if (!mounted) return;
-    final picked = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.now(),
-      helpText: '选择提醒时间',
-    );
+    final picked = await showWheelTimePicker(context, initial: TimeOfDay.now());
     if (picked == null || !mounted) return;
     final t =
         '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
@@ -687,9 +690,11 @@ class _ReminderSettingsScreenState
       return;
     }
     final times = [...cur.times, t]..sort();
+    // 该时刻的默认整点若曾被改走，重新添加时让它回到网格
+    final hidden = cur.hiddenTimes.where((x) => x != t).toList();
     await ref
         .read(reminderProvider.notifier)
-        .update(cur.copyWith(times: times));
+        .update(cur.copyWith(times: times, hiddenTimes: hidden));
     // 今天该时刻已过：只会从明天开始生效，必须明确告知
     final now = DateTime.now();
     if (picked.hour * 60 + picked.minute < now.hour * 60 + now.minute) {
@@ -733,6 +738,49 @@ class _ReminderSettingsScreenState
           times: cur.times.where((t) => t != time).toList(),
           disabledTimes: cur.disabledTimes.where((t) => t != time).toList(),
         ));
+  }
+
+  /// 编辑某个时间格的提醒时间：滚轮选择新时间后替换旧时间，
+  /// 保留原本的开关状态（开着的仍参与排程，关着的仍留在网格中）
+  Future<void> _editSlotTime(String oldTime) async {
+    final p = oldTime.split(':');
+    final hour = int.tryParse(p.first) ?? 0;
+    final minute = int.tryParse(p.last) ?? 0;
+    final picked = await showWheelTimePicker(
+      context,
+      initial: TimeOfDay(hour: hour, minute: minute),
+    );
+    if (picked == null || !mounted) return;
+    final t =
+        '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+    if (t == oldTime) return;
+    final cur = ref.read(reminderProvider);
+    // 目标时间已存在（无论在开启还是已关闭列表中）都不允许重复
+    if (cur.times.contains(t) || cur.disabledTimes.contains(t)) {
+      _showSnack('该时间已存在');
+      return;
+    }
+    final wasOn = cur.times.contains(oldTime) &&
+        !cur.disabledTimes.contains(oldTime);
+    final times = [...cur.times]..remove(oldTime);
+    final disabled = [...cur.disabledTimes]..remove(oldTime);
+    final hidden = [...cur.hiddenTimes];
+    // 原整点被改走 → 该整点从默认网格消失；新时间恰是整点 → 恢复该格
+    if (_isHourlySlot(oldTime) && !hidden.contains(oldTime)) {
+      hidden.add(oldTime);
+    }
+    hidden.remove(t);
+    if (wasOn) {
+      times.add(t);
+      times.sort();
+    } else {
+      disabled.add(t);
+    }
+    // update 内会自动重排通知
+    await ref.read(reminderProvider.notifier).update(cur.copyWith(
+        times: times, disabledTimes: disabled, hiddenTimes: hidden));
+    if (!mounted) return;
+    _showSnack('已改为 $t');
   }
 
   /// 自定义信息行右侧摘要：未设置显示「无」，过长截断
@@ -1017,7 +1065,7 @@ class _ReminderSettingsScreenState
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text(
-            '无法自动打开系统设置，请手动到 系统设置 → 应用 → 喝水养成 → 通知 中允许'),
+            '无法自动打开系统设置，请手动到 系统设置 → 应用 → 吨吨 → 通知 中允许'),
       ),
     );
   }
@@ -1142,7 +1190,7 @@ class _ReminderSettingsScreenState
                   ),
                   const SizedBox(width: 8),
                   const Text(
-                    '喝水养成 · 1 分钟前',
+                    '吨吨 · 1 分钟前',
                     style: TextStyle(
                       color: _textSecondary,
                       fontSize: 12.5,
@@ -1461,7 +1509,7 @@ class _ReminderSettingsScreenState
           content: Text(
             Platform.isIOS
                 ? '通知权限未开启：请到 设置 → 通知 中允许'
-                : '通知权限未开启：请到 系统设置 → 应用 → 喝水养成 → 通知 中允许',
+                : '通知权限未开启：请到 系统设置 → 应用 → 吨吨 → 通知 中允许',
           ),
         ),
       );

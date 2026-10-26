@@ -2,6 +2,8 @@
     xmlns:tools="http://schemas.android.com/tools">
     <!-- PRD §2.4 本地提醒通知（Android 13+ 运行时申请 POST_NOTIFICATIONS） -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 云同步：访问本机/局域网开发服务 -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- 重启后恢复已排定的提醒 -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -10,10 +12,15 @@
          其它调度模式兜底。USE_EXACT_ALARM 仅限闹钟/日历类应用，上架
          Google Play 需额外说明，故不声明 -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!-- 健康同步：Health Connect 读写「饮水」数据（Android 14+ 内置，
+         9~13 需安装 Health Connect App） -->
+    <uses-permission android:name="android.permission.health.READ_HYDRATION" />
+    <uses-permission android:name="android.permission.health.WRITE_HYDRATION" />
     <application
-        android:label="喝水养成"
+        android:label="吨吨"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -88,7 +95,7 @@
             android:enabled="true"
             android:exported="true"
             android:icon="@mipmap/ic_launcher"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -100,7 +107,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_alpaca_0"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -112,7 +119,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_alpaca_1"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -124,7 +131,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_alpaca_2"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -136,7 +143,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_alpaca_3"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -148,7 +155,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_alpaca_4"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -160,7 +167,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_alpaca_5"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -172,7 +179,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_sheep_0"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -184,7 +191,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_sheep_1"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -196,7 +203,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_sheep_2"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -208,7 +215,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_sheep_3"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -220,7 +227,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_sheep_4"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -232,7 +239,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_sheep_5"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -244,7 +251,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_rabbit_0"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -256,7 +263,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_rabbit_1"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -268,7 +275,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_rabbit_2"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -280,7 +287,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_rabbit_3"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -292,7 +299,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_rabbit_4"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -304,7 +311,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_rabbit_5"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -316,7 +323,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_fox_0"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -328,7 +335,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_fox_1"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -340,7 +347,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_fox_2"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -352,7 +359,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_fox_3"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -364,7 +371,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_fox_4"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -376,7 +383,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_fox_5"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -388,7 +395,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_corgi_0"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -400,7 +407,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_corgi_1"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -412,7 +419,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_corgi_2"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -424,7 +431,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_corgi_3"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -436,7 +443,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_corgi_4"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -448,7 +455,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_corgi_5"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -460,7 +467,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_orange_cat_0"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -472,7 +479,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_orange_cat_1"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -484,7 +491,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_orange_cat_2"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -496,7 +503,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_orange_cat_3"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -508,7 +515,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_orange_cat_4"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -520,7 +527,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_orange_cat_5"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -532,7 +539,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_sleepy_cat_0"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -544,7 +551,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_sleepy_cat_1"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -556,7 +563,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_sleepy_cat_2"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -568,7 +575,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_sleepy_cat_3"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -580,7 +587,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_sleepy_cat_4"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -592,7 +599,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_sleepy_cat_5"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -604,7 +611,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_silly_dog_0"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -616,7 +623,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_silly_dog_1"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -628,7 +635,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_silly_dog_2"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -640,7 +647,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_silly_dog_3"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -652,7 +659,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_silly_dog_4"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -664,7 +671,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_silly_dog_5"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -676,7 +683,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_poodle_0"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -688,7 +695,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_poodle_1"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -700,7 +707,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_poodle_2"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -712,7 +719,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_poodle_3"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -724,7 +731,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_poodle_4"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -736,7 +743,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_char_poodle_5"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -750,7 +757,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_glyph2_drop0"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -762,7 +769,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_glyph2_drop1"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -774,7 +781,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_glyph2_drop4"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -786,7 +793,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_glyph2_drop5"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -798,7 +805,7 @@
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_v_glyph2_drop6"
-            android:label="喝水养成"
+            android:label="吨吨"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -836,5 +843,7 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- Android 9~13 的 Health Connect 是独立 App，需声明可见性 -->
+        <package android:name="com.google.android.apps.healthdata" />
     </queries>
 </manifest>

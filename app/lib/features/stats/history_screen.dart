@@ -80,11 +80,9 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
   /// 底部悬浮视图切换：0=日期 1=趋势 2=列表
   int _viewTab = 0;
 
-  // 底部 tab 栏固定尺寸：三个标签都是两字，等宽排布才能让下划线
-  // 按 PageView 页码连续滑动（84 = 图标 18 + 间距 6 + 两字 30 + 内边距 28）
+  // 底部 tab 栏固定尺寸：三个标签都是两字，等宽排布保持视觉平衡
+  // （84 = 图标 18 + 间距 6 + 两字 30 + 内边距 28）
   static const double _kTabItemW = 84;
-  static const double _kTabSepW = 9; // 1px 竖线 + 左右各 4 间距
-  static const double _kTabUnderlineW = 40;
 
   /// 三页横向滑动控制器（与底部 tab 双向联动）
   late final PageController _viewPageController =
@@ -305,50 +303,19 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
         ),
         // 高度交给 Row 自身撑开（中文行高会略高于图标 18），
         // 不写死高度，避免字体行高变化时底部溢出
-        child: Stack(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (var i = 0; i < items.length; i++) ...[
-                  if (i > 0)
-                    Container(
-                      width: 1,
-                      height: 18,
-                      margin: const EdgeInsets.symmetric(horizontal: 4),
-                      color: const Color(0xFFE7E7EA),
-                    ),
-                  _viewTabItem(items[i].$1, items[i].$2, i),
-                ],
-              ],
-            ),
-            // 珊瑚色下划线：跟随 PageView 的翻页进度连续移动
-            // （点按走 animateToPage、左右滑动走拖拽，都是同一个 page）
-            // 而不是每个 tab 各自淡入淡出——那样切换时会跳变
-            AnimatedBuilder(
-              animation: _viewPageController,
-              builder: (context, child) {
-                var page = _viewTab.toDouble();
-                if (_viewPageController.hasClients &&
-                    _viewPageController.position.haveDimensions) {
-                  page = _viewPageController.page ?? page;
-                }
-                return Positioned(
-                  left: page * (_kTabItemW + _kTabSepW) +
-                      (_kTabItemW - _kTabUnderlineW) / 2,
-                  bottom: 0,
-                  width: _kTabUnderlineW,
-                  height: 3,
-                  child: child!,
-                );
-              },
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF2695C),
-                  borderRadius: BorderRadius.circular(2),
+            for (var i = 0; i < items.length; i++) ...[
+              if (i > 0)
+                Container(
+                  width: 1,
+                  height: 18,
+                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                  color: const Color(0xFFE7E7EA),
                 ),
-              ),
-            ),
+              _viewTabItem(items[i].$1, items[i].$2, i),
+            ],
           ],
         ),
       ),
@@ -368,7 +335,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
           if (selected) return;
           HapticFeedback.selectionClick();
           setState(() => _viewTab = index);
-          // 滑动到相邻页（与左右滑动共用同一动画，下划线跟着 page 走）
+          // 滑动到相邻页（与左右滑动共用同一动画）
           _viewPageController.animateToPage(
             index,
             duration: const Duration(milliseconds: 280),
