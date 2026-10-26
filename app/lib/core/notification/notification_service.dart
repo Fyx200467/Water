@@ -33,12 +33,28 @@ class NotificationService {
       FlutterLocalNotificationsPlugin();
   static bool _initialized = false;
 
+  /// iOS 待发本地通知上限 64 条，留 4 条余量（超出的会被系统静默丢弃）
+  static const int _iosPendingLimit = 60;
+
+  /// 日期键（同日不同月/年也可比较，用于 iOS 槽位按时间排序）
+  static int _dayKey(DateTime d) => d.year * 10000 + d.month * 100 + d.day;
+
   static Future<void> _ensureInit() async {
     if (_initialized) return;
     tzdata.initializeTimeZones();
     // 状态栏小图标必须是纯白剪影；用 mipmap 彩色图标会被压成小色块
     const androidInit = AndroidInitializationSettings('ic_stat_water');
-    const initSettings = InitializationSettings(android: androidInit);
+    // iOS：初始化时不弹权限框（由引导页/提醒页的 requestPermission 显式申请），
+    // 但保留前台展示（App 正在用时到点同样弹横幅 + 响铃）
+    const darwinInit = DarwinInitializationSettings(
+      requestAlertPermission: false,
+      requestBadgePermission: false,
+      requestSoundPermission: false,
+    );
+    const initSettings = InitializationSettings(
+      android: androidInit,
+      iOS: darwinInit,
+    );
     try {
       await _plugin.initialize(initSettings);
     } on PlatformException catch (e) {
@@ -48,6 +64,7 @@ class NotificationService {
       await _plugin.initialize(
         const InitializationSettings(
           android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+          iOS: darwinInit,
         ),
       );
     }
@@ -92,6 +109,19 @@ class NotificationService {
           return await android.areNotificationsEnabled() ?? false;
         }
         rethrow;
+      }
+    }
+    // iOS：首次调用弹系统权限框，之后调用只返回当前授权状态
+    final ios = _plugin.resolvePlatformSpecificImplementation<
+        IOSFlutterLocalNotificationsPlugin>();
+    if (ios != null) {
+      try {
+        final granted =
+            await ios.requestPermissions(alert: true, badge: true, sound: true);
+        return granted ?? false;
+      } on PlatformException catch (e) {
+        debugPrint('[notif] request ios permission failed: $e');
+        return false;
       }
     }
     return true;
@@ -213,6 +243,15 @@ class NotificationService {
       todayDrinkMinutes: todayDrinkMinutes,
       goalReached: goalReached,
     );
+    // iOS 系统只保留最早的 64 条待发本地通知（超出的会被静默丢弃），
+    // 故按时间排序后只保留最近的一批；每次打开 App / 记录变化都会重排补足
+    if (Platform.isIOS && slots.length > _iosPendingLimit) {
+      slots.sort((a, b) {
+        final byDay = _dayKey(a.date).compareTo(_dayKey(b.date));
+        return byDay != 0 ? byDay : a.minute.compareTo(b.minute);
+      });
+      slots.removeRange(_iosPendingLimit, slots.length);
+    }
 
     // ---- 只清理已失效的排程，不动通知栏里已展示的通知 ----
     // 注意：不能用 cancelAll()，它会把刚弹出的提醒一并抹掉（通知自己消失）
@@ -236,7 +275,9 @@ class NotificationService {
     if (slots.isEmpty) return;
 
     // 贴纸开关 → 随机角色卡栅格化后作为通知右侧大图标（每轮重排换一张）
-    final iconPath = stickers ? await _characterIcon() : null;
+    // iOS 没有通知大图标位，跳过渲染
+    final iconPath =
+        stickers && !Platform.isIOS ? await _characterIcon() : null;
 
     // ---- 逐槽排程（并行提交，缩短整轮重排耗时）----
     final futures = <Future<void>>[];
@@ -271,6 +312,13 @@ class NotificationService {
               : (stickers
                   ? const DrawableResourceAndroidBitmap('@mipmap/ic_launcher')
                   : null),
+        ),
+        // iOS：App 在前台时也弹横幅 + 播系统提示音
+        iOS: const DarwinNotificationDetails(
+          presentAlert: true,
+          presentBanner: true,
+          presentList: true,
+          presentSound: true,
         ),
       );
       futures.add(_plugin
@@ -320,15 +368,28 @@ class NotificationService {
   /// 系统通知权限当前是否开启（提醒页状态提示用）
   static Future<bool> notificationsEnabled() async {
     await _ensureInit();
+    final ios = _plugin.resolvePlatformSpecificImplementation<
+        IOSFlutterLocalNotificationsPlugin>();
+    if (ios != null) {
+      try {
+        final options = await ios.checkPermissions();
+        return options?.isEnabled ?? true;
+      } catch (e) {
+        debugPrint('[notif] read ios notification state failed: $e');
+        return true;
+      }
+    }
     final android = _plugin.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
     return await android?.areNotificationsEnabled() ?? true;
   }
 
   /// Android 12+ 精确闹钟权限：关闭时排程会降级为 inexact（可能延后）。
-  /// 非 Android 或读取失败一律按可用处理，不影响排程
+  /// iOS 本地通知由系统精确调度、无此权限概念；非 Android 或读取失败
+  /// 一律按可用处理，不影响排程
   static Future<bool> exactAlarmsAllowed() async {
     await _ensureInit();
+    if (Platform.isIOS) return true;
     try {
       final android = _plugin.resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>();

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -861,10 +862,12 @@ class _ReminderSettingsScreenState
                   const Icon(Icons.notifications_off_outlined,
                       color: Color(0xFFC9364F), size: 22),
                   const SizedBox(width: 10),
-                  const Expanded(
+                  Expanded(
                     child: Text(
-                      '系统通知权限未开启，提醒不会弹出。请到 系统设置 → 应用 → 通知 中允许。',
-                      style: TextStyle(
+                      Platform.isIOS
+                          ? '系统通知权限未开启，提醒不会弹出。请到 设置 → 通知 中允许。'
+                          : '系统通知权限未开启，提醒不会弹出。请到 系统设置 → 应用 → 通知 中允许。',
+                      style: const TextStyle(
                         color: Color(0xFFC9364F),
                         fontSize: 12.5,
                         height: 1.4,
@@ -1454,8 +1457,12 @@ class _ReminderSettingsScreenState
     if (_notifAllowed != granted) setState(() => _notifAllowed = granted);
     if (!granted && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('通知权限未开启：请到 系统设置 → 应用 → 喝水养成 → 通知 中允许'),
+        SnackBar(
+          content: Text(
+            Platform.isIOS
+                ? '通知权限未开启：请到 设置 → 通知 中允许'
+                : '通知权限未开启：请到 系统设置 → 应用 → 喝水养成 → 通知 中允许',
+          ),
         ),
       );
     }

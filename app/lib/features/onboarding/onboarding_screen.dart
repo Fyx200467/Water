@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/notification/notification_service.dart';
 import '../../core/storage/providers.dart';
 import '../../shared/models/preferred_unit.dart';
 import '../../shared/models/user_profile.dart';
@@ -921,7 +922,12 @@ class _ReminderScreen extends StatelessWidget {
               width: double.infinity,
               height: 56,
               child: ElevatedButton(
-                onPressed: onContinue,
+                onPressed: () {
+                  // 「提醒我喝水」即开启提醒：在此申请系统通知权限
+                  // （iOS 必须先授权，否则排定的提醒不会弹出）
+                  NotificationService.requestPermission();
+                  onContinue();
+                },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF1C1C1E),
                   foregroundColor: Colors.white,

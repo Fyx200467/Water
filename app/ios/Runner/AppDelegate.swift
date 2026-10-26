@@ -1,16 +1,107 @@
+import AVFoundation
 import Flutter
 import UIKit
+import UserNotifications
 
 @main
-@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
+@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate,
+  UNUserNotificationCenterDelegate
+{
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    // 通知中心回调交给 FlutterAppDelegate 转发（前台横幅 + 点击通知），
+    // flutter_local_notifications 依赖这一步才能在前台展示提醒
+    UNUserNotificationCenter.current().delegate = self
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+
+    // 本工程走 UIScene 生命周期：此时 window / FlutterViewController 尚未就绪，
+    // 通道必须用 applicationRegistrar 的 messenger 创建（官方迁移指引）
+    let messenger = engineBridge.applicationRegistrar.messenger()
+
+    // 音效通道：与 Android MainActivity 的 waterllama/sound 同名同参数
+    FlutterMethodChannel(name: "waterllama/sound", binaryMessenger: messenger)
+      .setMethodCallHandler { [weak self] call, result in
+        guard call.method == "play" else {
+          result(FlutterMethodNotImplemented)
+          return
+        }
+        self?.waterPlayer.play()
+        result(true)
+      }
+
+    // 通知设置通道：跳本应用的系统设置页（通知权限被永久拒绝时使用）
+    FlutterMethodChannel(name: "app.notification.settings", binaryMessenger: messenger)
+      .setMethodCallHandler { call, result in
+        guard call.method == "open" else {
+          result(FlutterMethodNotImplemented)
+          return
+        }
+        guard let url = URL(string: UIApplication.openSettingsURLString) else {
+          result(false)
+          return
+        }
+        UIApplication.shared.open(url, options: [:]) { opened in
+          result(opened)
+        }
+      }
+  }
+
+  /// 加水音效播放器（懒加载，复用同一份素材）
+  private let waterPlayer = WaterSoundPlayer()
+}
+
+/// 播放「加水成功」音效：assets/audio/water_add.m4a
+///
+/// 音频放在 Flutter asset 里（与 Android res/raw 同一份素材），
+/// 通过 FlutterDartProject 的 asset key 在 main bundle 里定位，
+/// 避免往 Xcode 工程 Resources 里额外添加文件。
+final class WaterSoundPlayer {
+  private var player: AVAudioPlayer?
+  private var loadFailed = false
+
+  func play() {
+    guard let player = ensurePlayer() else { return }
+    do {
+      // ambient + mixWithOthers：跟随静音键，且不打断用户正在播放的音乐
+      try AVAudioSession.sharedInstance().setCategory(.ambient, options: [.mixWithOthers])
+      try AVAudioSession.sharedInstance().setActive(true)
+    } catch {
+      // 音频会话被占用时仍尝试播放
+    }
+    if player.isPlaying {
+      player.stop()
+    }
+    player.currentTime = 0
+    player.play()
+  }
+
+  private func ensurePlayer() -> AVAudioPlayer? {
+    if let player = player {
+      return player
+    }
+    if loadFailed {
+      return nil
+    }
+    let key = FlutterDartProject.lookupKey(forAsset: "assets/audio/water_add.m4a")
+    guard let path = Bundle.main.path(forResource: key, ofType: nil) else {
+      loadFailed = true
+      return nil
+    }
+    do {
+      let p = try AVAudioPlayer(contentsOf: URL(fileURLWithPath: path))
+      p.volume = 0.9
+      p.prepareToPlay()
+      player = p
+      return p
+    } catch {
+      loadFailed = true
+      return nil
+    }
   }
 }
