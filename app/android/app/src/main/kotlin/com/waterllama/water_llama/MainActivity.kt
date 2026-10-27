@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.MediaPlayer
+import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -76,6 +77,11 @@ class MainActivity : FlutterActivity() {
                         playSound(call.argument<String>("kind") ?: "")
                         result.success(true)
                     }
+                    // 试听提醒音效：sound = raw 资源名 / default / none
+                    "preview" -> {
+                        playPreview(call.argument<String>("sound") ?: "default")
+                        result.success(true)
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -102,6 +108,39 @@ class MainActivity : FlutterActivity() {
             mp.start()
         } catch (_: Exception) {
             // 音频设备不可用时静默，不影响主流程
+        }
+    }
+
+    /**
+     * 试听提醒音效：
+     * - none   静音，不播放
+     * - default 系统默认通知音
+     * - 其余    res/raw 下同名资源（reminder_chime / reminder_drop / reminder_soft）
+     */
+    private fun playPreview(soundKey: String) {
+        try {
+            if (soundKey == "none") return
+            if (soundKey == "default") {
+                val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                RingtoneManager.getRingtone(this, uri)?.play()
+                return
+            }
+            val resId = resources.getIdentifier(soundKey, "raw", packageName)
+            if (resId == 0) return
+            waterPlayer?.release()
+            val mp = MediaPlayer.create(this, resId) ?: return
+            waterPlayer = mp
+            mp.setVolume(0.9f, 0.9f)
+            mp.setOnCompletionListener {
+                try {
+                    it.release()
+                } catch (_: Exception) {
+                }
+                if (waterPlayer === it) waterPlayer = null
+            }
+            mp.start()
+        } catch (_: Exception) {
+            // 音频设备不可用时静默
         }
     }
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui show TextDirection;
 
@@ -8,6 +9,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../core/storage/providers.dart';
 import '../../core/time/logical_day.dart';
@@ -16,9 +19,11 @@ import '../../shared/models/drink_entry.dart';
 import '../../shared/models/preferred_unit.dart';
 import '../../shared/widgets/drink_illustration.dart';
 import '../characters/current_character_provider.dart';
-import '../drink/providers/custom_beverage_provider.dart';
+import '../drink/providers/beverage_catalog_provider.dart';
+
 import '../drink/widgets/svg_container.dart';
 import '../home/providers/home_providers.dart';
+import '../membership/membership_screen.dart';
 import '../onboarding/widgets/animal_silhouette.dart';
 import '../settings/settings_flags.dart';
 import '../settings/widget_settings_screen.dart';
@@ -42,7 +47,7 @@ const double _kSlidePxPer100 = 62.0;
 
 /// 与首页/管理页一致的饮品图标（预设=插画 / SVG 容器=液体风格 70% 液面 / 自定义=Icon）
 Widget _beverageIcon(Beverage b, double size) {
-  if (isSvgContainer(b.containerId)) {
+  if (hasContainerIcon(b.containerId)) {
     return SvgContainerIcon(
       containerId: b.containerId!,
       color: b.color,
@@ -53,7 +58,13 @@ Widget _beverageIcon(Beverage b, double size) {
   if (b.id.startsWith('custom_')) {
     return Icon(b.icon, size: size - 4, color: b.color);
   }
-  return DrinkIllustration(beverageId: b.id, color: b.color, size: size);
+  return DrinkIllustration(
+    beverageId: Beverage.presets.any((p) => p.id == b.id)
+        ? b.id
+        : Beverage.fallbackIllustration(b.category),
+    color: b.color,
+    size: size,
+  );
 }
 
 /// 对标原版 WaterLlama 历史记录页
@@ -240,9 +251,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
               right: 16,
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onTap: () {
-                  // 分享功能暂未接入，先占位
-                },
+                onTap: _exportCsv,
                 child: Container(
                   width: 36,
                   height: 36,
@@ -275,6 +284,58 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
         ),
       ),
     );
+  }
+
+  // ---------------- 数据导出（会员权益） ----------------
+
+  /// 导出全部饮水记录为 CSV，调起系统分享面板
+  Future<void> _exportCsv() async {
+    if (!await ensureMember(context, ref, feature: '数据导出')) return;
+    if (!mounted) return;
+    final storage = await ref.read(localStorageProvider.future);
+    final now = DateTime.now();
+    final entries = (await storage.loadEntriesForRange(
+      DateTime(2000),
+      DateTime(now.year, now.month, now.day + 1),
+    ))
+        .where((e) => !e.deleted)
+        .toList()
+      ..sort((a, b) => a.drankAt.compareTo(b.drankAt));
+    if (!mounted) return;
+    if (entries.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('暂无可导出的饮水记录')),
+      );
+      return;
+    }
+    final csv = StringBuffer('日期,时间,饮品,分类,容量(ml),有效水分(ml),热量(kcal)\n');
+    final dateFmt = DateFormat('yyyy-MM-dd');
+    final timeFmt = DateFormat('HH:mm');
+    for (final e in entries) {
+      final name = e.beverageName.replaceAll('"', '""');
+      csv.write('${dateFmt.format(e.drankAt)},${timeFmt.format(e.drankAt)},'
+          '"$name",${e.beverageCategory.label},${e.volumeMl},'
+          '${e.effectiveMl},${e.calories < 0 ? '' : e.calories}\n');
+    }
+    try {
+      final dir = await getTemporaryDirectory();
+      final file = File(
+          '${dir.path}${Platform.pathSeparator}water_llama_'
+          '${dateFmt.format(now)}.csv');
+      await file.writeAsString('\uFEFF$csv', flush: true);
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(file.path, mimeType: 'text/csv')],
+          subject: '吨吨饮水记录导出',
+          text: '吨吨饮水记录（${entries.length} 条）',
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('导出失败，请稍后重试')),
+      );
+    }
   }
 
   // ---------------- 底部悬浮视图切换 ----------------
@@ -2533,8 +2594,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
   }
 
   /// 首页/管理页同款饮品池（预设 + 自定义）
-  List<Beverage> _drinkPool() =>
-      [...Beverage.presets, ...ref.read(customBeveragesProvider)];
+  List<Beverage> _drinkPool() => ref.read(beverageLibraryProvider);
 
   /// 把筛选 token 还原成饮品对象（筛选按钮图标用）
   Beverage? _filterBeverage() {

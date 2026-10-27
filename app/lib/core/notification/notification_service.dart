@@ -36,6 +36,53 @@ class NotificationService {
   /// iOS 待发本地通知上限 64 条，留 4 条余量（超出的会被系统静默丢弃）
   static const int _iosPendingLimit = 60;
 
+  /// 提醒音效选项（值 = Android raw 资源名；default 用系统默认音，none 静音）
+  static const Map<String, String> soundLabels = {
+    'default': '默认',
+    'reminder_chime': '清脆铃声',
+    'reminder_drop': '水滴声',
+    'reminder_soft': '轻柔提示',
+    'none': '静音',
+  };
+
+  /// 已在本进程创建过通知渠道的 id（避免重复删建导致系统设置项抖动）
+  static final Set<String> _createdChannels = <String>{};
+
+  /// 渠道 id 按音效区分：Android 8+ 渠道音效创建后不可修改，
+  /// 换音效必须走新渠道，否则设置里改了声音、通知依旧用旧音
+  static String _channelId(bool isInterval, String soundKey) {
+    final base = isInterval ? 'interval_reminder' : 'daily_reminder';
+    return soundKey == 'default' ? base : '${base}_$soundKey';
+  }
+
+  static AndroidNotificationSound? _soundFor(String soundKey) =>
+      (soundKey == 'default' || soundKey == 'none')
+          ? null
+          : RawResourceAndroidNotificationSound(soundKey);
+
+  static Future<void> _ensureChannel(
+      String id, bool isInterval, String soundKey) async {
+    if (_createdChannels.contains(id)) return;
+    final android = _plugin.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    if (android == null) return;
+    try {
+      await android.createNotificationChannel(
+        AndroidNotificationChannel(
+          id,
+          isInterval ? '间隔喝水提醒' : '每日喝水提醒',
+          description: isInterval ? '每隔固定时间提醒你喝水' : '按设定时间提醒你喝水',
+          importance: Importance.high,
+          playSound: soundKey != 'none',
+          sound: _soundFor(soundKey),
+        ),
+      );
+      _createdChannels.add(id);
+    } catch (e) {
+      debugPrint('[notif] create channel $id failed: $e');
+    }
+  }
+
   /// 日期键（同日不同月/年也可比较，用于 iOS 槽位按时间排序）
   static int _dayKey(DateTime d) => d.year * 10000 + d.month * 100 + d.day;
 
@@ -73,22 +120,25 @@ class NotificationService {
     final android =
         _plugin.resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>();
-    await android?.createNotificationChannel(
-      const AndroidNotificationChannel(
-        'daily_reminder',
-        '每日喝水提醒',
-        description: '按设定时间提醒你喝水',
-        importance: Importance.high,
-      ),
-    );
-    await android?.createNotificationChannel(
-      const AndroidNotificationChannel(
-        'interval_reminder',
-        '间隔喝水提醒',
-        description: '每隔固定时间提醒你喝水',
-        importance: Importance.high,
-      ),
-    );
+    if (android != null) {
+      await android.createNotificationChannel(
+        const AndroidNotificationChannel(
+          'daily_reminder',
+          '每日喝水提醒',
+          description: '按设定时间提醒你喝水',
+          importance: Importance.high,
+        ),
+      );
+      await android.createNotificationChannel(
+        const AndroidNotificationChannel(
+          'interval_reminder',
+          '间隔喝水提醒',
+          description: '每隔固定时间提醒你喝水',
+          importance: Importance.high,
+        ),
+      );
+      _createdChannels.addAll(['daily_reminder', 'interval_reminder']);
+    }
     _initialized = true;
   }
 
@@ -201,6 +251,7 @@ class NotificationService {
     bool motivationalTitle = false,
     bool waterFacts = false,
     bool stickers = false,
+    String soundKey = 'default',
   }) async {
     await _ensureInit();
     if (!enabled) {
@@ -274,6 +325,10 @@ class NotificationService {
     }
     if (slots.isEmpty) return;
 
+    // 按所选音效确保通知渠道存在（渠道音效创建后不可改，故按音效分渠道）
+    await _ensureChannel(_channelId(false, soundKey), false, soundKey);
+    await _ensureChannel(_channelId(true, soundKey), true, soundKey);
+
     // 贴纸开关 → 随机角色卡栅格化后作为通知右侧大图标（每轮重排换一张）
     // iOS 没有通知大图标位，跳过渲染
     final iconPath =
@@ -298,12 +353,14 @@ class NotificationService {
       );
       final details = NotificationDetails(
         android: AndroidNotificationDetails(
-          isInterval ? 'interval_reminder' : 'daily_reminder',
+          _channelId(isInterval, soundKey),
           isInterval ? '间隔喝水提醒' : '每日喝水提醒',
           channelDescription:
               isInterval ? '每隔固定时间提醒你喝水' : '按设定时间提醒你喝水',
           importance: Importance.high,
           priority: Priority.high,
+          playSound: soundKey != 'none',
+          sound: _soundFor(soundKey),
           styleInformation: BigTextStyleInformation(body),
           // 角色卡贴纸：通知右侧大图标；生成失败时回退应用图标，
           // 关闭贴纸开关则完全不带大图标
@@ -313,12 +370,14 @@ class NotificationService {
                   ? const DrawableResourceAndroidBitmap('@mipmap/ic_launcher')
                   : null),
         ),
-        // iOS：App 在前台时也弹横幅 + 播系统提示音
-        iOS: const DarwinNotificationDetails(
+        // iOS：App 在前台时也弹横幅 + 播系统提示音（自定义音效需
+        // 打包进 App bundle，当前统一用系统默认音，静音项则不发声）
+        iOS: DarwinNotificationDetails(
           presentAlert: true,
           presentBanner: true,
           presentList: true,
-          presentSound: true,
+          presentSound: soundKey != 'none',
+          sound: soundKey == 'none' ? null : 'default',
         ),
       );
       futures.add(_plugin

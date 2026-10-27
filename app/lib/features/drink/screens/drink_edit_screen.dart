@@ -10,6 +10,7 @@ import '../../../shared/widgets/drink_illustration.dart';
 import '../../settings/settings_flags.dart';
 import '../../settings/widget_settings_screen.dart';
 import '../../home/providers/home_providers.dart';
+import '../providers/beverage_catalog_provider.dart';
 import '../providers/custom_beverage_provider.dart';
 import '../widgets/liquid_preview.dart';
 import '../widgets/svg_container.dart';
@@ -159,7 +160,8 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
     if (name.isEmpty) return;
     // 同名校验：内置预设与其它自定义饮品都不可重名（编辑自身时排除自己）
     final selfId = widget.existing?.id;
-    final duplicated = [...Beverage.presets, ...ref.read(customBeveragesProvider)]
+    final duplicated = ref
+        .read(beverageLibraryProvider)
         .any((b) => b.id != selfId && b.name.trim() == name);
     if (duplicated) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -812,7 +814,7 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
                     _row(
                       icon: Icons.crop_free,
                       label: '图标',
-                      value: !isSvgContainer(_containerId)
+                      value: !hasContainerIcon(_containerId)
                           ? DrinkIllustration(
                               beverageId: _template.templateId ?? _template.id,
                               color: _liquidColor,
@@ -986,19 +988,27 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
   /// 居中大预览：SVG 容器动态液体（颜色/动画实时渲染）
   /// （编辑老数据无容器时回退模板插画）
   Widget _preview() {
-    final child = isSvgContainer(_containerId)
-        ? LiquidPreview(
+    final child = isRemoteContainer(_containerId)
+        // 云端图标（后台下发）：静态液体风格预览（LiquidPreview 只支持本地 SVG）
+        ? SvgContainerIcon(
             containerId: _containerId!,
             color: _liquidColor,
-            animation: _animKey,
+            fillRatio: 0.7,
+            size: 150,
           )
-        : _isEditing
-            ? DrinkIllustration(
-                beverageId: _template.templateId ?? _template.id,
+        : isSvgContainer(_containerId)
+            ? LiquidPreview(
+                containerId: _containerId!,
                 color: _liquidColor,
-                size: 150,
+                animation: _animKey,
               )
-            : const SizedBox(width: 170, height: 225);
+            : _isEditing
+                ? DrinkIllustration(
+                    beverageId: _template.templateId ?? _template.id,
+                    color: _liquidColor,
+                    size: 150,
+                  )
+                : const SizedBox(width: 170, height: 225);
     return Stack(
       alignment: Alignment.center,
       children: [

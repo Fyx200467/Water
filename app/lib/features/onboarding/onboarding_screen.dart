@@ -39,6 +39,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   String get _weightDisplay => '${_weight.round()}kg';
   double _weight = 60; // 默认体重(kg)，未选时用此默认值参与计算
   bool _weightSelected = false; // 体重卡片是否已被用户点选过
+  double _height = 170; // 默认身高(cm)，参与目标公式
   ActivityLevel _activity = ActivityLevel.medium; // 默认中等强度（已选中）
   GoalTemperature _temp = GoalTemperature.mild; // 默认温和
   int? _customGoal; // 用户自定义目标 ml
@@ -54,7 +55,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     final base = UserProfile.create(
       gender: _gender ?? Gender.male,
       weightKg: _weight,
-      heightCm: 170,
+      heightCm: _height,
       age: 25,
       activityLevel: _activity,
     ).dailyGoalMl;
@@ -75,7 +76,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     final profile = UserProfile.create(
       gender: _gender ?? Gender.male,
       weightKg: _weight,
-      heightCm: 170,
+      heightCm: _height,
       age: 25,
       activityLevel: _activity,
       customGoalMl: _previewGoal,
@@ -103,12 +104,14 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               genderSelected: _gender != null,
               weightSelected: _weightSelected,
               weightDisplay: _weightSelected ? _weightDisplay : null,
+              heightDisplay: '${_height.round()}cm',
               activity: _activity,
               temp: _temp,
               customGoal: _customGoal,
               previewGoal: _previewGoal,
               onGenderTap: () => _showGenderSheet(context),
               onWeightTap: () => _showWeightSheet(context),
+              onHeightTap: () => _showHeightSheet(context),
               onActivityTap: () => _showActivitySheet(context),
               onTempTap: () => _showTempSheet(context),
               onCustomGoalTap: () => _showCustomGoalSheet(context),
@@ -177,14 +180,36 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
-      builder: (_) => _WeightWheelSheet(
-        initialKg: _weight,
+      builder: (_) => _NumberWheelSheet(
+        title: '体重',
+        min: 30,
+        max: 200,
+        initial: _weight,
         onDone: (kg) {
           setState(() {
             _weight = kg;
             _weightSelected = true;
           });
         },
+      ),
+    );
+  }
+
+  /// 身高录入：与体重同款数字滚轮（cm）
+  void _showHeightSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFFF7F6FB),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (_) => _NumberWheelSheet(
+        title: '身高',
+        min: 120,
+        max: 220,
+        initial: _height,
+        onDone: (cm) => setState(() => _height = cm),
       ),
     );
   }
@@ -368,36 +393,45 @@ class _SheetGrabber extends StatelessWidget {
 
 // ============================ 体重滚轮选择弹层 ============================
 
-/// 滚轮体重选择弹层（对标原版：kg 数字轮，选中行深色大字 +
-/// 浅灰高亮带 + 上下渐隐，底部「完成」胶囊随页面水色）
-class _WeightWheelSheet extends StatefulWidget {
-  const _WeightWheelSheet({required this.initialKg, required this.onDone});
+/// 滚轮数字选择弹层（体重 kg / 身高 cm 共用；对标原版：数字轮，
+/// 选中行深色大字 + 浅灰高亮带 + 上下渐隐，底部「完成」胶囊随页面水色）
+class _NumberWheelSheet extends StatefulWidget {
+  const _NumberWheelSheet({
+    required this.title,
+    required this.min,
+    required this.max,
+    required this.initial,
+    required this.onDone,
+  });
 
-  final double initialKg;
-  final void Function(double kg) onDone;
+  final String title;
+  final int min;
+  final int max;
+  final double initial;
+  final void Function(double value) onDone;
 
   @override
-  State<_WeightWheelSheet> createState() => _WeightWheelSheetState();
+  State<_NumberWheelSheet> createState() => _NumberWheelSheetState();
 }
 
-class _WeightWheelSheetState extends State<_WeightWheelSheet> {
+class _NumberWheelSheetState extends State<_NumberWheelSheet> {
   static const _sheetBg = Color(0xFFF7F6FB);
   static const _accentCyan = Color(0xFF4DB8D8); // 与信息录入页水色一致
   static const _inkDark = Color(0xFF171A26);
   static const _inkGray = Color(0xFF3A3F52);
   static const double _itemExtent = 56;
 
-  static const int _kMin = 30, _kMax = 200; // kg 范围
+  late final int _kMin = widget.min, _kMax = widget.max;
 
   late int _numSel; // 数字轮当前下标
-  late double _kg;
+  late double _value;
   late final FixedExtentScrollController _numCtrl;
 
   @override
   void initState() {
     super.initState();
-    _kg = widget.initialKg.clamp(_kMin.toDouble(), _kMax.toDouble());
-    _numSel = _kg.round() - _kMin;
+    _value = widget.initial.clamp(_kMin.toDouble(), _kMax.toDouble());
+    _numSel = _value.round() - _kMin;
     _numCtrl = FixedExtentScrollController(initialItem: _numSel);
   }
 
@@ -412,7 +446,7 @@ class _WeightWheelSheetState extends State<_WeightWheelSheet> {
     HapticFeedback.selectionClick();
     setState(() {
       _numSel = i;
-      _kg = (_kMin + i).toDouble();
+      _value = (_kMin + i).toDouble();
     });
   }
 
@@ -436,9 +470,9 @@ class _WeightWheelSheetState extends State<_WeightWheelSheet> {
             ),
           ),
           const SizedBox(height: 14),
-          const Text(
-            '体重',
-            style: TextStyle(
+          Text(
+            widget.title,
+            style: const TextStyle(
                 color: _inkDark, fontSize: 20, fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 8),
@@ -478,7 +512,7 @@ class _WeightWheelSheetState extends State<_WeightWheelSheet> {
           // 「完成」胶囊（背景色跟随信息录入页的水色）
           ElevatedButton(
             onPressed: () {
-              widget.onDone(_kg);
+              widget.onDone(_value);
               Navigator.of(context).pop();
             },
             style: ElevatedButton.styleFrom(
@@ -571,12 +605,14 @@ class _GoalCalcScreen extends StatefulWidget {
     required this.genderSelected,
     required this.weightSelected,
     required this.weightDisplay,
+    required this.heightDisplay,
     required this.activity,
     required this.temp,
     required this.customGoal,
     required this.previewGoal,
     required this.onGenderTap,
     required this.onWeightTap,
+    required this.onHeightTap,
     required this.onActivityTap,
     required this.onTempTap,
     required this.onCustomGoalTap,
@@ -593,12 +629,16 @@ class _GoalCalcScreen extends StatefulWidget {
 
   /// 体重展示值（如 "62kg"），null = 未选择（选项卡只显示箭头）
   final String? weightDisplay;
+
+  /// 身高展示值（如 "170cm"，始终有默认值）
+  final String heightDisplay;
   final ActivityLevel activity;
   final GoalTemperature temp;
   final int? customGoal;
   final int previewGoal;
   final VoidCallback onGenderTap;
   final VoidCallback onWeightTap;
+  final VoidCallback onHeightTap;
   final VoidCallback onActivityTap;
   final VoidCallback onTempTap;
   final VoidCallback onCustomGoalTap;
@@ -693,8 +733,8 @@ class _GoalCalcScreenState extends State<_GoalCalcScreen>
                       ),
                     ),
                     const SizedBox(height: 18),
-                    // 4 张白胶囊选项卡（左深色标签 + 右蓝色值与箭头；
-                    // 性别/体重带左右轻微颤动）
+                    // 5 张白胶囊选项卡（左深色标签 + 右蓝色值与箭头；
+                    // 性别/体重/身高带左右轻微颤动）
                     PillSway(
                       t: t,
                       phase: 0.0,
@@ -712,6 +752,16 @@ class _GoalCalcScreenState extends State<_GoalCalcScreen>
                         label: '体重',
                         value: widget.weightDisplay,
                         onTap: widget.onWeightTap,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    PillSway(
+                      t: t,
+                      phase: math.pi / 2,
+                      child: _OptionCapsule(
+                        label: '身高',
+                        value: widget.heightDisplay,
+                        onTap: widget.onHeightTap,
                       ),
                     ),
                     const SizedBox(height: 12),

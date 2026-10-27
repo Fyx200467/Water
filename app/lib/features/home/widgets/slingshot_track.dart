@@ -162,6 +162,7 @@ class _SlingshotDrinkTrackState extends ConsumerState<SlingshotDrinkTrack>
   @override
   void dispose() {
     _flingTimer?.cancel();
+    _routeAnim?.removeListener(_onRouteCovered);
     _snapAnim.dispose();
     _dropAnim.dispose();
     _splashAnim.dispose();
@@ -257,6 +258,13 @@ class _SlingshotDrinkTrackState extends ConsumerState<SlingshotDrinkTrack>
     return ((_pos.round() % n) + n) % n;
   }
 
+  /// 居中杯的真实弧线参数：正常吸附后恰为 0.5，若停在半格也能跟随实际位置
+  double get _centerT => _tOf(_delta(_centerIndex));
+
+  /// 居中杯真实横坐标（容量标签、下拉提示、喷射起点都以它为准，
+  /// 避免与固定在 w/2 的文字错位）
+  double get _centerX => _screenW * _centerT;
+
   /// 缩放：居中仅轻微放大，两侧依次缩小
   double _scaleOf(double ad) {
     final s = 1.12 - 0.24 * ad;
@@ -290,7 +298,7 @@ class _SlingshotDrinkTrackState extends ConsumerState<SlingshotDrinkTrack>
     _pulling = false;
     _pull = 0;
     // 只有按在居中饮品附近才允许下拉发射；上一发还在飞时不允许再拉
-    final c = Offset(_screenW / 2, _yOf(0.5));
+    final c = Offset(_centerX, _yOf(_centerT));
     _pullAvailable = !_dropAnim.isAnimating &&
         (_downX - c.dx).abs() <= 66 &&
         (_downY - c.dy).abs() <= 78;
@@ -354,9 +362,16 @@ class _SlingshotDrinkTrackState extends ConsumerState<SlingshotDrinkTrack>
     // 下拉松手：超过阈值才发射（容量已有默认档，无需先手动选择）
     if (pulled) {
       if (drag >= _pullThreshold) _fire(drag);
+      // 发射 / 轻拉到一半松手都要回正：否则轨道会停在半格，
+      // 居中杯偏离屏幕中心、容量标签与杯身错位
+      _snapToNearest(_pos);
       return;
     }
-    if (!horizontal || _drinks.length < 2) return;
+    if (!horizontal || _drinks.length < 2) {
+      // 点按（改容量）与轻触也要回正，避免吸附动画被按下打断后停在半格
+      _snapToNearest(_pos);
+      return;
+    }
 
     final unitPx = _screenW * _spacing;
     var v = -vx / unitPx; // 槽位/秒
@@ -431,7 +446,7 @@ class _SlingshotDrinkTrackState extends ConsumerState<SlingshotDrinkTrack>
     if (selfBox == null) return;
 
     final start = selfBox.localToGlobal(
-      Offset(_screenW / 2, _yOf(0.5) + pullDepth),
+      Offset(_centerX, _yOf(_centerT) + pullDepth),
     );
     // 角色卡片暂时不可用时回退到屏幕中上方：仍然完成飞行和记账，
     // 不再静默失败让用户以为已经打出去了
@@ -515,7 +530,11 @@ class _SlingshotDrinkTrackState extends ConsumerState<SlingshotDrinkTrack>
     SoundService.dropHit();
     // 飘字展示「有效水分」（如啤酒 330ml × 0.65 ≈ 215ml），与首页进度口径一致
     _showSplash(f.end, f.color, f.effectiveMl);
-    // 折算算法与标准加量页完全一致（DrinkEntry.create → beverage.effectiveMl）
+    await _recordEntry(f);
+  }
+
+  /// 记账：折算算法与标准加量页完全一致（DrinkEntry.create → beverage.effectiveMl）
+  Future<void> _recordEntry(_Flight f) async {
     final entry = DrinkEntry.create(
       beverage: f.drink.beverage,
       volumeMl: f.ml,
@@ -610,6 +629,46 @@ class _SlingshotDrinkTrackState extends ConsumerState<SlingshotDrinkTrack>
     });
   }
 
+  // ==================== 页面被盖住时的收尾 ====================
+
+  Animation<double>? _routeAnim;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // 首页路由被新页面（如菜单页）盖住时，飞行的水滴/水花必须立刻撤销：
+    // 它们插在根 Overlay 上，不撤销就会浮在新页面上；而且非当前路由的
+    // Ticker 会被静音，_dropAnim 永远停在 animating → 再也发射不出去（卡死）
+    final anim = ModalRoute.of(context)?.secondaryAnimation;
+    if (anim != _routeAnim) {
+      _routeAnim?.removeListener(_onRouteCovered);
+      _routeAnim = anim;
+      _routeAnim?.addListener(_onRouteCovered);
+    }
+  }
+
+  void _onRouteCovered() {
+    if ((_routeAnim?.value ?? 0) > 0) _abortFlight();
+  }
+
+  /// 撤销在途飞行 / 水花（不动用户数据：已打出去的那一发照常记账）
+  void _abortFlight() {
+    final pending = _flight;
+    final flying = pending != null || _dropAnim.isAnimating;
+    // 令牌自增：旧的 forward 回调（若已排队）直接失效，避免重复记账
+    _flightToken++;
+    _splashToken++;
+    _flightEntry?.remove();
+    _flightEntry = null;
+    _splashEntry?.remove();
+    _splashEntry = null;
+    _flight = null;
+    _splashAt = null;
+    if (_dropAnim.isAnimating) _dropAnim.stop();
+    if (_splashAnim.isAnimating) _splashAnim.stop();
+    if (flying && pending != null) _recordEntry(pending);
+  }
+
   // ==================== 构建 ====================
 
   @override
@@ -667,11 +726,12 @@ class _SlingshotDrinkTrackState extends ConsumerState<SlingshotDrinkTrack>
               ),
             ),
           ),
-          // 容量胶囊：只固定显示在居中饮品上方（滑动/吸附过程中隐藏）
-          if (_settled)
+          // 容量胶囊：只固定显示在居中饮品上方（滑动/吸附/下拉过程中隐藏，
+          // 否则会与「松手发射」提示上下叠成两行）
+          if (_settled && !_pulling)
             Positioned(
-              left: w / 2 - 44,
-              top: _yOf(0.5) - 68,
+              left: _centerX - 44,
+              top: _yOf(_centerT) - 68,
               width: 88,
               child: IgnorePointer(
                 child: Center(
@@ -691,8 +751,8 @@ class _SlingshotDrinkTrackState extends ConsumerState<SlingshotDrinkTrack>
           // 下拉进度提示：超过阈值后明确「松手发射」，避免误触后不知会记账
           if (_pulling && _pull >= _pullThreshold)
             Positioned(
-              left: w / 2 - 70,
-              top: _yOf(0.5) + _pull - 62,
+              left: _centerX - 70,
+              top: _yOf(_centerT) + _pull - 62,
               width: 140,
               child: IgnorePointer(
                 child: Center(

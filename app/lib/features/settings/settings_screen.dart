@@ -8,9 +8,9 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/notification/notification_service.dart';
 import '../../core/storage/providers.dart';
+import '../../core/sync/sync_api.dart';
 import '../../shared/models/preferred_unit.dart';
 import '../../shared/models/user_profile.dart';
-import '../../shared/widgets/drink_illustration.dart';
 import '../drink/providers/custom_beverage_provider.dart';
 import '../home/challenge_sheet.dart' show challengeJoined;
 import '../home/providers/home_providers.dart';
@@ -24,6 +24,8 @@ import 'health_sync_screen.dart';
 import 'reset_time_screen.dart';
 import 'settings_flags.dart';
 import 'widget_settings_screen.dart';
+import '../membership/membership_provider.dart';
+import '../membership/membership_screen.dart';
 
 /// PRD §2.8 设置页 — 对标原版 WaterLlama App 设计
 ///
@@ -38,7 +40,7 @@ import 'widget_settings_screen.dart';
 /// 8. 语言 / 帮助与支持
 /// 9. 社区
 /// 10. 分享 CTA
-/// 11. "我们的 App" 推荐区
+/// 11. "我们的网站" 推荐区
 /// 12. 底部 footer（恢复购买 / 条款 / 版本号）
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -107,6 +109,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     const SizedBox(height: 12),
                     // ---- 卡片2：每日目标 ----
                     _buildGoalCard(profile),
+                    const SizedBox(height: 12),
+                    // ---- 卡片3：会员 ----
+                    _buildMembershipCard(),
                     const SizedBox(height: 28),
 
                     // ---- 分组1：功能 ----
@@ -244,16 +249,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       '',
                       [
                         _settingRow(
-                          icon: Icons.language,
-                          iconBg: const Color(0xFFFF9500),
-                          iconColor: Colors.white,
+                          iconAsset: 'language.svg',
                           title: '语言',
                           trailingText: '简体中文',
                         ),
                         _settingRow(
-                          icon: Icons.question_answer_rounded,
-                          iconBg: const Color(0xFF8E8E93),
-                          iconColor: Colors.white,
+                          iconAsset: 'help.svg',
                           title: '帮助与支持',
                         ),
                       ],
@@ -265,9 +266,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       '',
                       [
                         _settingRow(
-                          icon: Icons.delete_outline,
-                          iconBg: Colors.redAccent,
-                          iconColor: Colors.white,
+                          iconAsset: 'delete.svg',
                           title: '清除全部数据',
                           showArrow: false,
                           isDestructive: true,
@@ -282,9 +281,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       '',
                       [
                         _settingRow(
-                          icon: Icons.groups,
-                          iconBg: const Color(0xFFAF52DE),
-                          iconColor: Colors.white,
+                          iconAsset: 'social.svg',
                           title: '社交媒体上的喝水羊驼社区',
                         ),
                       ],
@@ -295,7 +292,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     _buildShareButton(),
                     const SizedBox(height: 32),
 
-                    // ---- "我们的 App" 推荐区 ----
+                    // ---- "我们的网站" 推荐区 ----
                     _buildOurAppsSection(),
                     const SizedBox(height: 24),
 
@@ -331,6 +328,71 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           Icons.arrow_back_ios_new,
           size: 15,
           color: _textPrimary,
+        ),
+      ),
+    );
+  }
+
+  // ==================== 卡片3：会员 ====================
+
+  Widget _buildMembershipCard() {
+    final m = ref.watch(membershipProvider);
+    const gold = Color(0xFFD9A13B);
+    return GestureDetector(
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const MembershipScreen()),
+      ),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: m.isMember
+                ? const [Color(0xFFFFF3DC), Color(0xFFFFE7BE)]
+                : const [Color(0xFFEAF7FB), Color(0xFFDDF1F8)],
+          ),
+          borderRadius: BorderRadius.circular(22),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.workspace_premium,
+                size: 30, color: m.isMember ? gold : const Color(0xFF3BB3DB)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    m.isMember ? '吨吨会员' : '开通吨吨会员',
+                    style: const TextStyle(
+                      color: _textPrimary,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    m.isMember
+                        ? m.statusLabel
+                        : '解锁全部动物、饮品与专属小组件',
+                    style: const TextStyle(
+                      color: Color(0xFF7C7C82),
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Text(
+              m.isMember ? '管理' : '去开通',
+              style: TextStyle(
+                color: m.isMember ? gold : const Color(0xFF3BB3DB),
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const Icon(Icons.chevron_right,
+                color: _arrowColor, size: 20),
+          ],
         ),
       ),
     );
@@ -393,9 +455,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       height: 1.2,
                     ),
                   ),
-                  const SizedBox(width: 6),
-                  SvgPicture.asset('assets/icons/menu/crown.svg',
-                      width: 17, height: 17),
+                  if (ref.watch(membershipProvider).isMember) ...[
+                    const SizedBox(width: 6),
+                    SvgPicture.asset('assets/icons/menu/crown.svg',
+                        width: 17, height: 17),
+                  ],
                 ],
               ),
             ),
@@ -561,9 +625,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     return out;
   }
 
-  /// 菜单页彩色 SVG 图标（图标自带配色，30×30 直接渲染，无底色块）
+  /// 菜单页彩色 SVG 图标（图标自带配色，26×26 直接渲染，无底色块）
   Widget _menuIcon(String asset) =>
-      SvgPicture.asset('assets/icons/menu/$asset', width: 30, height: 30);
+      SvgPicture.asset('assets/icons/menu/$asset', width: 26, height: 26);
 
   /// 通用设置行：左图标(带圆角背景) + 标题 + 右侧值/箭头
   ///
@@ -670,29 +734,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  // ==================== "我们的 App" 推荐区 ====================
+  // ==================== "我们的网站" 推荐区 ====================
 
   Widget _buildOurAppsSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          '我们的 App',
+          '我们的网站',
           style: TextStyle(
             color: _textPrimary,
-            fontSize: 22,
-            fontWeight: FontWeight.w800,
+            fontSize: 19,
+            fontWeight: FontWeight.w500,
           ),
         ),
         const SizedBox(height: 12),
         Container(
           padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: const Color(0xFFE8F5E9),
-            borderRadius: BorderRadius.circular(16),
-          ),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               // App 图标 + "新" 标签
               Stack(
@@ -705,9 +765,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(14),
                     ),
-                    child: const DrinkIllustration(
-                      beverageId: 'llama',
-                      size: 48,
+                    child: SvgPicture.asset(
+                      'assets/icons/menu/ai.svg',
+                      width: 40,
+                      height: 40,
                     ),
                   ),
                   Positioned(
@@ -740,7 +801,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      '卡路里羊驼',
+                      '鲲穹Ai工具箱',
                       style: TextStyle(
                         color: _textPrimary,
                         fontSize: 16,
@@ -749,36 +810,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                     const SizedBox(height: 4),
                     const Text(
-                      '拍张照片，用 AI 跟踪卡路里。个人的减肥、'
-                      '维持体重或增重计划。1,000 多个5星好评。',
+                      '探索 AI 智能「懂你所言、答你所问、创你所需、解你所难、教你所学」',
                       style: TextStyle(
                         color: _textSecondary,
                         fontSize: 12,
                         height: 1.3,
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: const [
-                        Icon(Icons.apple, size: 14, color: _textSecondary),
-                        SizedBox(width: 4),
-                        Text(
-                          '今日 App',
-                          style: TextStyle(
-                            color: _textSecondary,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        SizedBox(width: 4),
-                        Text(
-                          '· 100+ 个国家/地区',
-                          style: TextStyle(
-                            color: _textSecondary,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ],
                     ),
                   ],
                 ),
@@ -822,7 +859,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     return Column(
       children: [
         TextButton(
-          onPressed: () => _showSnack('恢复购买'),
+          onPressed: () async {
+            bool ok;
+            try {
+              ok = await ref.read(membershipProvider.notifier).restore();
+            } catch (_) {
+              if (!mounted) return;
+              _showSnack('恢复购买需要联网，请检查网络后重试');
+              return;
+            }
+            if (!mounted) return;
+            if (ok) {
+              _showSnack('会员权益已恢复');
+            } else {
+              // 没有本地记录：引导到会员中心（正式版由服务端凭据恢复）
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const MembershipScreen()),
+              );
+            }
+          },
           child: const Text(
             '恢复购买',
             style: TextStyle(color: _textSecondary, fontSize: 14),
@@ -835,9 +890,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             style: TextStyle(color: _textSecondary, fontSize: 12),
           ),
         ),
-        const Text(
-          '1.0.0 (1)',
-          style: TextStyle(color: _arrowColor, fontSize: 11),
+        GestureDetector(
+          onLongPress: _showApiBaseDialog,
+          behavior: HitTestBehavior.opaque,
+          child: const Text(
+            '1.0.0 (1)',
+            style: TextStyle(color: _arrowColor, fontSize: 11),
+          ),
         ),
       ],
     );
@@ -849,6 +908,60 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(msg), duration: const Duration(seconds: 2)),
     );
+  }
+
+  /// 开发入口：长按版本号修改接口地址（内网穿透调试用）
+  Future<void> _showApiBaseDialog() async {
+    final controller = TextEditingController(text: SyncApi.baseUrl);
+    final input = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('接口地址'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: controller,
+              autocorrect: false,
+              keyboardType: TextInputType.url,
+              decoration: const InputDecoration(
+                hintText: 'https://example.ngrok.io',
+              ),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              '内网穿透域名变化后改这里即可，无需重新打包；'
+              '粘贴带 /api/v1 的地址会自动取域名部分',
+              style: TextStyle(fontSize: 11, color: Color(0xFF8E8E93)),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    if (input == null || !mounted) return;
+    final normalized = SyncApi.normalize(input);
+    if (normalized == null) {
+      _showSnack('地址格式不正确');
+      return;
+    }
+    SyncApi.configure(normalized);
+    final storage = await ref.read(localStorageProvider.future);
+    await storage.prefs.setString(SyncApi.prefsKey, normalized);
+    ref.invalidate(membershipPlansProvider);
+    if (!mounted) return;
+    _showSnack('接口地址已更新：$normalized');
   }
 
   /// 测量单位弹层（对标原版：「你使用什么单位」+ 两个青色胶囊按钮）

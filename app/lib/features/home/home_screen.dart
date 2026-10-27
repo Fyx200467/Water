@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:home_widget/home_widget.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../shared/models/beverage.dart';
 import '../../shared/models/drink_entry.dart';
@@ -16,6 +17,7 @@ import '../characters/character_catalog.dart';
 import '../characters/character_data.dart';
 import '../characters/character_screen.dart';
 import '../characters/current_character_provider.dart';
+import '../drink/providers/beverage_catalog_provider.dart';
 import '../drink/providers/custom_beverage_provider.dart';
 import '../drink/services/hydration_calculator.dart';
 import '../drink/widgets/svg_container.dart';
@@ -25,7 +27,6 @@ import '../onboarding/widgets/animal_silhouette.dart';
 import '../settings/settings_flags.dart';
 import '../stats/history_screen.dart';
 import '../stats/providers/stats_providers.dart';
-import 'challenge_sheet.dart';
 import 'habit_module.dart';
 import 'confetti_rain.dart';
 import 'daily_review_screen.dart';
@@ -65,9 +66,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// 小组件点击事件订阅（热启动 onNewIntent 转发）
   StreamSubscription<Uri?>? _widgetClickSub;
 
-  /// 挑战面板滚动联动：滚动位置 + 「酒红卡『31 天挑战』已滚入视口」状态
   final ScrollController _scrollCtrl = ScrollController();
-  final ValueNotifier<bool> _challengeCompact = ValueNotifier(false);
   /// 习惯卡堆叠效果用：把滚动像素透传给卡牌区（堆叠位置按滚动实时计算）
   final ValueNotifier<double> _scrollPixels = ValueNotifier(0);
   /// 弹弓发射命中检测用：角色卡片 bounds 的全局 key
@@ -100,7 +99,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _widgetClickSub?.cancel();
     _scrollCtrl.removeListener(_onScroll);
     _scrollCtrl.dispose();
-    _challengeCompact.dispose();
     _scrollPixels.dispose();
     super.dispose();
   }
@@ -112,6 +110,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (state == AppLifecycleState.resumed) {
       _drainNativeWidgetAdds();
       ref.read(todayEntriesProvider.notifier).refresh();
+      // 回前台顺手拉一次云端饮品目录：后台改图标/加饮品无需重启 App
+      ref.read(beverageCatalogProvider.notifier).refresh();
     }
   }
 
@@ -135,11 +135,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       // 等槽位配置与自定义饮品加载完成（冷启动早期必然经历这个窗口）
       await ref.read(widgetSettingsProvider.notifier).loaded;
       await ref.read(customBeveragesProvider.notifier).loaded;
+      await ref.read(beverageCatalogProvider.notifier).loaded;
       final s = ref.read(widgetSettingsProvider);
-      final all = [
-        ...Beverage.presets,
-        ...ref.read(customBeveragesProvider),
-      ];
+      final all = ref.read(beverageLibraryProvider);
       final items = pending.split('|').where((e) => e.isNotEmpty).toList();
       for (var i = 0; i < items.length; i++) {
         final parts = items[i].split(':');
@@ -192,12 +190,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
   }
 
-  /// 滚动联动：酒红卡内「31 天挑战」标签滚入视口 → 露出条切换紧凑态
-  /// （图标隐匿、「滴酒不沾的十月」→「挑战」），回滚至标签不可见则恢复。
-  /// 阈值推导（0.9 缩放视觉坐标）：标签顶距面板顶 76×0.9≈68.4，
-  /// 常驻露出 42 → 标签顶入视口时 offset≈26.4，取 28
+  /// 滚动联动：把滚动像素透传给习惯卡堆叠区
   void _onScroll() {
-    _challengeCompact.value = _scrollCtrl.offset > 28;
     _scrollPixels.value = _scrollCtrl.offset;
   }
 
@@ -248,8 +242,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       _ => (s.drink3, s.vol3),
     };
     if (vol <= 0) return;
-    final customs = ref.read(customBeveragesProvider);
-    final all = [...Beverage.presets, ...customs];
+    final all = ref.read(beverageLibraryProvider);
     final b = all.firstWhere((x) => x.id == id, orElse: () => all.first);
     final entry = DrinkEntry.create(beverage: b, volumeMl: vol);
     await ref.read(todayEntriesProvider.notifier).add(entry);
@@ -291,14 +284,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   /// 底部水平滚动饮品快捷栏：水 / +98物品胶囊 / 当前角色 / 已开启饮品（可排序）/ 添加或编辑
   Widget _buildDrinkBar(String currentChar, String? currentFilePath) {
-    final customs = ref.watch(customBeveragesProvider);
     final homeDrinks = ref.watch(homeDrinksProvider);
-    // 全量池（非水预设 + 自定义）→ 按持久化顺序取已开启饮品
+    // 全量池（非水预设 + 云端目录 + 自定义）→ 按持久化顺序取已开启饮品
     // （管理页从上到下 = 首页从左到右；水单独渲染在第一位）
-    final pool = [
-      ...Beverage.presets.where((b) => b.id != 'water_pure'),
-      ...customs,
-    ];
+    final pool = ref
+        .watch(beverageLibraryProvider)
+        .where((b) => b.id != 'water_pure')
+        .toList();
     final byId = {for (final b in pool) b.id: b};
     final drinks = [
       for (final id in orderedVisibleIds(homeDrinks, pool))
@@ -370,8 +362,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             // 相邻格变成不同饮品却复用旧 State，图标加载竞态会短暂
             // 显示「旧容器形状 + 新液体色」
             key: ValueKey('drink_${b.id}'),
-            beverageId: b.id.startsWith('custom_') ? null : b.id,
-            icon: isSvgContainer(b.containerId)
+            beverageId: Beverage.presets.any((p) => p.id == b.id)
+                ? b.id
+                : Beverage.fallbackIllustration(b.category),
+            icon: hasContainerIcon(b.containerId)
                 ? SvgContainerIcon(
                     containerId: b.containerId!,
                     color: b.color,
@@ -431,14 +425,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final percent = (progress.progress * 100).round();
     final done = progress.isComplete;
 
+    final topInset = MediaQuery.paddingOf(context).top;
     return Scaffold(
       backgroundColor: Colors.white,
-      body: SafeArea(
-        // Stack 结构：顶部按钮悬浮于内容之上，内容可滚动（后续功能卡片）
-        child: Stack(
+      // 内容直接铺到状态栏下方（edge-to-edge）：上滑时页面从状态栏下穿过，
+      // 不会被顶部白条裁掉；悬浮按钮单独下移，让出状态栏高度
+      body: Stack(
           children: [
-            // 底层：可滚动内容（第一屏固定为「视口高 - 42」，挑战面板顶部
-            // 常驻露出 42：浅青圆角容器 + 图标标题行，上滑自然滚入展开）
+  // 底层：可滚动内容（第一屏铺满视口，习惯模块从下一屏开始）
             Positioned.fill(
               child: LayoutBuilder(
                 builder: (context, cons) => CustomScrollView(
@@ -446,13 +440,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   slivers: [
                     SliverToBoxAdapter(
                       child: SizedBox(
-                        // 第一屏高度 = 视口高 - 42（0.9 缩放后：标题行底 ≈41.4、
-                        // 酒红卡上缘 ≈46.8 → 42 露出行完整且不露卡）
-                        height: cons.maxHeight - 42,
+                        height: cons.maxHeight,
                         child: Column(
                           children: [
-                            // 给悬浮按钮留出空间
-                            const SizedBox(height: 64),
+                            // 给悬浮按钮 + 状态栏留出空间
+                            SizedBox(height: 64 + topInset),
                             // 1. 核心数据：完成时显示"完美星期X！"+ml·%目标；未完成时显示原数字
                             Padding(
                               padding:
@@ -573,26 +565,47 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                         ),
                       ),
                     ),
-                    // 4. 挑战面板：顶部 42 常驻露出，上滑自然滚入展开（对标原版层叠卡片）
-                    // 整体等比例缩小到 0.9（浅青容器+酒红卡+文字一起缩）
-                    SliverToBoxAdapter(
-                      child: Transform.scale(
-                        scale: 0.9,
-                        alignment: Alignment.topCenter,
-                        child: ChallengePanel(compact: _challengeCompact),
-                      ),
-                    ),
-                    // 6. 习惯挑战列表（养成健康的日常习惯 N/9）+ 底部提示卡轮播
+                    // 5. 习惯挑战列表（养成健康的日常习惯 N/9）
                     SliverToBoxAdapter(
                       child: HabitModule(scrollPixels: _scrollPixels),
+                    ),
+                    // 6. 页面到底提示
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 8, bottom: 16),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            SvgPicture.asset(
+                              'assets/icons/home/bottom_tip.svg',
+                              width: 18,
+                              height: 18,
+                            ),
+                            const SizedBox(width: 6),
+                            const Text(
+                              '到底啦',
+                              style: TextStyle(
+                                color: Color(0xFFB0B0B5),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    // 末端留出系统导航栏安全区（内容已铺到屏幕底部）
+                    SliverToBoxAdapter(
+                      child: SizedBox(
+                          height: MediaQuery.paddingOf(context).bottom),
                     ),
                   ],
                 ),
               ),
             ),
-            // 顶层：悬浮按钮（不随内容滚动）
+            // 顶层：悬浮按钮（不随内容滚动），下移状态栏高度避免被遮挡
             Positioned(
-              top: 8,
+              top: topInset + 8,
               left: 20,
               right: 12,
               child: Row(
@@ -641,7 +654,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             ),
           ],
         ),
-      ),
     );
   }
 }

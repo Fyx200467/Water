@@ -46,4 +46,13 @@ class SoundService {
     if (!SettingsFlags.instance.appSounds) return;
     await _play('hit');
   }
+
+  /// 试听提醒音效（用户主动点选时调用，不受 App 声音开关限制）
+  static Future<void> previewReminder(String soundKey) async {
+    try {
+      await _channel.invokeMethod<bool>('preview', {'sound': soundKey});
+    } catch (_) {
+      // 非 Android / 通道不可用：静默降级
+    }
+  }
 }

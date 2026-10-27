@@ -76,6 +76,8 @@ flutter:
     - assets/images/containers/
     - assets/images/tips/
     - assets/icons/menu/
+    - assets/icons/home/
+    - assets/icons/login/
 
 # sqlite3 钩子默认从 GitHub Releases 下载预编译库，当前网络直连超时，
 # 改走 gh-proxy 镜像（$RELEASE_TAG/$FILENAME 为占位符，由钩子替换）

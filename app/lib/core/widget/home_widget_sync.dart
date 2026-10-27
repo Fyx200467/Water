@@ -64,6 +64,9 @@ String tileMlLabel(int ml) {
   return '${ml}ml';
 }
 
+/// iOS App Group 只设置一次（Plugin 内部会缓存到 method channel 侧）
+bool _appGroupConfigured = false;
+
 Future<void> syncHomeWidget({
   required int todayMl,
   required int goalMl,
@@ -77,9 +80,14 @@ Future<void> syncHomeWidget({
   String? streakAnchor, // 连续链已计入的最后一个逻辑日（yyyy-MM-dd）；null = 数据未就绪不覆盖
   bool widgetSounds = true, // 小部件点按是否播放提示音（原生 QuickAddReceiver 读取）
 }) async {
-  // 仅 Android 执行（kIsWeb 需先排除：Web 平台没有 dart:io 的 Platform）
-  if (kIsWeb || !Platform.isAndroid) return;
+  // 仅移动端执行（kIsWeb 需先排除：Web 平台没有 dart:io 的 Platform）
+  if (kIsWeb || (!Platform.isAndroid && !Platform.isIOS)) return;
   try {
+    // iOS WidgetKit 通过 App Group 共享 UserDefaults，首次写入前设置组名
+    if (Platform.isIOS && !_appGroupConfigured) {
+      await HomeWidget.setAppGroupId('group.com.waterllama.waterLlama');
+      _appGroupConfigured = true;
+    }
     // 左上大字：当日饮水总量（与 App 内预览卡实时绑定）。
     // 数字/单位拆成两键两 TextView 同行——单 TextView 混排在 vivo
     // launcher 上会被异常换行/裁切。≥1L 一位小数（1.0升），否则 ml
@@ -156,9 +164,11 @@ Future<void> syncHomeWidget({
         '${logicalDay.year}-${logicalDay.month.toString().padLeft(2, '0')}-'
         '${logicalDay.day.toString().padLeft(2, '0')}');
     // androidName 不能带前导点：插件按「包名 + androidName」反射查找 Provider 类
+    // iOSName 对应 WidgetKit 的 kind（Swift 侧 kind = "WaterLlamaWidget"）
     await HomeWidget.updateWidget(
       name: 'WaterLlamaWidgetProvider',
       androidName: 'WaterLlamaWidgetProvider',
+      iOSName: 'WaterLlamaWidget',
     );
   } catch (_) {
     // 静默失败：桌面端/测试环境没有插件实现，小组件同步不应影响主流程

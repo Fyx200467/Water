@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../core/notification/notification_service.dart';
+import '../../core/sound/sound_service.dart';
 import '../../core/time/logical_day.dart';
 import '../../shared/models/preferred_unit.dart';
 import '../../shared/widgets/wheel_time_picker.dart';
@@ -790,6 +791,60 @@ class _ReminderSettingsScreenState
     return msg.length > 8 ? '${msg.substring(0, 8)}…' : msg;
   }
 
+  /// 选择提醒音效：底部弹层列出选项，点选即试听并按新音效重排
+  Future<void> _pickSound() async {
+    final current = ref.read(reminderSoundProvider);
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(24, 20, 24, 8),
+              child: Text(
+                '提醒音效',
+                style: TextStyle(
+                  color: _textPrimary,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            for (final e in NotificationService.soundLabels.entries)
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 24),
+                title: Text(
+                  e.value,
+                  style: const TextStyle(
+                    color: _textPrimary,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                trailing: e.key == current
+                    ? const Icon(Icons.check_circle, color: _accent)
+                    : const Icon(Icons.radio_button_unchecked,
+                        color: Color(0xFFC7C7CC)),
+                onTap: () => Navigator.pop(ctx, e.key),
+              ),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
+    );
+    if (picked == null || !mounted) return;
+    await ref.read(reminderSoundProvider.notifier).set(picked);
+    // 试听新音效（静音项不发声），随后按新渠道重排全部提醒
+    SoundService.previewReminder(picked);
+    await ref.read(reminderProvider.notifier).rescheduleNow();
+  }
+
   /// 编辑自定义信息：输入弹窗 → 保存并重排（空串 = 清除）
   Future<void> _editCustomMessage() async {
     final ctrl =
@@ -1297,6 +1352,15 @@ class _ReminderSettingsScreenState
             title: '饮水事实',
             subtitle: '每次提醒都包含有关适当饮水益处的有趣事实',
             provider: waterFactsEnabledProvider,
+          ),
+          _advancedRow(
+            icon: Icons.music_note_outlined,
+            title: '提醒音效',
+            subtitle: '选择提醒通知播放的声音',
+            trailingText:
+                NotificationService.soundLabels[ref.watch(reminderSoundProvider)] ??
+                    '默认',
+            onTap: _pickSound,
           ),
           _advancedRow(
             icon: Icons.edit_outlined,

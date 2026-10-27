@@ -202,7 +202,7 @@ class HabitData {
 ///
 /// 结构：居中灰色标题「养成健康的日常习惯 N/9 🏆」（N=已参加数，
 /// 实时联动）→ 习惯卡堆叠区（滚动到顶部后依次吸附堆叠，参考
-/// VueBits card-stack 效果）→ 底部可横滑提示卡轮播（每张可「隐藏提示」）。
+/// VueBits card-stack 效果）。
 class HabitModule extends StatefulWidget {
   const HabitModule({super.key, required this.scrollPixels});
 
@@ -214,7 +214,7 @@ class HabitModule extends StatefulWidget {
 }
 
 class _HabitModuleState extends State<HabitModule> {
-  final List<int> _hiddenHints = [];
+  final GlobalKey _moduleKey = GlobalKey();
 
   @override
   void initState() {
@@ -222,57 +222,107 @@ class _HabitModuleState extends State<HabitModule> {
     ensureHabitsJoinedLoaded();
   }
 
+  /// 标题行：养成健康的日常习惯 N/9 🏆
+  Widget _buildTitle() {
+    return ValueListenableBuilder<Set<String>>(
+      valueListenable: habitsJoined,
+      builder: (context, joined, _) => Text.rich(
+        TextSpan(
+          text: '养成健康的日常习惯 ',
+          style: const TextStyle(
+            color: Color(0xFF8E8E93),
+            fontSize: 17,
+            fontWeight: FontWeight.w600,
+          ),
+          children: [
+            TextSpan(
+              text: '${joined.length}/${HabitData.all.length} ',
+              style: const TextStyle(
+                color: Color(0xFF6B6B70),
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const TextSpan(text: '🏆'),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final topInset = MediaQuery.paddingOf(context).top;
     return LayoutBuilder(
       builder: (context, cons) {
         final w = cons.maxWidth;
         // 与限时挑战卡视觉同宽：原 w−52 再整体 0.9 缩放 → 直接按缩放后尺寸排布
         final cardW = (w - 52) * 0.9;
         const cardH = 196.0 * 0.9;
+        // 标题区高度、标题与第一张卡的间距、牌堆上浮边缘预留
+        const titleH = 26.0;
+        const headerGap = 18.0;
+        const peekReserve = _HabitDeckState._peek * _HabitDeckState._maxDepth;
+        final n = HabitData.all.length;
+        final stride = cardH + _HabitDeck.gap;
+        final deckH = (n - 1) * stride + cardH;
+        // 牌堆吸附线（= 第一张卡吸附后距视口顶部的位置）
+        final stickTop = topInset + titleH + headerGap + peekReserve;
+        // 目标是「滚到页面底部时，倒数第三张卡刚好叠到牌堆顶」，最后两张卡
+        // 自然铺在页面尾部填满屏幕；因此下方只补刚好够用的过渡距离，
+        // 不再垫一整屏留白（否则页面底部会空出一大片）
+        final pinTarget = math.max(0.0, (n - 3) * stride);
+        // 页面末尾固定占用：模块底部留白 44 + 「到底啦」块 42 + 底部安全区
+        final endBlocks =
+            44.0 + 8 + 18 + 16 + MediaQuery.paddingOf(context).bottom;
+        // 不留过渡距离时，滚到页面底部最多只能吸附到这里
+        final reachable =
+            stickTop + deckH + endBlocks - MediaQuery.sizeOf(context).height;
+        final tail = math.max(0.0, pinTarget - reachable);
         return Padding(
           padding: const EdgeInsets.only(top: 14, bottom: 44),
-          child: Column(
+          child: Stack(
+            key: _moduleKey,
+            clipBehavior: Clip.hardEdge,
             children: [
-              // 标题行：养成健康的日常习惯 N/9 🏆
-              ValueListenableBuilder<Set<String>>(
-                valueListenable: habitsJoined,
-                builder: (context, joined, _) => Text.rich(
-                  TextSpan(
-                    text: '养成健康的日常习惯 ',
-                    style: const TextStyle(
-                      color: Color(0xFF8E8E93),
-                      fontSize: 17,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    children: [
-                      TextSpan(
-                        text: '${joined.length}/${HabitData.all.length} ',
-                        style: const TextStyle(
-                          color: Color(0xFF6B6B70),
-                          fontSize: 17,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const TextSpan(text: '🏆'),
-                    ],
+              Column(
+                children: [
+                  // 标题占位（真正显示的是下面那层可吸附的标题）
+                  const SizedBox(height: titleH),
+                  const SizedBox(height: headerGap),
+                  // 习惯卡堆叠区
+                  _HabitDeck(
+                    fullW: w,
+                    cardW: cardW,
+                    cardH: cardH,
+                    stickTop: stickTop,
+                    scrollPixels: widget.scrollPixels,
                   ),
+                  SizedBox(height: tail),
+                ],
+              ),
+              // 标题层：跟着页面滚到顶部后吸附，与第一张卡保持固定距离，
+              // 整摞叠完后随牌堆一起上滑退场
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: ValueListenableBuilder<double>(
+                  valueListenable: widget.scrollPixels,
+                  builder: (context, pixels, _) {
+                    final sectionTop = _screenTopOf(_moduleKey, pixels);
+                    final pinExcess = math.max(0.0, topInset - sectionTop);
+                    final release = math.min(
+                        0.0, (n - 1) * stride - pinExcess - peekReserve);
+                    return Transform.translate(
+                      offset: Offset(0, pinExcess + release),
+                      child: SizedBox(
+                        height: titleH,
+                        child: Center(child: _buildTitle()),
+                      ),
+                    );
+                  },
                 ),
-              ),
-              const SizedBox(height: 18),
-              // 习惯卡堆叠区
-              _HabitDeck(
-                fullW: w,
-                cardW: cardW,
-                cardH: cardH,
-                scrollPixels: widget.scrollPixels,
-              ),
-              const SizedBox(height: 10),
-              // 底部提示卡轮播（可横滑，逐张「隐藏提示」）
-              _HintPager(
-                w: cardW,
-                hidden: _hiddenHints,
-                onHide: (idx) => setState(() => _hiddenHints.add(idx)),
               ),
             ],
           ),
@@ -282,27 +332,44 @@ class _HabitModuleState extends State<HabitModule> {
   }
 }
 
+/// 某个 widget 顶部到视口顶部的有符号距离（负值 = 已滚过视口顶部）
+double _screenTopOf(GlobalKey key, double pixels) {
+  final box = key.currentContext?.findRenderObject() as RenderBox?;
+  // 首帧还没有布局结果：视为远在视口下方，避免误判成已吸附
+  if (box == null || !box.hasSize) return 1e6;
+  return RenderAbstractViewport.of(box).getOffsetToReveal(box, 0.0).offset -
+      pixels;
+}
+
 /// 习惯卡堆叠区
 ///
 /// 参考 VueBits card-stack：
 /// 1. 卡 0 保持自然位置（标题正下方），页面滚动把它带到距视口顶部
-///    [_stackTop] 后固定不动；
+///    [stickTop] 后固定不动（此时标题也吸附在状态栏下方）；
 /// 2. 后续卡片随页面滚动逐张升到同一位置，盖在前一张之上形成牌堆，
 ///    被压住的卡片按层数轻微上移、缩小，露出牌堆边缘；
-/// 3. 全部叠完后（[_stackTop] 之上累计滚动 (n-1) 个步长），整摞牌堆
-///    随页面一起上滑退场；
+/// 3. 全部叠完后（[stickTop] 之上累计滚动 (n-1) 个步长），整摞牌堆
+///    连同标题随页面一起上滑退场；
 /// 4. 堆叠区高度 = 全部步长 + 一张卡，滚完刚好轮到下方提示卡轮播。
 class _HabitDeck extends StatefulWidget {
   const _HabitDeck({
     required this.fullW,
     required this.cardW,
     required this.cardH,
+    required this.stickTop,
     required this.scrollPixels,
   });
+
+  /// 卡牌之间的原始间距（未吸附时首尾相隔）
+  static const double gap = 16;
 
   final double fullW;
   final double cardW;
   final double cardH;
+
+  /// 卡牌吸附位置（距视口顶部）
+  final double stickTop;
+
   final ValueListenable<double> scrollPixels;
 
   @override
@@ -312,18 +379,12 @@ class _HabitDeck extends StatefulWidget {
 class _HabitDeckState extends State<_HabitDeck> {
   final GlobalKey _deckKey = GlobalKey();
 
-  /// 卡牌吸附位置（距视口顶部）
-  static const double _stackTop = 96;
-
-  /// 卡牌之间的原始间距（未吸附时首尾相隔）
-  static const double _gap = 16;
-
   /// 被压住的卡片每层上移量 / 缩放量（露出牌堆边缘）
-  static const double _peek = 8;
+  static const double _peek = 6;
   static const double _depthScale = 0.04;
   static const int _maxDepth = 3;
 
-  double get _stride => widget.cardH + _gap;
+  double get _stride => widget.cardH + _HabitDeck.gap;
 
   /// 视口顶部到堆叠区顶部的有符号距离（负值表示已滚过视口顶部）
   double _sectionTop(double pixels) {
@@ -345,8 +406,8 @@ class _HabitDeckState extends State<_HabitDeck> {
       builder: (context, pixels, _) {
         final sectionTop = _sectionTop(pixels);
         // 堆叠区顶部越过吸附线之后继续滚动的距离：卡 0 在此距离内被
-        // 固定在视口 [_stackTop]，卡 i 在 i 个步长处升到堆叠位
-        final pinExcess = math.max(0.0, _stackTop - sectionTop);
+        // 固定在视口 [stickTop]，卡 i 在 i 个步长处升到堆叠位
+        final pinExcess = math.max(0.0, widget.stickTop - sectionTop);
         // 全部叠完之后整摞随页面上滑退场（负值 = 上移量）
         final release = math.min(0.0, stackDone - pinExcess);
         // 已叠上来的卡片数量
@@ -440,150 +501,46 @@ class _HabitCard extends StatelessWidget {
                 child: SvgPicture.asset(data.asset, fit: BoxFit.contain),
               ),
             ),
-            // 文案层：左侧垂直居中偏下
+            // 文案层：左边距固定为卡宽的 10%，垂直居中（所有卡文字起点一致）
             Positioned(
-              left: 22,
+              left: w * 0.1,
               right: 135,
-              bottom: 23,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '10 天挑战',
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.55),
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w700,
+              top: 0,
+              bottom: 0,
+              // centerLeft：垂直居中、水平靠左——Center 会把文字块整体水平
+              // 居中，标题长度不同的卡文字起点就会各不相同
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '10 天挑战',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.55),
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    data.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.w800,
-                      height: 1.22,
+                    const SizedBox(height: 4),
+                    Text(
+                      data.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w800,
+                        height: 1.22,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// 底部提示卡轮播（对标原版：剩余饮水量/随机角色/喝水提醒）
-class _HintPager extends StatelessWidget {
-  const _HintPager({
-    required this.w,
-    required this.hidden,
-    required this.onHide,
-  });
-
-  final double w;
-  final List<int> hidden;
-  final ValueChanged<int> onHide;
-
-  static const _hints = [
-    (
-      Color(0xFFEAE6F8),
-      Color(0xFF7A6FD8),
-      Icons.water_drop_rounded,
-      '剩余饮水量',
-      '轻点你要填充的角色，查看还剩多少水可以喝。',
-    ),
-    (
-      Color(0xFFDFF5EA),
-      Color(0xFF23A06A),
-      Icons.shuffle_rounded,
-      '随机角色',
-      '轻点角色缩略图。启用"随机"（左上角按钮）以每天更换角色。',
-    ),
-    (
-      Color(0xFFDFF2F8),
-      Color(0xFF2BB3CE),
-      Icons.notifications_active_rounded,
-      '喝水提醒',
-      '到点轻推你喝水，助力连续打卡不断档。',
-    ),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    final visible = [
-      for (var i = 0; i < _hints.length; i++)
-        if (!hidden.contains(i)) i,
-    ];
-    if (visible.isEmpty) return const SizedBox.shrink();
-    return SizedBox(
-      height: 189,
-      child: PageView.builder(
-        itemCount: visible.length,
-        controller: PageController(viewportFraction: 0.88),
-        itemBuilder: (context, i) {
-          final idx = visible[i];
-          final (bg, fg, icon, title, desc) = _hints[idx];
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 7),
-            child: Container(
-              padding: const EdgeInsets.fromLTRB(22, 23, 22, 13),
-              decoration: BoxDecoration(
-                color: bg,
-                borderRadius: BorderRadius.circular(25),
-              ),
-              child: Column(
-                children: [
-                  Container(
-                    width: 47,
-                    height: 47,
-                    decoration: BoxDecoration(
-                      color: fg,
-                      borderRadius: BorderRadius.circular(13),
-                    ),
-                    child: Icon(icon, color: Colors.white, size: 27),
-                  ),
-                  const SizedBox(height: 11),
-                  Text(
-                    title,
-                    style: TextStyle(
-                      color: fg,
-                      fontSize: 19,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    desc,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: fg.withOpacity(0.75),
-                      fontSize: 13,
-                      height: 1.4,
-                    ),
-                  ),
-                  const Spacer(),
-                  GestureDetector(
-                    onTap: () => onHide(idx),
-                    child: Text(
-                      '隐藏提示',
-                      style: TextStyle(
-                        color: fg.withOpacity(0.45),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
       ),
     );
   }

@@ -6,6 +6,8 @@ import '../../../shared/models/beverage.dart';
 import '../../../shared/models/preferred_unit.dart';
 import '../../../shared/widgets/drink_illustration.dart';
 import '../../home/providers/home_providers.dart';
+import '../../membership/membership_screen.dart';
+import '../providers/beverage_catalog_provider.dart';
 import '../providers/custom_beverage_provider.dart';
 import '../widgets/svg_container.dart';
 import 'drink_edit_screen.dart';
@@ -39,7 +41,9 @@ class _DrinkManageScreenState extends ConsumerState<DrinkManageScreen> {
         BeverageCategory.water => '水',
         BeverageCategory.tea => '茶',
         BeverageCategory.coffee => '咖啡',
-        BeverageCategory.milk => '奶茶·果汁·牛奶',
+        BeverageCategory.milk => '牛奶',
+        BeverageCategory.milkTea => '奶茶',
+        BeverageCategory.juice => '果汁',
         BeverageCategory.soda => '碳酸饮料',
         BeverageCategory.soup => '汤粥',
         BeverageCategory.alcohol => '酒精',
@@ -53,10 +57,9 @@ class _DrinkManageScreenState extends ConsumerState<DrinkManageScreen> {
   @override
   Widget build(BuildContext context) {
     ref.watch(preferredUnitProvider);
-    final customs = ref.watch(customBeveragesProvider);
     final homeDrinks = ref.watch(homeDrinksProvider);
     // 列表按持久化顺序渲染（拖拽/掉落结果即时反映；未登记的新饮品追加到末尾）
-    final raw = [...Beverage.presets, ...customs];
+    final raw = ref.watch(beverageLibraryProvider);
     final byId = {for (final b in raw) b.id: b};
     final ordered = [
       for (final id in orderedAllIds(homeDrinks, raw))
@@ -407,10 +410,15 @@ class _DrinkManageScreenState extends ConsumerState<DrinkManageScreen> {
 
   // ---------------- 添加 / 编辑（对标原版的全屏编辑页） ----------------
 
-  Future<void> _showAddSheet() => Navigator.push<void>(
-        context,
-        MaterialPageRoute(builder: (_) => const DrinkEditScreen()),
-      );
+  Future<void> _showAddSheet() async {
+    // 会员权益：自定义饮品属于「全部饮品库」，非会员先走付费墙
+    if (!await ensureMember(context, ref, feature: '全部饮品库')) return;
+    if (!mounted) return;
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(builder: (_) => const DrinkEditScreen()),
+    );
+  }
 
   /// 点击卡片进入编辑页：自定义饮品可编辑保存；
   /// 内置预设饮品为只读浏览（无保存按钮，改动不生效）
@@ -533,6 +541,8 @@ class _DrinkCard extends StatelessWidget {
       subtitle = '纯水';
     } else if (!isCustom &&
         (b.category == BeverageCategory.milk ||
+            b.category == BeverageCategory.milkTea ||
+            b.category == BeverageCategory.juice ||
             b.category == BeverageCategory.soda ||
             b.category == BeverageCategory.soup)) {
       subtitle = null;
@@ -558,7 +568,7 @@ class _DrinkCard extends StatelessWidget {
             children: [
               // 图标：SVG 容器饮品用染色剪影（包围盒归一化，尺寸对齐内置
               // 插画 42），自定义饮品用圆底模板插画，其余用内置插画
-              isSvgContainer(b.containerId)
+              isSvgContainer(b.containerId) || isRemoteContainer(b.containerId)
                   ? SvgContainerIcon(
                       containerId: b.containerId!,
                       color: b.color,

@@ -67,11 +67,14 @@ class _CloudBackupScreenState extends ConsumerState<CloudBackupScreen> {
   static const _pink = Color(0xFFEF7A8B);
   static const _red = Color(0xFFE0533D);
   static const _appleDark = Color(0xFF2F3542);
-  static const _wechatGreen = Color(0xFF3CBF62);
-  static const _qqBlue = Color(0xFF12B7F5);
+  static const _wechatGreen = Color(0xFF52B556);
+  static const _qqBlue = Color(0xFF2D3648);
   static const _divider = Color(0xFFF0F2F5);
 
   static const double _kTabItemW = 88;
+
+  /// 登录按钮宽度占比（约为去掉白卡后内容宽度的 54%，与之前按钮的实际宽度一致）
+  static const double _kLoginBtnWidthFactor = 0.54;
 
   final PageController _pageController = PageController();
   int _tab = 0;
@@ -103,14 +106,9 @@ class _CloudBackupScreenState extends ConsumerState<CloudBackupScreen> {
                     if (_tab != index) setState(() => _tab = index);
                   },
                   children: [
-                    ListView(
-                      padding: EdgeInsets.fromLTRB(16, 6, 16, bottomInset + 110),
-                      children: _buildLoginTab(state),
-                    ),
-                    ListView(
-                      padding: EdgeInsets.fromLTRB(16, 6, 16, bottomInset + 110),
-                      children: _buildBasicInfoTab(context, ref, state),
-                    ),
+                    _centeredPage(_buildLoginTab(state), bottomInset),
+                    _centeredPage(
+                        _buildBasicInfoTab(context, ref, state), bottomInset),
                   ],
                 ),
               ),
@@ -147,6 +145,31 @@ class _CloudBackupScreenState extends ConsumerState<CloudBackupScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  // ==================== 页面内容容器 ====================
+
+  /// 页面内容整体垂直居中：内容不足一屏时居中显示，超过一屏时可正常滚动
+  Widget _centeredPage(List<Widget> children, double bottomInset) {
+    const topPad = 6.0;
+    final bottomPad = bottomInset + 110;
+    return LayoutBuilder(
+      builder: (context, cons) {
+        return SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(16, topPad, 16, bottomPad),
+          child: ConstrainedBox(
+            // 扣掉上下内边距后，内容在「可见区域」内垂直居中（避开悬浮 tab 栏）
+            constraints:
+                BoxConstraints(minHeight: cons.maxHeight - topPad - bottomPad),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: children,
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -246,7 +269,7 @@ class _CloudBackupScreenState extends ConsumerState<CloudBackupScreen> {
 
   List<Widget> _buildLoginTab(CloudBackupState? state) {
     return [
-      (state?.isBound ?? false) ? _buildBoundCard(state!) : _buildLoginCard(),
+      (state?.isBound ?? false) ? _buildBoundCard(state!) : _buildLoginActions(),
       if (!(state?.isBound ?? false)) ...[
         const SizedBox(height: 28),
         _buildAgreement(),
@@ -256,86 +279,82 @@ class _CloudBackupScreenState extends ConsumerState<CloudBackupScreen> {
     ];
   }
 
-  Widget _buildLoginCard() {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(22, 26, 22, 22),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Column(
-        children: [
-          if (Platform.isIOS) ...[
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 18),
-              child: _loginButton(
-                icon: Icons.apple,
-                color: _appleDark,
-                label: '通过 Apple 登录',
-              ),
-            ),
-            const SizedBox(height: 20),
-          ],
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 18),
-            child: _loginButton(
-              icon: Icons.chat_bubble_rounded,
-              color: _qqBlue,
-              label: '通过 QQ 登录',
-            ),
+  /// 登录按钮组：直接铺在页面底色上，不再套白色卡片，保持简洁
+  Widget _buildLoginActions() {
+    return Column(
+      children: [
+        if (Platform.isIOS) ...[
+          _loginButton(
+            icon: Icons.apple,
+            color: _appleDark,
+            label: '通过 Apple 登录',
+            widthFactor: _kLoginBtnWidthFactor,
           ),
-          const SizedBox(height: 44),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 18),
-            child: _loginButton(
-              icon: Icons.forum_rounded,
-              color: _wechatGreen,
-              label: '通过微信登录',
-            ),
-          ),
-          const SizedBox(height: 24),
-          const Divider(height: 1, color: _divider),
-          const SizedBox(height: 18),
-          const Text(
-            '小建议：如果需要多设备同步数据，请尽量使用「微信登录」',
-            style: TextStyle(
-              color: _textSecondary,
-              fontSize: 13,
-              height: 1.5,
-            ),
-          ),
+          const SizedBox(height: 30),
         ],
-      ),
+        _loginButton(
+          asset: 'assets/icons/login/qq.svg',
+          color: _qqBlue,
+          label: '通过 QQ 登录',
+          widthFactor: _kLoginBtnWidthFactor,
+        ),
+        const SizedBox(height: 30),
+        _loginButton(
+          asset: 'assets/icons/login/wechat.svg',
+          color: _wechatGreen,
+          label: '通过微信登录',
+          widthFactor: _kLoginBtnWidthFactor,
+        ),
+        const SizedBox(height: 18),
+        const Text(
+          '小建议：如果需要多设备同步数据，请尽量使用「微信登录」',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: _textSecondary,
+            fontSize: 13,
+            height: 1.5,
+          ),
+        ),
+      ],
     );
   }
 
   Widget _loginButton({
-    required IconData icon,
+    IconData? icon,
+    String? asset,
     required Color color,
     required String label,
+    double widthFactor = 1,
   }) {
-    return Material(
-      color: color,
-      borderRadius: BorderRadius.circular(15),
-      child: InkWell(
+    return FractionallySizedBox(
+      widthFactor: widthFactor,
+      child: Material(
+        color: color,
         borderRadius: BorderRadius.circular(15),
-        onTap: _onLoginTap,
-        child: SizedBox(
-          height: 54,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 20, color: Colors.white),
-              const SizedBox(width: 10),
-              Text(
-                label,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(15),
+          onTap: _onLoginTap,
+          child: SizedBox(
+            height: 54,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // asset 优先：使用品牌 SVG 图标；否则回退到 Material 图标
+                if (asset != null)
+                  SvgPicture.asset(asset, width: 23, height: 23)
+                else
+                  Icon(icon, size: 20, color: Colors.white),
+                const SizedBox(width: 10),
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

@@ -6,6 +6,7 @@ import 'package:flutter/services.dart' show AssetManifest, rootBundle;
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../settings/settings_flags.dart';
+import '../../../core/sync/sync_api.dart';
 
 /// SVG 矢量容器渲染组件
 ///
@@ -17,6 +18,25 @@ import '../../settings/settings_flags.dart';
 /// - 动态液体：saveLayer 画液体层（波面 + 气泡），
 ///   再用 SVG alpha 以 BlendMode.dstIn 作蒙版裁剪进容器形状
 bool isSvgContainer(String? id) => id != null && id.startsWith('svg:');
+
+/// 云端容器图标 id：'url:<地址>'（后台发布饮品时上传的 SVG / 位图）。
+/// 地址以 `/` 开头时按当前服务端地址拼成绝对路径（换隧道域名无需清缓存）
+bool isRemoteContainer(String? id) => id != null && id.startsWith('url:');
+
+/// 是否为可渲染的容器图标（本地 SVG 或云端图标）
+bool hasContainerIcon(String? id) => isSvgContainer(id) || isRemoteContainer(id);
+
+/// 云端容器图标的真实地址
+String remoteContainerUrl(String id) {
+  final raw = id.substring(4);
+  return raw.startsWith('/') ? '${SyncApi.baseUrl}$raw' : raw;
+}
+
+/// 云端图标是否为 SVG（位图只能原样渲染，无法做液体蒙版填充）
+bool isRemoteSvg(String url) {
+  final path = Uri.tryParse(url)?.path ?? url;
+  return path.toLowerCase().endsWith('.svg');
+}
 
 String svgContainerAsset(String id) =>
     'assets/images/containers/${id.substring(4)}.svg';
@@ -385,9 +405,17 @@ class _SvgContainerIconState extends State<SvgContainerIcon> {
     // 写进全局 metrics 缓存（按 id 键控）污染其他页面
     final id = widget.containerId;
     final gen = ++_gen;
+    if (isRemoteContainer(id) && !isRemoteSvg(remoteContainerUrl(id))) {
+      // 位图图标：无法做 alpha 蒙版，直接交给 Image.network 原样渲染
+      // （_load 由 didChangeDependencies/didUpdateWidget 触发，随后必有一次 build）
+      _failed = true;
+      return;
+    }
     try {
       final info = await vg.loadPicture(
-        SvgAssetLoader(svgContainerAsset(id)),
+        isRemoteContainer(id)
+            ? SvgNetworkLoader(remoteContainerUrl(id))
+            : SvgAssetLoader(svgContainerAsset(id)),
         context,
       );
       final metrics = await loadSvgArtMetrics(id, info.picture, info.size);
@@ -407,8 +435,31 @@ class _SvgContainerIconState extends State<SvgContainerIcon> {
   @override
   Widget build(BuildContext context) {
     final info = _info;
+    final remote = isRemoteContainer(widget.containerId);
     // 未加载完成或失败回退：普通 contain 剪影（视觉大小可能略有偏差）
     if (_failed || info == null) {
+      if (remote) {
+        // 加载中先占位，避免与 vg.loadPicture 重复发起网络请求
+        if (!_failed) return SizedBox.square(dimension: widget.size);
+        final url = remoteContainerUrl(widget.containerId);
+        if (!isRemoteSvg(url)) {
+          return Image.network(
+            url,
+            width: widget.size,
+            height: widget.size,
+            fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) => SizedBox.square(dimension: widget.size),
+          );
+        }
+        return SvgPicture.network(
+          url,
+          colorFilter: ColorFilter.mode(widget.color, BlendMode.srcIn),
+          width: widget.size,
+          height: widget.size,
+          fit: BoxFit.contain,
+          placeholderBuilder: (_) => SizedBox.square(dimension: widget.size),
+        );
+      }
       return SvgPicture.asset(
         svgContainerAsset(widget.containerId),
         colorFilter: ColorFilter.mode(widget.color, BlendMode.srcIn),
@@ -627,11 +678,19 @@ class _SvgContainerFillState extends State<SvgContainerFill> {
     // 入口固定 containerId：防 await 期间 id 漂移污染全局 metrics 缓存
     final id = widget.containerId;
     final gen = ++_gen;
+    if (isRemoteContainer(id) && !isRemoteSvg(remoteContainerUrl(id))) {
+      // 位图图标：无法做液体蒙版，交给 Image.network 原样展示
+      // （_load 由 didChangeDependencies/didUpdateWidget 触发，随后必有一次 build）
+      _failed = true;
+      return;
+    }
     try {
-      final info =
-          await vg.loadPicture(SvgAssetLoader(svgContainerAsset(
-        id,
-      )), context);
+      final info = await vg.loadPicture(
+        isRemoteContainer(id)
+            ? SvgNetworkLoader(remoteContainerUrl(id))
+            : SvgAssetLoader(svgContainerAsset(id)),
+        context,
+      );
       final metrics = await loadSvgArtMetrics(id, info.picture, info.size);
       if (mounted && gen == _gen) {
         setState(() {
@@ -648,6 +707,19 @@ class _SvgContainerFillState extends State<SvgContainerFill> {
   Widget build(BuildContext context) {
     final info = _info;
     if (info == null) {
+      // 云端位图图标：原样铺满（牺牲液体动画，换取图标可见）
+      if (_failed && isRemoteContainer(widget.containerId)) {
+        final url = remoteContainerUrl(widget.containerId);
+        if (!isRemoteSvg(url)) {
+          return Image.network(
+            url,
+            width: double.infinity,
+            height: double.infinity,
+            fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) => const SizedBox(),
+          );
+        }
+      }
       // 加载失败回退：简单色块容器
       return _failed
           ? Container(

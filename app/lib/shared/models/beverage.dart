@@ -5,7 +5,9 @@ enum BeverageCategory {
   water('纯水', 1.00, Color(0xFF00BFDC), Icons.water_drop),
   tea('茶水类', 0.90, Color(0xFF8BC34A), Icons.emoji_food_beverage),
   coffee('咖啡类', 0.70, Color(0xFF795548), Icons.coffee),
-  milk('奶茶 / 果汁 / 牛奶', 0.80, Color(0xFFFFC107), Icons.local_drink),
+  milk('牛奶', 0.80, Color(0xFF90A4AE), Icons.local_drink),
+  milkTea('奶茶', 0.80, Color(0xFFA8723C), Icons.local_cafe),
+  juice('果汁', 0.80, Color(0xFFFFB300), Icons.local_bar),
   soda('碳酸饮料', 0.90, Color(0xFFC9364F), Icons.local_drink),
   soup('汤粥类', 0.85, Color(0xFFFF8A65), Icons.soup_kitchen),
   alcohol('酒类', 0.65, Color(0xFFE57373), Icons.wine_bar);
@@ -72,6 +74,8 @@ class Beverage {
         BeverageCategory.tea => 'tea',
         BeverageCategory.coffee => 'coffee',
         BeverageCategory.milk => 'milk_milk',
+        BeverageCategory.milkTea => 'milk_tea',
+        BeverageCategory.juice => 'milk_juice',
         BeverageCategory.soda => 'soda',
         BeverageCategory.soup => 'soup_chicken',
         BeverageCategory.alcohol => 'alcohol_beer',
@@ -105,9 +109,9 @@ class Beverage {
     // 全脂牛奶：约 155 卡，不含咖啡因
     Beverage(id: 'milk_milk', category: BeverageCategory.milk, name: '牛奶', defaultMl: 250, liquidColor: Color(0xFFC8CDD0), calories: 155, containerId: 'svg:milk_milk_user'),
     // 含糖奶茶：约 170 卡 + 45mg 咖啡因（茶汤基底）
-    Beverage(id: 'milk_tea', category: BeverageCategory.milk, name: '奶茶', defaultMl: 500, liquidColor: Color(0xFFA8723C), calories: 170, caffeineMg: 45, containerId: 'svg:milk_tea_user'),
+    Beverage(id: 'milk_tea', category: BeverageCategory.milkTea, name: '奶茶', defaultMl: 500, liquidColor: Color(0xFFA8723C), calories: 170, caffeineMg: 45, containerId: 'svg:milk_tea_user'),
     // 鲜榨果汁：约 110 卡
-    Beverage(id: 'milk_juice', category: BeverageCategory.milk, name: '果汁', defaultMl: 300, liquidColor: Color(0xFFFFB300), calories: 110, containerId: 'svg:milk_juice_user'),
+    Beverage(id: 'milk_juice', category: BeverageCategory.juice, name: '果汁', defaultMl: 300, liquidColor: Color(0xFFFFB300), calories: 110, containerId: 'svg:milk_juice_user'),
     // 可乐类碳酸饮料：100 卡（选项卡说明示例）+ 25mg 咖啡因
     Beverage(id: 'soda', category: BeverageCategory.soda, name: '碳酸饮料', defaultMl: 330, liquidColor: Color(0xFFC9364F), calories: 100, caffeineMg: 25, containerId: 'svg:soda_user'),
     // 米粥：约 80 卡

@@ -15,6 +15,8 @@ import '../../core/storage/providers.dart';
 import '../../core/time/logical_day.dart';
 import '../../core/widget/home_widget_sync.dart';
 import '../characters/current_character_provider.dart';
+import '../membership/membership_screen.dart';
+import '../drink/providers/beverage_catalog_provider.dart';
 import '../drink/providers/custom_beverage_provider.dart';
 import '../drink/widgets/svg_container.dart';
 import '../../shared/models/beverage.dart';
@@ -422,8 +424,7 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
   }
 
   Beverage _findBeverage(String id) {
-    final customs = ref.read(customBeveragesProvider);
-    final all = [...Beverage.presets, ...customs];
+    final all = ref.read(beverageLibraryProvider);
     return all.firstWhere((b) => b.id == id, orElse: () => all.first);
   }
 
@@ -468,14 +469,15 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
   }
 
   Widget _drinkThumb(Beverage b, double size) {
-    if (isSvgContainer(b.containerId)) {
+    if (hasContainerIcon(b.containerId)) {
       return SvgContainerIcon(
           containerId: b.containerId!,
           color: b.color,
           fillRatio: 0.9, // 液体风格：液体占杯身 90%（全局统一）
           size: size);
     }
-    final illustId = b.id.startsWith('custom_')
+    final illustId = b.id.startsWith('custom_') ||
+            !Beverage.presets.any((p) => p.id == b.id)
         ? (b.templateId ?? Beverage.fallbackIllustration(b.category))
         : b.id;
     return DrinkIllustration(beverageId: illustId, color: b.color, size: size);
@@ -638,8 +640,7 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
   /// 饮料选择弹层：两步（先选饮品，再选容量）
   Future<void> _pickDrink(
       Beverage current, void Function(String, int) onPicked) async {
-    final customs = ref.read(customBeveragesProvider);
-    final all = [...Beverage.presets, ...customs];
+    final all = ref.read(beverageLibraryProvider);
     Beverage? picked;
     await showModalBottomSheet<void>(
       context: context,
@@ -811,6 +812,9 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
   // ---------------- 自定义颜色 ----------------
 
   Future<void> _pickCustomColor() async {
+    // 会员权益：自定义主题色属于「专属小组件」
+    if (!await ensureMember(context, ref, feature: '专属小组件')) return;
+    if (!mounted) return;
     Color color = ref.read(widgetSettingsProvider).customColor != null
         ? Color(ref.read(widgetSettingsProvider).customColor!)
         : const Color(0xFF4DB8D8);
@@ -1335,8 +1339,7 @@ Future<void> _syncWidgetFromSettingsOnce(
     final recordEnabled = read(profileProvider) != null;
     // 数据文本/饮料格先行推送（不等帧渲染，录入后桌面数字即时更新）
     final slots = [(s.drink1, s.vol1), (s.drink2, s.vol2), (s.drink3, s.vol3)];
-    final customs = read(customBeveragesProvider);
-    final all = [...Beverage.presets, ...customs];
+    final all = read(beverageLibraryProvider);
     final beverages = [
       for (final (id, _) in slots)
         all.firstWhere((x) => x.id == id, orElse: () => all.first)
@@ -1405,7 +1408,9 @@ final Map<String, (String, File)> _drinkIconCache = {};
 /// 光栅化饮品图标为 PNG（RemoteViews 不支持 SVG；规则与预览卡 _drinkThumb
 /// 一致：容器剪影按包围盒 92% 居中 + srcIn 染色，预设插画 contain 不染色）
 Future<File?> _rasterizeDrinkIcon(Beverage b, {int dim = 96}) async {
-  final illustId = b.id.startsWith('custom_')
+  // 云端图标需联网、桌面图标光栅化不动网络：统一回退到分类插画
+  final illustId = b.id.startsWith('custom_') ||
+          !Beverage.presets.any((p) => p.id == b.id)
       ? (b.templateId ?? Beverage.fallbackIllustration(b.category))
       : b.id;
   final sig = isSvgContainer(b.containerId)

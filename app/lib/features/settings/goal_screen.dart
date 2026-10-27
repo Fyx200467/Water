@@ -22,7 +22,7 @@ import '../home/providers/home_providers.dart';
 /// 4. 冰晶六边形块：贴屏幕两侧分布，缓慢旋转 + 上下轻微浮动
 /// 5. 性别 / 体重两个选项胶囊：左右轻微颤动
 ///
-/// 功能：性别 / 体重 / 活动强度 / 温度 四项选择即时联动顶部大字目标量
+/// 功能：性别 / 体重 / 身高 / 活动强度 / 温度 选择即时联动顶部大字目标量
 /// 并即时保存；底部「自定义目标」可直接输入覆盖推荐值。
 
 // ---- 设计规范色板（取自原版效果图，供本页与水下背景组件共用） ----
@@ -51,6 +51,7 @@ class _GoalScreenState extends ConsumerState<GoalScreen>
   /// 性别展示标签（怀孕/母乳喂养等），与计算用 Gender 枚举分离并持久化
   late String _genderLabel;
   late double _weight;
+  late double _height;
   late ActivityLevel _activity;
   GoalTemperature _temp = GoalTemperature.mild;
   int? _customGoal;
@@ -68,6 +69,7 @@ class _GoalScreenState extends ConsumerState<GoalScreen>
     _gender = profile?.gender ?? Gender.male;
     _genderLabel = defaultGenderLabel(_gender);
     _weight = profile?.weightKg ?? 60;
+    _height = profile?.heightCm ?? 170;
     _activity = profile?.activityLevel ?? ActivityLevel.low;
     _anim = AnimationController(
       vsync: this,
@@ -108,7 +110,7 @@ class _GoalScreenState extends ConsumerState<GoalScreen>
     final base = UserProfile.create(
       gender: _gender,
       weightKg: _weight,
-      heightCm: profile?.heightCm ?? 170,
+      heightCm: _height,
       age: profile?.age ?? 25,
       activityLevel: _activity,
     ).dailyGoalMl;
@@ -123,6 +125,7 @@ class _GoalScreenState extends ConsumerState<GoalScreen>
           profile.copyWith(
             gender: _gender,
             weightKg: _weight,
+            heightCm: _height,
             activityLevel: _activity,
             dailyGoalMl: _goal,
           ),
@@ -143,6 +146,14 @@ class _GoalScreenState extends ConsumerState<GoalScreen>
   Future<void> _selectWeight(double kg) async {
     setState(() {
       _weight = kg;
+      _customGoal = null;
+    });
+    await _persist();
+  }
+
+  Future<void> _selectHeight(double cm) async {
+    setState(() {
+      _height = cm;
       _customGoal = null;
     });
     await _persist();
@@ -257,6 +268,13 @@ class _GoalScreenState extends ConsumerState<GoalScreen>
                             icon: Icons.scale,
                             onTap: _pickWeight,
                           ),
+                        ),
+                        const SizedBox(height: 14),
+                        _OptionPill(
+                          label: '身高',
+                          value: '${_height.round()}cm',
+                          icon: Icons.straighten,
+                          onTap: _pickHeight,
                         ),
                         const SizedBox(height: 14),
                         _OptionPill(
@@ -496,13 +514,88 @@ class _GoalScreenState extends ConsumerState<GoalScreen>
     );
   }
 
+  /// 身高滑杆弹层（拖动实时预览目标量，松手保存）
+  Future<void> _pickHeight() {
+    var v = _height;
+    return showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '身高',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF1C1C1E),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      '${v.round()}',
+                      style: const TextStyle(
+                        fontSize: 44,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF3BB3DB),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    const Text(
+                      'cm',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF8E8E93),
+                      ),
+                    ),
+                  ],
+                ),
+                Slider(
+                  value: v,
+                  min: 120,
+                  max: 220,
+                  divisions: 100,
+                  activeColor: const Color(0xFF3BB3DB),
+                  onChanged: (nv) => setSheet(() => v = nv),
+                  onChangeEnd: (nv) => _selectHeight(nv),
+                ),
+                const SizedBox(height: 4),
+                Center(
+                  child: Text(
+                    '推荐目标 ${UnitFormat.volume(_previewGoalWith(weight: _weight, height: v), compact: true)}',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: Color(0xFF8E8E93),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   /// 以指定体重预览目标量（不落库，仅弹层内展示）
-  int _previewGoalWith({required double weight}) {
+  int _previewGoalWith({required double weight, double? height}) {
     final profile = ref.read(profileProvider);
     final base = UserProfile.create(
       gender: _gender,
       weightKg: weight,
-      heightCm: profile?.heightCm ?? 170,
+      heightCm: height ?? _height,
       age: profile?.age ?? 25,
       activityLevel: _activity,
     ).dailyGoalMl;

@@ -31,6 +31,18 @@
 	<string>用于读取 Apple 健康中的饮水记录，并同步到喝水养成中</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>用于把喝水养成里的饮水记录写入 Apple 健康</string>
+	<!-- 桌面小组件点击回跳：waterllama://home 与 waterllama://quick-add?slot=N -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.waterllama.waterLlama</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>waterllama</string>
+			</array>
+		</dict>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

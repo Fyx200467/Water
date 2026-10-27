@@ -153,6 +153,7 @@ class ReminderNotifier extends StateNotifier<ReminderSettings> {
       motivationalTitle: ref.read(motivationalTitleEnabledProvider),
       waterFacts: ref.read(waterFactsEnabledProvider),
       stickers: ref.read(stickersEnabledProvider),
+      soundKey: ref.read(reminderSoundProvider),
     );
   }
 }
@@ -254,6 +255,12 @@ final stickersEnabledProvider =
   return NotificationToggleNotifier(ref, 'notif_stickers', true);
 });
 
+/// 提醒音效（key 对应 NotificationService.soundLabels），默认系统默认音
+final reminderSoundProvider =
+    StateNotifierProvider<StringSettingNotifier, String>((ref) {
+  return StringSettingNotifier(ref, 'reminder_sound', 'default');
+});
+
 /// 智能提醒间隔（分钟），默认 120
 final notificationIntervalMinutesProvider =
     StateNotifierProvider<IntSettingNotifier, int>((ref) {
@@ -335,6 +342,28 @@ class CustomMessageNotifier extends StateNotifier<String> {
   Future<void> set(String v) async {
     final storage = await ref.read(localStorageProvider.future);
     await storage.prefs.setString(_k, v);
+    state = v;
+  }
+}
+
+/// 通用 String 设置 Notifier（持久化）
+class StringSettingNotifier extends StateNotifier<String> {
+  StringSettingNotifier(this.ref, this._key, this._defaultValue)
+      : super(_defaultValue) {
+    _load();
+  }
+  final Ref ref;
+  final String _key;
+  final String _defaultValue;
+
+  Future<void> _load() async {
+    final storage = await ref.read(localStorageProvider.future);
+    state = storage.prefs.getString(_key) ?? _defaultValue;
+  }
+
+  Future<void> set(String v) async {
+    final storage = await ref.read(localStorageProvider.future);
+    await storage.prefs.setString(_key, v);
     state = v;
   }
 }

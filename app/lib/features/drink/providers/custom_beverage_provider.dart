@@ -111,10 +111,6 @@ final customBeveragesProvider =
   return CustomBeverageListNotifier(ref);
 });
 
-/// 完整饮品库 = 内置预设 + 自定义（供加量页按 id 查找）
-List<Beverage> allBeverages(List<Beverage> customs) =>
-    [...Beverage.presets, ...customs];
-
 // ============================================================
 // 首页饮品栏可见性与排序（对标原版：开关控制展示，箭头上下排序）
 // ============================================================

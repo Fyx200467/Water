@@ -13,7 +13,8 @@ import '../../../shared/models/drink_entry.dart';
 import '../../../shared/models/preferred_unit.dart';
 import '../../home/providers/home_providers.dart';
 import '../../settings/settings_flags.dart';
-import '../providers/custom_beverage_provider.dart';
+import '../providers/beverage_catalog_provider.dart';
+
 import '../widgets/svg_container.dart';
 
 /// 对标原版 WaterLlama 加水页（全屏模态）
@@ -80,9 +81,8 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
   @override
   void initState() {
     super.initState();
-    // 完整饮品库 = 内置预设 + 自定义饮品（首页快捷栏可跳转自定义饮品加量页）
-    final customs = ref.read(customBeveragesProvider);
-    _beverage = allBeverages(customs).firstWhere(
+    // 完整饮品库 = 内置预设 + 云端目录 + 自定义饮品（首页快捷栏可跳转自定义饮品加量页）
+    _beverage = ref.read(beverageLibraryProvider).firstWhere(
       (b) => b.id == widget.beverageId,
       orElse: () => Beverage.presets.first,
     );
@@ -329,8 +329,7 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
                               curve: Curves.easeOutCubic,
                               builder: (ctx, ratio, __) {
                                 // SVG 矢量容器：液体按 SVG alpha 蒙版填充
-                                if (isSvgContainer(
-                                    _beverage.containerId)) {
+                                if (hasContainerIcon(_beverage.containerId)) {
                                   return SvgContainerFill(
                                     containerId:
                                         _beverage.containerId!,
@@ -350,7 +349,11 @@ class _AddDrinkScreenState extends ConsumerState<AddDrinkScreen>
                                 return CustomPaint(
                                   size: Size(260, cupH),
                                   painter: _DrinkContainerPainter(
-                                    beverageId: _beverage.id,
+                                    beverageId:
+                                        isRemoteContainer(_beverage.containerId)
+                                            ? Beverage.fallbackIllustration(
+                                                _beverage.category)
+                                            : _beverage.id,
                                     fillRatio: ratio,
                                     capacityMl: _cupMax.toDouble(),
                                     color: _drinkColor,

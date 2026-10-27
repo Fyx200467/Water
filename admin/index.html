@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>吨吨 · 管理后台</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --card: #ffffff;
+    --ink: #1c1c1e;
+    --gray: #8e8e93;
+    --line: #ececef;
+    --accent: #3bb3db;
+    --accent-soft: #eaf7fb;
+    --danger: #e5484d;
+    --gold: #d9a13b;
+    --nav: #1f2430;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+  }
+  .hidden { display: none !important; }
+  button { font-family: inherit; cursor: pointer; }
+  input, select {
+    font-family: inherit;
+    font-size: 13px;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #fff;
+    color: var(--ink);
+    outline: none;
+    width: 100%;
+  }
+  input:focus, select:focus { border-color: var(--accent); }
+
+  /* ---------------- 登录 ---------------- */
+  .login-wrap {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(circle at 30% 20%, #dff2f9, #f5f6f8 60%);
+  }
+  .login-card {
+    width: 380px;
+    background: var(--card);
+    border-radius: 22px;
+    padding: 32px 28px;
+    box-shadow: 0 18px 50px rgba(31, 36, 48, 0.10);
+  }
+  .login-card h1 { margin: 0 0 4px; font-size: 24px; }
+  .login-card p.sub { margin: 0 0 22px; color: var(--gray); font-size: 13px; }
+  .field { margin-bottom: 12px; }
+  .field label {
+    display: block;
+    font-size: 12px;
+    color: var(--gray);
+    margin-bottom: 6px;
+  }
+  .btn {
+    border: 0;
+    border-radius: 12px;
+    padding: 10px 16px;
+    font-size: 14px;
+    font-weight: 600;
+    background: var(--accent);
+    color: #fff;
+  }
+  .btn:disabled { opacity: .6; cursor: default; }
+  .btn.ghost { background: #f1f2f5; color: var(--ink); }
+  .btn.danger { background: #fdecec; color: var(--danger); }
+  .btn.sm { padding: 5px 10px; font-size: 12px; border-radius: 9px; }
+  .login-card .btn { width: 100%; margin-top: 8px; }
+  .login-err { color: var(--danger); font-size: 12px; min-height: 16px; margin-top: 8px; }
+
+  /* ---------------- 布局 ---------------- */
+  #app { display: flex; min-height: 100vh; }
+  aside {
+    width: 212px;
+    background: var(--nav);
+    color: #cfd6e4;
+    padding: 22px 14px;
+    display: flex;
+    flex-direction: column;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+  }
+  .brand { padding: 0 10px 22px; color: #fff; font-weight: 800; font-size: 18px; letter-spacing: .5px; }
+  .brand span { color: var(--accent); }
+  .brand small { display: block; color: #7d879b; font-size: 11px; font-weight: 400; margin-top: 3px; letter-spacing: 0; }
+  .nav-btn {
+    display: block;
+    width: 100%;
+    text-align: left;
+    border: 0;
+    background: transparent;
+    color: #cfd6e4;
+    padding: 11px 12px;
+    border-radius: 11px;
+    font-size: 14px;
+    margin-bottom: 4px;
+  }
+  .nav-btn:hover { background: rgba(255,255,255,.07); }
+  .nav-btn.active { background: var(--accent); color: #fff; font-weight: 600; }
+  .nav-foot { margin-top: auto; font-size: 12px; color: #7d879b; }
+  .nav-foot button {
+    border: 0; background: rgba(255,255,255,.08); color: #cfd6e4;
+    padding: 8px 12px; border-radius: 10px; width: 100%; margin-bottom: 10px;
+  }
+  main { flex: 1; padding: 26px 30px 40px; min-width: 0; }
+  header.page {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    margin-bottom: 18px; gap: 16px; flex-wrap: wrap;
+  }
+  header.page h1 { margin: 0; font-size: 22px; }
+  .api-hint { font-size: 12px; color: var(--gray); }
+  .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+  .toolbar .grow { flex: 1; }
+  .toolbar select, .toolbar input { width: auto; min-width: 130px; }
+
+  .card {
+    background: var(--card);
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 6px 22px rgba(31,36,48,.05);
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th {
+    text-align: left; font-size: 12px; font-weight: 600; color: var(--gray);
+    padding: 12px 14px; background: #fafafb; border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  td { padding: 11px 14px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  tr:last-child td { border-bottom: 0; }
+  tr:hover td { background: #fbfdfe; }
+  td.mono { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--gray); }
+  .tag {
+    display: inline-block; padding: 2px 8px; border-radius: 7px;
+    font-size: 11px; font-weight: 600; background: #f1f2f5; color: #6b7280;
+  }
+  .tag.on { background: var(--accent-soft); color: #1d8dad; }
+  .tag.off { background: #f1f2f5; color: #9aa0aa; }
+  .tag.gold { background: #fff4dd; color: var(--gold); }
+  .tag.paid { background: #e8f7ee; color: #1f9254; }
+  .tag.pending { background: #fff4dd; color: #b07d19; }
+  .tag.cancelled, .tag.refunded { background: #f1f2f5; color: #8e8e93; }
+  .row-actions { display: flex; gap: 6px; }
+  .empty { padding: 40px; text-align: center; color: var(--gray); font-size: 13px; }
+  .pager { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; font-size: 12px; color: var(--gray); align-items: center; }
+
+  /* ---------------- 弹窗 ---------------- */
+  #modalMask {
+    position: fixed; inset: 0; background: rgba(20,24,32,.42);
+    display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 40;
+  }
+  .modal {
+    width: 520px; max-height: 88vh; overflow: auto; background: #fff;
+    border-radius: 20px; padding: 22px 24px;
+  }
+  .modal h3 { margin: 0 0 16px; font-size: 18px; }
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .form-grid .full { grid-column: 1 / -1; }
+  .check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink); padding-top: 22px; }
+  .check input { width: 16px; height: 16px; }
+  .modal-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+  .modal-err { color: var(--danger); font-size: 12px; margin-top: 10px; }
+
+  #toast {
+    position: fixed; left: 50%; bottom: 30px; transform: translateX(-50%) translateY(20px);
+    background: rgba(28,28,30,.92); color: #fff; padding: 10px 18px; border-radius: 12px;
+    font-size: 13px; opacity: 0; pointer-events: none; transition: all .22s; z-index: 60;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<!-- 登录 -->
+<div id="loginView" class="login-wrap">
+  <form class="login-card" id="loginForm">
+    <h1>吨吨管理后台</h1>
+    <p class="sub">饮品库 · 角色素材 · 用户 · 订单</p>
+    <div class="field">
+      <label>API 地址</label>
+      <input id="apiBase" placeholder="http://localhost:3000/api/v1" />
+    </div>
+    <div class="field">
+      <label>管理员邮箱</label>
+      <input id="email" type="email" placeholder="admin@example.com" autocomplete="username" />
+    </div>
+    <div class="field">
+      <label>密码</label>
+      <input id="password" type="password" placeholder="••••••••" autocomplete="current-password" />
+    </div>
+    <button class="btn" id="loginBtn" type="submit">登录</button>
+    <div class="login-err" id="loginErr"></div>
+    <p class="sub" style="margin-top:14px">
+      本地服务首次启动会自动创建管理员：admin@example.com / admin123456，
+      可用环境变量 ADMIN_EMAIL、ADMIN_PASSWORD 覆盖。
+    </p>
+  </form>
+</div>
+
+<!-- 主界面 -->
+<div id="app" class="hidden">
+  <aside>
+    <div class="brand">吨吨<span>.</span><small>WaterLlama Admin</small></div>
+    <button class="nav-btn" data-tab="beverages">饮品库</button>
+    <button class="nav-btn" data-tab="characters">角色素材</button>
+    <button class="nav-btn" data-tab="users">用户列表</button>
+    <button class="nav-btn" data-tab="orders">订单查询</button>
+    <div class="nav-foot">
+      <div id="whoami" style="margin-bottom:8px;word-break:break-all;"></div>
+      <button id="logoutBtn">退出登录</button>
+    </div>
+  </aside>
+  <main>
+    <header class="page">
+      <h1 id="pageTitle">饮品库</h1>
+      <div class="api-hint" id="apiHint"></div>
+    </header>
+    <div id="view"></div>
+  </main>
+</div>
+
+<div id="modalMask" class="hidden"><div class="modal" id="modalBox"></div></div>
+<div id="toast"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  var LS_API = "wl_admin_api";
+  var LS_TOKEN = "wl_admin_token";
+  var LS_USER = "wl_admin_user";
+
+  var state = {
+    token: localStorage.getItem(LS_TOKEN) || "",
+    api: localStorage.getItem(LS_API) ||
+      (location.protocol.indexOf("http") === 0
+        ? location.origin + "/api/v1"
+        : "http://localhost:3000/api/v1"),
+    tab: "beverages",
+    page: 1,
+    pageSize: 20,
+    orderStatus: "",
+    orderUser: "",
+    rows: [],
+  };
+
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (v) {
+    return String(v == null ? "" : v)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  };
+
+  function toast(msg) {
+    var el = $("toast");
+    el.textContent = msg;
+    el.classList.add("show");
+    clearTimeout(el._t);
+    el._t = setTimeout(function () { el.classList.remove("show"); }, 2200);
+  }
+
+  async function api(path, opts) {
+    opts = opts || {};
+    var headers = { "Content-Type": "application/json" };
+    if (state.token) headers["Authorization"] = "Bearer " + state.token;
+    var res;
+    try {
+      res = await fetch(state.api + path, Object.assign({}, opts, { headers: headers }));
+    } catch (e) {
+      throw new Error("无法连接后端：" + state.api);
+    }
+    var text = await res.text();
+    var data = null;
+    try { data = text ? JSON.parse(text) : null; } catch (_) { data = text; }
+    if (res.status === 401) {
+      var em = (data && data.error && data.error.message) || "";
+      if (state.token) {
+        logout();
+        throw new Error("登录已过期，请重新登录");
+      }
+      throw new Error(em || "邮箱或密码错误");
+    }
+    if (!res.ok) {
+      var msg = (data && data.error && data.error.message) || ("HTTP " + res.status);
+      if (Array.isArray(msg)) msg = msg.join("; ");
+      throw new Error(msg);
+    }
+    return data;
+  }
+
+  /* ---------------- 素材地址与上传 ---------------- */
+  // 后端 API 前缀是 /api/v1，静态素材挂在根路径 /static/*，这里换算出资源根地址
+  function assetOrigin() {
+    return state.api.replace(/\/api\/v\d+\/?$/i, "");
+  }
+
+  function assetUrl(u) {
+    if (!u) return "";
+    if (/^https?:\/\//i.test(u)) return u;
+    return assetOrigin() + (u.charAt(0) === "/" ? u : "/" + u);
+  }
+
+  async function uploadAsset(file) {
+    var m = /\.([a-z0-9]+)$/i.exec(file.name || "");
+    var ext = m ? m[1].toLowerCase() : "svg";
+    if (["svg", "png", "jpg", "jpeg", "webp"].indexOf(ext) < 0) {
+      throw new Error("仅支持 SVG / PNG / JPG / WEBP");
+    }
+    if (file.size > 3 * 1024 * 1024) throw new Error("文件不能超过 3MB");
+    var res = await fetch(state.api + "/admin/assets?ext=" + encodeURIComponent(ext), {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + state.token,
+        "Content-Type": "application/octet-stream",
+      },
+      body: file,
+    });
+    var data = null;
+    try { data = await res.json(); } catch (_) {}
+    if (res.status === 401) { logout(); throw new Error("登录已过期，请重新登录"); }
+    if (!res.ok) {
+      var msg = (data && (data.message || (data.error && data.error.message))) || ("HTTP " + res.status);
+      throw new Error(msg);
+    }
+    return data.url;
+  }
+
+  /* ---------------- 登录 / 退出 ---------------- */
+  function showLogin() {
+    $("loginView").classList.remove("hidden");
+    $("app").classList.add("hidden");
+    $("apiBase").value = state.api;
+  }
+
+  function logout() {
+    state.token = "";
+    localStorage.removeItem(LS_TOKEN);
+    localStorage.removeItem(LS_USER);
+    showLogin();
+  }
+
+  async function doLogin(e) {
+    e.preventDefault();
+    var btn = $("loginBtn");
+    $("loginErr").textContent = "";
+    var apiBase = $("apiBase").value.trim().replace(/\/+$/, "");
+    if (!apiBase) { $("loginErr").textContent = "请填写 API 地址"; return; }
+    state.api = apiBase;
+    localStorage.setItem(LS_API, state.api);
+    btn.disabled = true;
+    btn.textContent = "登录中…";
+    try {
+      var data = await api("/auth/login", {
+        method: "POST",
+        body: JSON.stringify({
+          email: $("email").value.trim(),
+          password: $("password").value,
+        }),
+      });
+      state.token = data.accessToken;
+      localStorage.setItem(LS_TOKEN, state.token);
+      localStorage.setItem(LS_USER, data.userId || "");
+      enterApp();
+    } catch (err) {
+      $("loginErr").textContent = err.message || "登录失败";
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "登录";
+    }
+  }
+
+  function enterApp() {
+    $("loginView").classList.add("hidden");
+    $("app").classList.remove("hidden");
+    $("apiHint").textContent = state.api;
+    $("whoami").textContent = "已登录：" + (localStorage.getItem(LS_USER) || "");
+    switchTab(state.tab);
+  }
+
+  /* ---------------- 导航 ---------------- */
+  var TITLES = {
+    beverages: "饮品库",
+    characters: "角色素材",
+    users: "用户列表",
+    orders: "订单查询",
+  };
+
+  function switchTab(tab) {
+    state.tab = tab;
+    state.page = 1;
+    $("pageTitle").textContent = TITLES[tab];
+    document.querySelectorAll(".nav-btn").forEach(function (b) {
+      b.classList.toggle("active", b.dataset.tab === tab);
+    });
+    render();
+  }
+
+  async function render() {
+    var view = $("view");
+    view.innerHTML = '<div class="card"><div class="empty">加载中…</div></div>';
+    try {
+      if (state.tab === "beverages") await renderBeverages();
+      else if (state.tab === "characters") await renderCharacters();
+      else if (state.tab === "users") await renderUsers();
+      else await renderOrders();
+    } catch (err) {
+      view.innerHTML = '<div class="card"><div class="empty">' + esc(err.message) + "</div></div>";
+    }
+  }
+
+  function tableWrap(headers, rows) {
+    if (!rows.length) return '<div class="card"><div class="empty">暂无数据</div></div>';
+    var html = '<div class="card"><table><thead><tr>';
+    headers.forEach(function (h) { html += "<th>" + esc(h) + "</th>"; });
+    html += "</tr></thead><tbody>";
+    rows.forEach(function (r) {
+      html += "<tr>";
+      r.forEach(function (cell) { html += "<td>" + cell + "</td>"; });
+      html += "</tr>";
+    });
+    return html + "</tbody></table></div>";
+  }
+
+  function pager() {
+    return '<div class="pager">' +
+      '<button class="btn ghost sm" id="prevPage" ' + (state.page <= 1 ? "disabled" : "") + ">上一页</button>" +
+      "<span>第 " + state.page + " 页</span>" +
+      '<button class="btn ghost sm" id="nextPage" ' + (state.rows.length < state.pageSize ? "disabled" : "") + ">下一页</button>" +
+      "</div>";
+  }
+
+  function bindPager() {
+    var prev = $("prevPage"), next = $("nextPage");
+    if (prev) prev.onclick = function () { state.page--; render(); };
+    if (next) next.onclick = function () { state.page++; render(); };
+  }
+
+  /* ---------------- 饮品库 ---------------- */
+  async function renderBeverages() {
+    var rows = await api("/beverages?page=" + state.page + "&pageSize=" + state.pageSize);
+    state.rows = Array.isArray(rows) ? rows : [];
+    var body = state.rows.map(function (b) {
+      var thumb = b.iconUrl
+        ? '<img src="' + esc(assetUrl(b.iconUrl)) + '" alt="" style="width:34px;height:34px;object-fit:contain;border-radius:9px;background:rgba(0,0,0,.28);padding:3px;" />'
+        : '<span class="tag off">无</span>';
+      return [
+        "<b>" + esc(b.name) + "</b>",
+        thumb,
+        '<span class="tag">' + esc(b.category) + "</span>",
+        esc(b.defaultMl) + " ml",
+        esc(b.hydrationRatio),
+        b.memberOnly ? '<span class="tag gold">会员</span>' : '<span class="tag off">免费</span>',
+        esc(b.sort),
+        b.isPublished ? '<span class="tag on">已发布</span>' : '<span class="tag off">草稿</span>',
+        '<div class="row-actions">' +
+          '<button class="btn ghost sm" data-edit="' + esc(b.id) + '">编辑</button>' +
+          '<button class="btn danger sm" data-del="' + esc(b.id) + '">删除</button>' +
+        "</div>",
+      ];
+    });
+    $("view").innerHTML =
+      '<div class="toolbar"><div class="grow"></div>' +
+      '<button class="btn" id="addBeverage">+ 新增饮品</button></div>' +
+      tableWrap(["名称", "图标", "分类", "默认容量", "折算比例", "权益", "排序", "状态", "操作"], body) +
+      pager();
+    bindPager();
+    $("addBeverage").onclick = function () { beverageModal(null); };
+    document.querySelectorAll("[data-edit]").forEach(function (el) {
+      el.onclick = function () {
+        var item = state.rows.find(function (x) { return x.id === el.dataset.edit; });
+        beverageModal(item);
+      };
+    });
+    document.querySelectorAll("[data-del]").forEach(function (el) {
+      el.onclick = function () { removeBeverage(el.dataset.del); };
+    });
+  }
+
+  function beverageModal(item) {
+    var isEdit = !!item;
+    item = item || { category: "water", name: "", defaultMl: 250, hydrationRatio: 1.0, memberOnly: false, sort: 0, isPublished: true, iconUrl: "", liquidColor: "" };
+    var cats = [
+      ["water", "纯水"],
+      ["tea", "茶水"],
+      ["coffee", "咖啡"],
+      ["milk", "牛奶"],
+      ["milkTea", "奶茶"],
+      ["juice", "果汁"],
+      ["soda", "碳酸饮料"],
+      ["soup", "汤粥"],
+      ["alcohol", "酒类"],
+    ];
+    var opts = cats.map(function (c) {
+      return '<option value="' + c[0] + '"' + (item.category === c[0] ? " selected" : "") + ">" + c[1] + "</option>";
+    }).join("");
+    openModal(
+      (isEdit ? "编辑饮品" : "新增饮品"),
+      '<div class="form-grid">' +
+        '<div class="full"><label>名称</label><input id="f_name" value="' + esc(item.name) + '" /></div>' +
+        '<div class="full"><label>容器图标（SVG / PNG / JPG / WEBP）</label>' +
+          '<div style="display:flex;gap:8px;align-items:center;">' +
+            '<input id="f_icon" placeholder="/static/xxx.svg 或 https://..." value="' + esc(item.iconUrl || "") + '" style="flex:1;" />' +
+            '<label class="btn ghost sm" style="margin:0;cursor:pointer;white-space:nowrap;">上传文件' +
+              '<input id="f_file" type="file" accept=".svg,.png,.jpg,.jpeg,.webp" style="display:none;" />' +
+            "</label>" +
+          "</div>" +
+          '<div style="margin-top:8px;display:flex;gap:10px;align-items:center;">' +
+            '<img id="f_preview" alt="" style="width:56px;height:56px;object-fit:contain;border-radius:12px;background:rgba(0,0,0,.28);padding:4px;" />' +
+            '<span id="f_icon_hint" style="font-size:12px;opacity:.7;">未设置图标时，客户端使用内置插画</span>' +
+          "</div>" +
+        "</div>" +
+        "<div><label>分类</label><select id=\"f_category\">" + opts + "</select></div>" +
+        '<div><label>液体颜色</label><input id="f_color" placeholder="#4FC3F7" value="' + esc(item.liquidColor || "") + '" /></div>' +
+        '<div><label>默认容量 (ml)</label><input id="f_ml" type="number" value="' + esc(item.defaultMl) + '" /></div>' +
+        '<div><label>有效水折算比例</label><input id="f_ratio" type="number" step="0.01" value="' + esc(item.hydrationRatio) + '" /></div>' +
+        '<div><label>排序</label><input id="f_sort" type="number" value="' + esc(item.sort) + '" /></div>' +
+        '<div class="check"><input id="f_member" type="checkbox"' + (item.memberOnly ? " checked" : "") + " /><label style=\"margin:0\">会员专属</label></div>" +
+        '<div class="check"><input id="f_pub" type="checkbox"' + (item.isPublished ? " checked" : "") + " /><label style=\"margin:0\">发布到客户端</label></div>" +
+      "</div>",
+      async function () {
+        var dto = {
+          name: $("f_name").value.trim(),
+          category: $("f_category").value,
+          defaultMl: Number($("f_ml").value),
+          hydrationRatio: Number($("f_ratio").value),
+          sort: Number($("f_sort").value),
+          memberOnly: $("f_member").checked,
+          isPublished: $("f_pub").checked,
+          iconUrl: $("f_icon").value.trim(),
+          liquidColor: $("f_color").value.trim(),
+        };
+        if (!dto.name) throw new Error("名称不能为空");
+        if (isEdit) await api("/beverages/" + item.id, { method: "PATCH", body: JSON.stringify(dto) });
+        else await api("/beverages", { method: "POST", body: JSON.stringify(dto) });
+        closeModal();
+        toast(isEdit ? "已保存" : "已新增");
+        render();
+      }
+    );
+
+    // 图标预览与上传（openModal 已同步渲染 DOM，可直接绑定）
+    var iconInput = $("f_icon");
+    var preview = $("f_preview");
+    var hint = $("f_icon_hint");
+    function syncPreview() {
+      var u = iconInput.value.trim();
+      if (!u) {
+        preview.style.display = "none";
+        hint.style.display = "";
+        return;
+      }
+      preview.src = assetUrl(u);
+      preview.style.display = "";
+      hint.style.display = "none";
+    }
+    iconInput.oninput = syncPreview;
+    syncPreview();
+    $("f_file").onchange = async function () {
+      var file = this.files && this.files[0];
+      this.value = "";
+      if (!file) return;
+      try {
+        toast("上传中…");
+        iconInput.value = await uploadAsset(file);
+        syncPreview();
+        toast("已上传，保存后生效");
+      } catch (err) {
+        toast(err.message || "上传失败");
+      }
+    };
+  }
+
+  async function removeBeverage(id) {
+    if (!confirm("确认删除该饮品？")) return;
+    try {
+      await api("/beverages/" + id, { method: "DELETE" });
+      toast("已删除");
+      render();
+    } catch (err) { toast(err.message); }
+  }
+
+  /* ---------------- 角色素材 ---------------- */
+  async function renderCharacters() {
+    var rows = await api("/characters?page=" + state.page + "&pageSize=" + state.pageSize);
+    state.rows = Array.isArray(rows) ? rows : [];
+    var body = state.rows.map(function (c) {
+      var thumb = c.thumbnailUrl || c.assetUrl || "";
+      return [
+        (thumb ? '<img src="' + esc(thumb) + '" alt="" style="width:34px;height:34px;object-fit:cover;border-radius:9px;margin-right:8px;vertical-align:middle;" />' : "") +
+          "<b>" + esc(c.name) + "</b>",
+        '<span class="tag">' + esc(c.code) + "</span>",
+        c.memberOnly ? '<span class="tag gold">会员</span>' : '<span class="tag off">免费</span>',
+        esc(c.sort),
+        c.isPublished ? '<span class="tag on">已发布</span>' : '<span class="tag off">草稿</span>',
+        '<div class="row-actions">' +
+          '<button class="btn ghost sm" data-edit="' + esc(c.id) + '">编辑</button>' +
+          '<button class="btn danger sm" data-del="' + esc(c.id) + '">删除</button>' +
+        "</div>",
+      ];
+    });
+    $("view").innerHTML =
+      '<div class="toolbar"><div class="grow"></div>' +
+      '<button class="btn" id="addCharacter">+ 新增角色</button></div>' +
+      tableWrap(["名称", "code", "权益", "排序", "状态", "操作"], body) +
+      pager();
+    bindPager();
+    $("addCharacter").onclick = function () { characterModal(null); };
+    document.querySelectorAll("[data-edit]").forEach(function (el) {
+      el.onclick = function () {
+        characterModal(state.rows.find(function (x) { return x.id === el.dataset.edit; }));
+      };
+    });
+    document.querySelectorAll("[data-del]").forEach(function (el) {
+      el.onclick = function () { removeCharacter(el.dataset.del); };
+    });
+  }
+
+  function characterModal(item) {
+    var isEdit = !!item;
+    item = item || { code: "", name: "", assetUrl: "", thumbnailUrl: "", memberOnly: false, sort: 0, isPublished: true };
+    openModal(
+      (isEdit ? "编辑角色" : "新增角色"),
+      '<div class="form-grid">' +
+        '<div><label>code</label><input id="c_code" value="' + esc(item.code) + '" placeholder="llama" /></div>' +
+        '<div><label>名称</label><input id="c_name" value="' + esc(item.name) + '" /></div>' +
+        '<div class="full"><label>素材地址 (assetUrl)</label><input id="c_asset" value="' + esc(item.assetUrl) + '" placeholder="https://…/llama.png" /></div>' +
+        '<div class="full"><label>缩略图地址 (thumbnailUrl)</label><input id="c_thumb" value="' + esc(item.thumbnailUrl || "") + '" /></div>' +
+        '<div><label>排序</label><input id="c_sort" type="number" value="' + esc(item.sort) + '" /></div>' +
+        '<div class="check"><input id="c_member" type="checkbox"' + (item.memberOnly ? " checked" : "") + ' /><label style="margin:0">会员专属</label></div>' +
+        '<div class="check"><input id="c_pub" type="checkbox"' + (item.isPublished ? " checked" : "") + ' /><label style="margin:0">发布到客户端</label></div>' +
+      "</div>",
+      async function () {
+        var dto = {
+          code: $("c_code").value.trim(),
+          name: $("c_name").value.trim(),
+          assetUrl: $("c_asset").value.trim(),
+          thumbnailUrl: $("c_thumb").value.trim() || null,
+          sort: Number($("c_sort").value),
+          memberOnly: $("c_member").checked,
+          isPublished: $("c_pub").checked,
+        };
+        if (!dto.code || !dto.name || !dto.assetUrl) throw new Error("code / 名称 / 素材地址 必填");
+        if (isEdit) await api("/characters/" + item.id, { method: "PATCH", body: JSON.stringify(dto) });
+        else await api("/characters", { method: "POST", body: JSON.stringify(dto) });
+        closeModal();
+        toast(isEdit ? "已保存" : "已新增");
+        render();
+      }
+    );
+  }
+
+  async function removeCharacter(id) {
+    if (!confirm("确认删除该角色？")) return;
+    try {
+      await api("/characters/" + id, { method: "DELETE" });
+      toast("已删除");
+      render();
+    } catch (err) { toast(err.message); }
+  }
+
+  /* ---------------- 用户列表 ---------------- */
+  async function renderUsers() {
+    var rows = await api("/user?page=" + state.page + "&pageSize=" + state.pageSize);
+    state.rows = Array.isArray(rows) ? rows : [];
+    var body = state.rows.map(function (u) {
+      return [
+        "<b>" + esc(u.nickname || "未命名") + "</b>",
+        esc(u.email || "-"),
+        esc(u.phone || "-"),
+        esc(u.gender || "-"),
+        u.weightKg != null ? esc(u.weightKg) + " kg" : "-",
+        u.heightCm != null ? esc(u.heightCm) + " cm" : "-",
+        esc(u.dailyGoalMl) + " ml",
+        '<span class="mono">' + esc(u.id) + "</span>",
+        esc((u.createdAt || "").slice(0, 10)),
+      ];
+    });
+    $("view").innerHTML =
+      tableWrap(["昵称", "邮箱", "手机", "性别", "体重", "身高", "目标", "ID", "注册日"], body) +
+      pager();
+    bindPager();
+  }
+
+  /* ---------------- 订单查询 ---------------- */
+  async function renderOrders() {
+    var qs = "/membership/orders?page=" + state.page + "&pageSize=" + state.pageSize;
+    if (state.orderStatus) qs += "&status=" + encodeURIComponent(state.orderStatus);
+    if (state.orderUser) qs += "&userId=" + encodeURIComponent(state.orderUser);
+    var rows = await api(qs);
+    state.rows = Array.isArray(rows) ? rows : [];
+    var STATUS = { pending: "待支付", paid: "已支付", cancelled: "已取消", refunded: "已退款" };
+    var body = state.rows.map(function (o) {
+      var st = o.status || "pending";
+      return [
+        '<span class="mono">' + esc(o.id) + "</span>",
+        "<b>" + esc(o.user ? (o.user.nickname || o.user.email || o.user.id) : o.userId) + "</b>",
+        esc(o.plan ? o.plan.name : o.planId),
+        "¥" + ((o.amountCents || 0) / 100).toFixed(2),
+        '<span class="tag ' + esc(st) + '">' + esc(STATUS[st] || st) + "</span>",
+        esc((o.createdAt || "").replace("T", " ").slice(0, 16)),
+        esc(o.paidAt ? o.paidAt.replace("T", " ").slice(0, 16) : "-"),
+        st === "pending"
+          ? '<button class="btn sm" data-paid="' + esc(o.id) + '">标记已支付</button>'
+          : '<span class="tag off">-</span>',
+      ];
+    });
+    $("view").innerHTML =
+      '<div class="toolbar">' +
+        '<select id="orderStatus">' +
+          '<option value="">全部状态</option>' +
+          ["pending", "paid", "cancelled", "refunded"].map(function (s) {
+            return '<option value="' + s + '"' + (state.orderStatus === s ? " selected" : "") + ">" + STATUS[s] + "</option>";
+          }).join("") +
+        "</select>" +
+        '<input id="orderUser" placeholder="按 userId 过滤" value="' + esc(state.orderUser) + '" />' +
+        '<button class="btn ghost" id="queryOrders">查询</button>' +
+        '<div class="grow"></div>' +
+      "</div>" +
+      tableWrap(["订单号", "用户", "套餐", "金额", "状态", "创建时间", "支付时间", "操作"], body) +
+      pager();
+    bindPager();
+    $("queryOrders").onclick = function () {
+      state.orderStatus = $("orderStatus").value;
+      state.orderUser = $("orderUser").value.trim();
+      state.page = 1;
+      render();
+    };
+    $("orderStatus").onchange = function () {
+      state.orderStatus = $("orderStatus").value;
+      state.page = 1;
+      render();
+    };
+    document.querySelectorAll("[data-paid]").forEach(function (el) {
+      el.onclick = function () { markPaid(el.dataset.paid); };
+    });
+  }
+
+  async function markPaid(id) {
+    var tx = prompt("请输入外部交易号（Apple IAP / Google Play order id，可留空）：", "");
+    if (tx === null) return;
+    try {
+      await api("/membership/orders/" + id + "/paid", {
+        method: "PATCH",
+        body: JSON.stringify({ externalTxId: tx || "manual_" + Date.now() }),
+      });
+      toast("已标记支付");
+      render();
+    } catch (err) { toast(err.message); }
+  }
+
+  /* ---------------- 弹窗 ---------------- */
+  function openModal(title, bodyHtml, onSubmit) {
+    var box = $("modalBox");
+    box.innerHTML =
+      "<h3>" + esc(title) + "</h3>" +
+      bodyHtml +
+      '<div class="modal-err" id="modalErr"></div>' +
+      '<div class="modal-foot"><button class="btn ghost" id="modalCancel">取消</button>' +
+      '<button class="btn" id="modalSave">保存</button></div>';
+    $("modalMask").classList.remove("hidden");
+    $("modalCancel").onclick = closeModal;
+    $("modalSave").onclick = async function () {
+      var btn = $("modalSave");
+      $("modalErr").textContent = "";
+      btn.disabled = true;
+      btn.textContent = "保存中…";
+      try {
+        await onSubmit();
+      } catch (err) {
+        $("modalErr").textContent = err.message || "保存失败";
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "保存";
+      }
+    };
+  }
+
+  function closeModal() {
+    $("modalMask").classList.add("hidden");
+    $("modalBox").innerHTML = "";
+  }
+
+  /* ---------------- 启动 ---------------- */
+  $("loginForm").onsubmit = doLogin;
+  $("logoutBtn").onclick = logout;
+  document.querySelectorAll(".nav-btn").forEach(function (b) {
+    b.onclick = function () { switchTab(b.dataset.tab); };
+  });
+  $("modalMask").onclick = function (e) {
+    if (e.target === $("modalMask")) closeModal();
+  };
+
+  if (state.token) enterApp();
+  else showLogin();
+})();
+</script>
+</body>
+</html>

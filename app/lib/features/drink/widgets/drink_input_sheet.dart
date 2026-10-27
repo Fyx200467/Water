@@ -6,6 +6,7 @@ import '../../../shared/models/drink_entry.dart';
 import '../../home/providers/home_providers.dart';
 import '../../settings/widget_settings_screen.dart';
 import '../../stats/providers/stats_providers.dart';
+import '../providers/beverage_catalog_provider.dart';
 import '../services/hydration_calculator.dart';
 
 /// PRD §2.3 饮水彔入 BottomSheet
@@ -68,7 +69,7 @@ class _DrinkInputSheetState extends ConsumerState<DrinkInputSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final beverages = Beverage.presets.toList();
+    final beverages = ref.watch(beverageLibraryProvider);
 
     return SafeArea(
       child: Padding(

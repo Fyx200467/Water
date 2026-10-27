@@ -7,12 +7,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
 import 'app/app.dart';
+import 'core/sync/sync_api.dart';
 import 'features/settings/settings_flags.dart';
 import 'features/settings/widget_background.dart';
 
 /// PRD §1.3 前端层入口
 /// M1：脚手架；M2：首页养成核心 + 饮水录入；M3：统计 + 提醒 + 设置
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // 状态栏透明 + 关闭系统对比度蒙层：App 处于 edge-to-edge 模式（内容
   // 延伸到状态栏后面），部分 ROM（如 vivo）默认在状态栏区域强制画一层
@@ -34,5 +35,7 @@ void main() {
   if (!kIsWeb && Platform.isAndroid) {
     registerHomeWidgetBackgroundCallback();
   }
+  // 接口地址可由设置页运行时修改，启动前先读回已保存的值
+  await SyncApi.loadFromPrefs();
   runApp(const ProviderScope(child: WaterLlamaApp()));
 }

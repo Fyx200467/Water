@@ -4,8 +4,8 @@ import 'package:home_widget/home_widget.dart';
 
 import '../../core/storage/local_storage.dart';
 import '../../core/storage/providers.dart';
-import '../../shared/models/beverage.dart';
 import '../../shared/models/drink_entry.dart';
+import '../drink/providers/beverage_catalog_provider.dart';
 import '../drink/providers/custom_beverage_provider.dart';
 import '../drink/services/hydration_calculator.dart';
 import '../home/providers/home_providers.dart';
@@ -44,8 +44,7 @@ Future<void> homeWidgetBackgroundCallback(Uri? uri) async {
         _ => (s.drink3, s.vol3),
       };
       if (vol <= 0) return;
-      final customs = container.read(customBeveragesProvider);
-      final all = [...Beverage.presets, ...customs];
+      final all = container.read(beverageLibraryProvider);
       final b = all.firstWhere((x) => x.id == id, orElse: () => all.first);
       final entry = DrinkEntry.create(beverage: b, volumeMl: vol);
       debugPrint('[widget-bg] adding ${b.id} $vol ml');

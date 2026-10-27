@@ -6,6 +6,8 @@ import 'character_art.dart';
 import 'character_catalog.dart';
 import 'character_data.dart';
 import 'current_character_provider.dart';
+import '../membership/membership_provider.dart';
+import '../membership/membership_screen.dart';
 import '../settings/widget_settings_screen.dart';
 
 /// 角色展示页：从底部滑出的独立全屏页面（不可拖拽关闭，只能点 X 返回）
@@ -26,6 +28,8 @@ class CharacterScreen extends ConsumerWidget {
     // 全解锁模式：所有角色均可直接选用（便于测试随意切换填充角色；
     // 正式版恢复为 characterCollectionProvider 的里程碑解锁集合）
     final collected = characters.keys.toSet();
+    // 会员权益：免费用户仅可使用「每日」分类，其余分类为会员专属
+    final isMember = ref.watch(membershipProvider).isMember;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.dark.copyWith(
@@ -62,6 +66,13 @@ class CharacterScreen extends ConsumerWidget {
                           currentChar: currentChar,
                           collectedIds: collected,
                           uploadedFilePaths: state.uploadedFilePaths,
+                          locked: cat.id != 'daily' && !isMember,
+                          onLockedTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const MembershipScreen(
+                                  feature: '全部动物角色'),
+                            ),
+                          ),
                           onTapCharacter: (id) {
                             if (collected.contains(id)) {
                               ref
@@ -258,6 +269,8 @@ class _CategorySection extends StatelessWidget {
     required this.currentChar,
     required this.collectedIds,
     required this.uploadedFilePaths,
+    required this.locked,
+    required this.onLockedTap,
     required this.onTapCharacter,
   });
 
@@ -265,6 +278,10 @@ class _CategorySection extends StatelessWidget {
   final String currentChar;
   final Set<String> collectedIds;
   final Map<String, String> uploadedFilePaths;
+
+  /// 会员专属分类且当前非会员：整组显示锁标，点击进付费墙
+  final bool locked;
+  final VoidCallback onLockedTap;
   final ValueChanged<String> onTapCharacter;
 
   @override
@@ -301,13 +318,21 @@ class _CategorySection extends StatelessWidget {
                   ),
                 ),
               ),
-              Text(
-                cat.name,
-                style: TextStyle(
-                  color: cat.color,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                ),
+              Row(
+                children: [
+                  Text(
+                    cat.name,
+                    style: TextStyle(
+                      color: cat.color,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  if (locked) ...[
+                    const SizedBox(width: 5),
+                    Icon(Icons.lock, size: 14, color: cat.color),
+                  ],
+                ],
               ),
             ],
           ),
@@ -338,7 +363,8 @@ class _CategorySection extends StatelessWidget {
                   unlocked: collectedIds.contains(id),
                   selected: currentChar == id,
                   filePath: uploadedFilePaths[id],
-                  onTap: () => onTapCharacter(id),
+                  locked: locked,
+                  onTap: () => locked ? onLockedTap() : onTapCharacter(id),
                 ),
             ],
           ),
@@ -355,6 +381,7 @@ class _CharacterGridCard extends StatelessWidget {
     required this.color,
     required this.unlocked,
     required this.selected,
+    required this.locked,
     required this.onTap,
     this.filePath,
   });
@@ -363,6 +390,9 @@ class _CharacterGridCard extends StatelessWidget {
   final Color color;
   final bool unlocked;
   final bool selected;
+
+  /// 会员专属且未开通：卡片右下角显示锁标
+  final bool locked;
   final VoidCallback onTap;
 
   /// 后台上传素材的本地 SVG 路径（内置素材为 null）
@@ -396,6 +426,21 @@ class _CharacterGridCard extends StatelessWidget {
                 ),
               ),
             ),
+            if (locked)
+              Positioned(
+                right: 4,
+                bottom: 4,
+                child: Container(
+                  width: 18,
+                  height: 18,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFE0A63C),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.lock,
+                      size: 11, color: Colors.white),
+                ),
+              ),
           ],
         ),
       ),

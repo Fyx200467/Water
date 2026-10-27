@@ -1,3 +1,4 @@
+import AudioToolbox
 import AVFoundation
 import Flutter
 import UIKit
@@ -25,12 +26,21 @@ import UserNotifications
     // 音效通道：与 Android MainActivity 的 waterllama/sound 同名同参数
     FlutterMethodChannel(name: "waterllama/sound", binaryMessenger: messenger)
       .setMethodCallHandler { [weak self] call, result in
-        guard call.method == "play" else {
+        switch call.method {
+        case "play":
+          self?.waterPlayer.play()
+          result(true)
+        case "preview":
+          // 提醒音效试听：iOS 通知统一使用系统默认音，
+          // 自定义 raw 资源只打包在 Android，静音项不发声
+          let sound = (call.arguments as? [String: Any])?["sound"] as? String ?? "default"
+          if sound != "none" {
+            AudioServicesPlaySystemSound(1007) // 系统通知提示音
+          }
+          result(true)
+        default:
           result(FlutterMethodNotImplemented)
-          return
         }
-        self?.waterPlayer.play()
-        result(true)
       }
 
     // 通知设置通道：跳本应用的系统设置页（通知权限被永久拒绝时使用）

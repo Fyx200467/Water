@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:shared_preferences/shared_preferences.dart';
+
 /// 本地/局域网服务端调用（开发期）
 class SyncApiException implements Exception {
   SyncApiException(this.message);
@@ -12,12 +14,46 @@ class SyncApiException implements Exception {
 }
 
 class SyncApi {
-  /// 默认指向本机开发服务；真机验证时用
-  /// `--dart-define=API_BASE_URL=http://192.168.1.83:3000` 覆盖
-  static const String baseUrl = String.fromEnvironment(
+  /// 默认指向本机开发服务；可用
+  /// `--dart-define=API_BASE_URL=...` 覆盖，也可在设置页长按版本号运行时修改
+  static const String _defaultBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
     defaultValue: 'http://127.0.0.1:3000',
   );
+
+  static String _baseUrl = _defaultBaseUrl;
+
+  static String get baseUrl => _baseUrl;
+
+  /// 运行时可配接口地址在 SharedPreferences 中的键
+  static const String prefsKey = 'api_base_url';
+
+  /// 启动时加载已保存的接口地址（内网穿透域名变化时无需重新打包）
+  static Future<void> loadFromPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final normalized = normalize(prefs.getString(prefsKey));
+      if (normalized != null) _baseUrl = normalized;
+    } catch (_) {
+      // 读取失败时保持默认地址
+    }
+  }
+
+  static void configure(String normalized) => _baseUrl = normalized;
+
+  /// 归一化为 `scheme://host:port`：自动补协议、去掉尾部斜杠与路径，
+  /// 方便直接粘贴后台的 `.../api/v1` 地址
+  static String? normalize(String? raw) {
+    var value = (raw ?? '').trim();
+    if (value.isEmpty) return null;
+    if (!value.startsWith('http://') && !value.startsWith('https://')) {
+      value = 'http://$value';
+    }
+    final uri = Uri.tryParse(value);
+    if (uri == null || uri.host.isEmpty) return null;
+    final port = uri.hasPort ? ':${uri.port}' : '';
+    return '${uri.scheme}://${uri.host}$port';
+  }
 
   static Future<Map<String, dynamic>> guest(String anonId) {
     return _request('POST', '/v1/auth/guest', body: {'anonId': anonId});
@@ -46,6 +82,84 @@ class SyncApi {
       '/v1/sync/pull?cursor=$cursor&limit=$limit',
       token: token,
     );
+  }
+
+  /// 会员套餐列表（后端返回数组，与 _request 的 Map 约定不同，单独实现）
+  static Future<List<Map<String, dynamic>>> membershipPlans() async {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
+    try {
+      final request =
+          await client.openUrl('GET', Uri.parse('$baseUrl/v1/membership/plans'));
+      final response =
+          await request.close().timeout(const Duration(seconds: 8));
+      final text = await response.transform(utf8.decoder).join();
+      if (response.statusCode != 200) {
+        throw SyncApiException('HTTP ${response.statusCode}');
+      }
+      final decoded = jsonDecode(text);
+      if (decoded is List) {
+        return decoded
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+      }
+      return const [];
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  /// 创建会员订单：开通必须联网，服务端返回待支付订单
+  static Future<Map<String, dynamic>> createMembershipOrder(
+    String token,
+    String planCode,
+  ) {
+    return _request(
+      'POST',
+      '/v1/membership/orders',
+      token: token,
+      body: {'planCode': planCode},
+    );
+  }
+
+  /// 查询订单状态；支付确认后会带 expireAt / permanent
+  static Future<Map<String, dynamic>> membershipOrder(
+    String token,
+    String orderId,
+  ) {
+    return _request('GET', '/v1/membership/orders/$orderId', token: token);
+  }
+
+  /// 服务端会员状态（恢复购买用）
+  static Future<Map<String, dynamic>> membershipStatus(String token) {
+    return _request('GET', '/v1/membership/status', token: token);
+  }
+
+  /// 后台发布的云端饮品目录（含容器图标地址，免鉴权）
+  static Future<List<Map<String, dynamic>>> beverageCatalog() async {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
+    try {
+      final request = await client.openUrl(
+        'GET',
+        Uri.parse('$baseUrl/v1/catalog/beverages'),
+      );
+      final response =
+          await request.close().timeout(const Duration(seconds: 8));
+      final text = await response.transform(utf8.decoder).join();
+      if (response.statusCode != 200) {
+        throw SyncApiException('HTTP ${response.statusCode}');
+      }
+      final decoded = jsonDecode(text);
+      if (decoded is List) {
+        return decoded
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+      }
+      return const [];
+    } finally {
+      client.close(force: true);
+    }
   }
 
   static Future<Map<String, dynamic>> _request(

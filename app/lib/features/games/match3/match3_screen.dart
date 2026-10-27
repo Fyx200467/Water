@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../shared/models/beverage.dart';
-import '../../drink/providers/custom_beverage_provider.dart';
+import '../../drink/providers/beverage_catalog_provider.dart';
 import '../../drink/widgets/svg_container.dart';
 import '../../points/points_provider.dart';
 import 'match3_rules.dart';
@@ -83,10 +83,10 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
   /// 抽取本局使用的饮品：水固定上盘，其余从内置预设 + 用户新增里随机补足
   List<Beverage> _pickPool() {
     final water = Beverage.presets.firstWhere((b) => b.id == 'water_pure');
-    final others = [
-      ...Beverage.presets.where((b) => b.id != 'water_pure'),
-      ...ref.read(customBeveragesProvider),
-    ];
+    final others = ref
+        .read(beverageLibraryProvider)
+        .where((b) => b.id != 'water_pure')
+        .toList();
     final seen = <String>{};
     final uniq = [for (final b in others) if (seen.add(b.id)) b]..shuffle(_rnd);
     return [water, ...uniq.take(_kindSlots - 1)];
@@ -409,7 +409,7 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
   // ==================== UI ====================
 
   Widget _drinkIcon(Beverage b, double size) {
-    if (isSvgContainer(b.containerId)) {
+    if (hasContainerIcon(b.containerId)) {
       return SvgContainerIcon(
         containerId: b.containerId!,
         color: b.color,

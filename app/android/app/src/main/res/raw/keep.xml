@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 通知小图标只通过 Dart 字符串（'ic_stat_water'）引用，资源压缩器
-     看不到静态引用会把它裁掉，导致 release 包初始化报 invalid_icon。 -->
+     看不到静态引用会把它裁掉，导致 release 包初始化报 invalid_icon。
+     提醒音效同理：通过 RawResourceAndroidNotificationSound('名字') 在运行时
+     查找，Dart 字符串对压缩器不可见，必须显式保留。 -->
 <resources xmlns:tools="http://schemas.android.com/tools"
-    tools:keep="@drawable/ic_stat_water" />
+    tools:keep="@drawable/ic_stat_water,@raw/reminder_chime,@raw/reminder_drop,@raw/reminder_soft" />
