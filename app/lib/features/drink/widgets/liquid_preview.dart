@@ -99,7 +99,7 @@ class _LiquidPreviewState extends State<LiquidPreview>
     final loadingId = id;
     try {
       final info = await vg.loadPicture(
-        SvgAssetLoader(svgContainerAsset(loadingId)),
+        svgContainerLoader(loadingId),
         context,
       );
       final metrics = await loadSvgArtMetrics(

@@ -73,9 +73,15 @@ class BeverageCatalogNotifier extends StateNotifier<List<Beverage>> {
     final name = (m['name'] ?? '').toString();
     if (id.isEmpty || name.isEmpty) return null;
     final icon = (m['iconUrl'] ?? '').toString().trim();
+    final code = (m['category'] ?? '').toString();
+    final base = (m['baseCategory'] ?? '').toString();
+    final catName = (m['categoryName'] ?? '').toString().trim();
     return Beverage(
       id: id,
-      category: _category(m['category']?.toString()),
+      category: _category(code, base: base),
+      categoryKey: code.isEmpty ? null : code,
+      categoryName: catName.isEmpty ? null : catName,
+      categoryAccent: _color(m['categoryColor']?.toString()),
       name: name,
       defaultMl: (m['defaultMl'] as num?)?.toInt() ?? 250,
       liquidColor: _color(m['liquidColor']?.toString()),
@@ -85,9 +91,13 @@ class BeverageCatalogNotifier extends StateNotifier<List<Beverage>> {
     );
   }
 
-  static BeverageCategory _category(String? raw) {
+  /// 先按分类 code 匹配内置枚举，未命中再用后台配置的基础分类回退
+  static BeverageCategory _category(String? raw, {String? base}) {
     for (final c in BeverageCategory.values) {
       if (c.name == raw) return c;
+    }
+    for (final c in BeverageCategory.values) {
+      if (c.name == base) return c;
     }
     return BeverageCategory.water;
   }
@@ -140,6 +150,9 @@ Beverage _mergePreset(Beverage preset, Beverage remote) {
     animation: preset.animation,
     containerId: remote.containerId ?? preset.containerId,
     memberOnly: remote.memberOnly,
+    categoryKey: remote.categoryKey,
+    categoryName: remote.categoryName,
+    categoryAccent: remote.categoryAccent,
     calories: preset.calories,
     caffeineMg: preset.caffeineMg,
     alcoholPercent: preset.alcoholPercent,

@@ -10,21 +10,13 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../../shared/models/beverage.dart';
 import '../../shared/models/drink_entry.dart';
 import '../../shared/models/preferred_unit.dart';
-import '../../shared/widgets/drink_illustration.dart';
 import '../settings/widget_settings_screen.dart';
 import '../characters/character_art.dart';
-import '../characters/character_catalog.dart';
-import '../characters/character_data.dart';
-import '../characters/character_screen.dart';
 import '../characters/current_character_provider.dart';
 import '../drink/providers/beverage_catalog_provider.dart';
 import '../drink/providers/custom_beverage_provider.dart';
 import '../drink/services/hydration_calculator.dart';
-import '../drink/widgets/svg_container.dart';
-import '../drink/screens/add_drink_screen.dart';
-import '../drink/screens/drink_manage_screen.dart';
 import '../membership/membership_provider.dart';
-import '../membership/membership_screen.dart';
 import '../onboarding/widgets/animal_silhouette.dart';
 import '../settings/settings_flags.dart';
 import '../stats/history_screen.dart';
@@ -69,8 +61,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   StreamSubscription<Uri?>? _widgetClickSub;
 
   final ScrollController _scrollCtrl = ScrollController();
+
   /// 习惯卡堆叠效果用：把滚动像素透传给卡牌区（堆叠位置按滚动实时计算）
   final ValueNotifier<double> _scrollPixels = ValueNotifier(0);
+
   /// 弹弓发射命中检测用：角色卡片 bounds 的全局 key
   final GlobalKey _animalKey = GlobalKey();
 
@@ -88,8 +82,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     ref.listenManual(todayEntriesProvider, (_, __) => _scheduleWidgetSync());
     ref.listenManual(checkinDaysProvider, (_, __) => _scheduleWidgetSync());
     // 桌面小组件饮料格点击快速录入（冷启动 URI + 热启动事件流）
-    HomeWidget.initiallyLaunchedFromHomeWidget()
-        .then((uri) => _handleWidgetLaunch(uri));
+    HomeWidget.initiallyLaunchedFromHomeWidget().then(
+      (uri) => _handleWidgetLaunch(uri),
+    );
     _widgetClickSub = HomeWidget.widgetClicked.listen(_handleWidgetLaunch);
   }
 
@@ -131,8 +126,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (_draining) return;
     _draining = true;
     try {
-      final pending =
-          await HomeWidget.getWidgetData<String>('native_pending_adds');
+      final pending = await HomeWidget.getWidgetData<String>(
+        'native_pending_adds',
+      );
       if (pending == null || pending.isEmpty) return;
       // 等槽位配置与自定义饮品加载完成（冷启动早期必然经历这个窗口）
       await ref.read(widgetSettingsProvider.notifier).loaded;
@@ -166,24 +162,30 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             }
           }
         }
-        final beverage = carried ??
-            all.firstWhere((x) => x.id == fallbackId,
-                orElse: () => all.first);
+        final beverage =
+            carried ??
+            all.firstWhere((x) => x.id == fallbackId, orElse: () => all.first);
         // 会员专属饮品：非会员的桌面小组件入账直接丢弃
-        if (beverage
-            .lockedFor(ref.read(membershipProvider).isMember)) {
+        if (beverage.lockedFor(ref.read(membershipProvider).isMember)) {
           final rest = items.sublist(i + 1);
           await HomeWidget.saveWidgetData<String>(
-              'native_pending_adds', rest.isEmpty ? null : rest.join('|'));
+            'native_pending_adds',
+            rest.isEmpty ? null : rest.join('|'),
+          );
           continue;
         }
         try {
-          await ref.read(todayEntriesProvider.notifier).add(DrinkEntry.create(
-                beverage: beverage,
-                volumeMl: ml,
-                drankAt:
-                    ts == null ? null : DateTime.fromMillisecondsSinceEpoch(ts),
-              ));
+          await ref
+              .read(todayEntriesProvider.notifier)
+              .add(
+                DrinkEntry.create(
+                  beverage: beverage,
+                  volumeMl: ml,
+                  drankAt: ts == null
+                      ? null
+                      : DateTime.fromMillisecondsSinceEpoch(ts),
+                ),
+              );
         } catch (e) {
           // 入库失败：保留本条及后续条目，下次前台再重试
           debugPrint('[home] drain native widget add failed: $e');
@@ -191,7 +193,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         }
         final rest = items.sublist(i + 1);
         await HomeWidget.saveWidgetData<String>(
-            'native_pending_adds', rest.isEmpty ? null : rest.join('|'));
+          'native_pending_adds',
+          rest.isEmpty ? null : rest.join('|'),
+        );
       }
     } catch (e) {
       debugPrint('[home] drain native widget adds failed: $e');
@@ -220,8 +224,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     await _drainNativeWidgetAdds();
     if (!mounted) return;
     final goalMl = ref.read(profileProvider)?.dailyGoalMl ?? 2000;
-    final todayMl =
-        HydrationCalculator.sumEffective(ref.read(todayEntriesProvider));
+    final todayMl = HydrationCalculator.sumEffective(
+      ref.read(todayEntriesProvider),
+    );
     final streak = await ref.read(checkinDaysProvider.future);
     if (!mounted) return;
     await syncWidgetFromSettings(
@@ -268,7 +273,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-            '已通过桌面小组件录入 ${b.name} ${UnitFormat.volume(vol, compact: true)}'),
+          '已通过桌面小组件录入 ${b.name} ${UnitFormat.volume(vol, compact: true)}',
+        ),
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 2),
       ),
@@ -286,145 +292,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   /// 根据当前时间返回"星期一"~"星期日"（用于完成态文案"完美星期X！"）
   String _weekdayName() {
-    const names = [
-      '星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日',
-    ];
+    const names = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'];
     return names[DateTime.now().weekday - 1];
-  }
-
-  /// 打开饮品加量页：会员专属饮品先过付费墙，开通后继续
-  Future<void> _openBeverage(Beverage b) async {
-    final isMember = ref.read(membershipProvider).isMember;
-    if (b.lockedFor(isMember)) {
-      final unlocked =
-          await ensureMember(context, ref, feature: '会员专属饮品「${b.name}」');
-      if (!unlocked || !mounted) return;
-    }
-    if (!mounted) return;
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => AddDrinkScreen(beverageId: b.id)),
-    );
-  }
-
-  /// 底部水平滚动饮品快捷栏：水 / +98物品胶囊 / 当前角色 / 已开启饮品（可排序）/ 添加或编辑
-  Widget _buildDrinkBar(String currentChar, String? currentFilePath) {
-    final homeDrinks = ref.watch(homeDrinksProvider);
-    final isMember = ref.watch(membershipProvider).isMember;
-    // 全量池（非水预设 + 云端目录 + 自定义）→ 按持久化顺序取已开启饮品
-    // （管理页从上到下 = 首页从左到右；水单独渲染在第一位）
-    final pool = ref
-        .watch(beverageLibraryProvider)
-        .where((b) => b.id != 'water_pure')
-        .toList();
-    final byId = {for (final b in pool) b.id: b};
-    final drinks = [
-      for (final id in orderedVisibleIds(homeDrinks, pool))
-        if (id != 'water_pure' && byId[id] != null) byId[id]!,
-    ];
-
-    return ListView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      children: [
-        // 1. 水（用户自绘玻璃杯容器 + 底部 ⊕ 徽章；液体色同加量页）
-        _DrinkItem(
-          beverageId: 'water_pure',
-          icon: SvgContainerIcon(
-            containerId:
-                Beverage.presets
-                    .firstWhere((e) => e.id == 'water_pure')
-                    .containerId!,
-            color: Beverage.presets
-                .firstWhere((e) => e.id == 'water_pure')
-                .color,
-            fillRatio: 0.9, // 液体风格：液体占杯身 90%（全局统一）
-          ),
-          label: '水',
-          color: _brandCyan,
-          highlight: true,
-          badgeIcon: Icons.add,
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-                builder: (_) => const AddDrinkScreen(beverageId: 'water_pure')),
-          ),
-        ),
-        // 2. 当前选中角色头像（点击打开角色页）
-        _DrinkItem(
-          icon: CharacterArt(
-            animalId: currentChar,
-            unlocked: true,
-            size: 52,
-            filePath: currentFilePath,
-          ),
-          label: characters[currentChar]?.displayName ?? '角色',
-          color: const Color(0xFF8B6F47),
-          bg: const Color(0xFFF5E6D3),
-          badgeIcon: Icons.refresh,
-          onTap: () => Navigator.push(
-            context,
-            PageRouteBuilder(
-              pageBuilder: (_, __, ___) => CharacterScreen(),
-              // 从底部滑入的转场动画（不可拖拽关闭，只能点 X 按钮返回）
-              transitionsBuilder: (_, animation, __, child) {
-                final offset = Tween<Offset>(
-                  begin: const Offset(0, 1),
-                  end: Offset.zero,
-                ).animate(CurvedAnimation(
-                  parent: animation,
-                  curve: Curves.easeOutCubic,
-                ));
-                return SlideTransition(position: offset, child: child);
-              },
-              transitionDuration: const Duration(milliseconds: 350),
-            ),
-          ),
-        ),
-        // 4. 各类饮品
-        for (final b in drinks)
-          _DrinkItem(
-            // ValueKey 防同位置 State 复用：开关饮品/异步加载重排后，
-            // 相邻格变成不同饮品却复用旧 State，图标加载竞态会短暂
-            // 显示「旧容器形状 + 新液体色」
-            key: ValueKey('drink_${b.id}'),
-            beverageId: Beverage.presets.any((p) => p.id == b.id)
-                ? b.id
-                : Beverage.fallbackIllustration(b.category),
-            icon: hasContainerIcon(b.containerId)
-                ? SvgContainerIcon(
-                    containerId: b.containerId!,
-                    color: b.color,
-                    fillRatio: 0.9, // 液体风格：液体占杯身 90%（全局统一）
-                  )
-                : b.id.startsWith('custom_')
-                    ? Icon(b.icon, size: 30, color: b.color)
-                    : null,
-            label: b.name,
-            color: b.color,
-            badgeIcon: b.lockedFor(isMember) ? Icons.lock : null,
-            onTap: () => _openBeverage(b),
-          ),
-        // 5. 添加或编辑（浅青圆底 + 青色加号，对标原版）
-        _DrinkItem(
-          icon: Container(
-            width: 48,
-            height: 48,
-            decoration: const BoxDecoration(
-              color: Color(0xFFE0F4F8),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.add, size: 26, color: Color(0xFF31A8C9)),
-          ),
-          label: '添加或编辑',
-          color: _brandCyan,
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const DrinkManageScreen()),
-          ),
-        ),
-      ],
-    );
   }
 
   @override
@@ -434,8 +303,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final currentChar = ref.watch(currentCharacterProvider);
     // 单位切换后首页数字需要立即按新单位重绘
     ref.watch(preferredUnitProvider);
-    // 角色目录（上传素材路径；内置素材为 null，watch 以保证切换角色后按钮刷新）
-    final catalogAsync = ref.watch(characterCatalogProvider);
 
     // 监听「刚跨过目标」信号：真实加水跨线时由 TodayEntriesNotifier 发出，
     // 删除记录 / 重载数据不会误触发点亮与庆祝音效
@@ -454,229 +321,210 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       // 内容直接铺到状态栏下方（edge-to-edge）：上滑时页面从状态栏下穿过，
       // 不会被顶部白条裁掉；悬浮按钮单独下移，让出状态栏高度
       body: Stack(
-          children: [
-  // 底层：可滚动内容（第一屏铺满视口，习惯模块从下一屏开始）
-            Positioned.fill(
-              child: LayoutBuilder(
-                builder: (context, cons) => CustomScrollView(
-                  controller: _scrollCtrl,
-                  slivers: [
-                    SliverToBoxAdapter(
-                      child: SizedBox(
-                        height: cons.maxHeight,
-                        child: Column(
-                          children: [
-                            // 给悬浮按钮 + 状态栏留出空间
-                            SizedBox(height: 64 + topInset),
-                            // 1. 核心数据：完成时显示"完美星期X！"+ml·%目标；未完成时显示原数字
-                            Padding(
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 24),
-                              child: Column(
-                                children: [
-                                  if (done) ...[
-                                    // 完成态：庆祝文案（星期X 取自系统时间）
-                                    Text(
-                                      '完美${_weekdayName()}！',
+        children: [
+          // 底层：可滚动内容（第一屏铺满视口，习惯模块从下一屏开始）
+          Positioned.fill(
+            child: LayoutBuilder(
+              builder: (context, cons) => CustomScrollView(
+                controller: _scrollCtrl,
+                slivers: [
+                  SliverToBoxAdapter(
+                    child: SizedBox(
+                      height: cons.maxHeight,
+                      child: Column(
+                        children: [
+                          // 给悬浮按钮 + 状态栏留出空间
+                          SizedBox(height: 64 + topInset),
+                          // 1. 核心数据：完成时显示"完美星期X！"+ml·%目标；未完成时显示原数字
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 24),
+                            child: Column(
+                              children: [
+                                if (done) ...[
+                                  // 完成态：庆祝文案（星期X 取自系统时间）
+                                  Text(
+                                    '完美${_weekdayName()}！',
+                                    style: const TextStyle(
+                                      color: _brandCyan,
+                                      fontSize: 40,
+                                      fontWeight: FontWeight.w800,
+                                      height: 1.1,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '${UnitFormat.volume(progress.totalEffectiveMl, compact: true)} 进水量 · $percent% 的目标',
+                                    style: const TextStyle(
+                                      color: _hintGray,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ] else ...[
+                                  // 未完成态：原版数据文案（液面高光扫过）；
+                                  // 数字滚动：从旧值慢慢数到新值（回首页才播）
+                                  _DeferredTween(
+                                    end: progress.totalEffectiveMl.toDouble(),
+                                    duration: const Duration(milliseconds: 700),
+                                    curve: Curves.easeOutCubic,
+                                    builder: (_, v) => _LiquidShimmerText(
+                                      text: UnitFormat.volume(v, compact: true),
                                       style: const TextStyle(
                                         color: _brandCyan,
-                                        fontSize: 40,
+                                        fontSize: 56,
                                         fontWeight: FontWeight.w800,
                                         height: 1.1,
                                       ),
                                     ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      '${UnitFormat.volume(progress.totalEffectiveMl, compact: true)} 进水量 · $percent% 的目标',
-                                      style: const TextStyle(
-                                          color: _hintGray, fontSize: 14),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '进水量 · $percent% 的目标',
+                                    style: const TextStyle(
+                                      color: _hintGray,
+                                      fontSize: 14,
                                     ),
-                                  ] else ...[
-                                    // 未完成态：原版数据文案（液面高光扫过）；
-                                    // 数字滚动：从旧值慢慢数到新值（回首页才播）
-                                    _DeferredTween(
-                                      end: progress.totalEffectiveMl
-                                          .toDouble(),
-                                      duration:
-                                          const Duration(milliseconds: 700),
-                                      curve: Curves.easeOutCubic,
-                                      builder: (_, v) => _LiquidShimmerText(
-                                        text: UnitFormat.volume(v, compact: true),
-                                        style: const TextStyle(
-                                          color: _brandCyan,
-                                          fontSize: 56,
-                                          fontWeight: FontWeight.w800,
-                                          height: 1.1,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      '进水量 · $percent% 的目标',
-                                      style: const TextStyle(
-                                          color: _hintGray, fontSize: 14),
-                                    ),
-                                  ],
+                                  ),
                                 ],
-                              ),
+                              ],
                             ),
-                            const SizedBox(height: 12),
-                            // 2. 中央：大羊驼剪影（弹性区域撑开）
-                            // 已完成目标时可点击重新点亮 2 秒
-                            Expanded(
-                              child: Center(
-                                child: Container(
-                                  key: _animalKey,
-                                  child: GestureDetector(
-                                    onTap: done ? _triggerLit : null,
-                                    // 液面过渡：返回首页后液体从旧液位慢慢
-                                    // 涨到新液位（1.1s easeOut，非跳变）
-                                    child: _DeferredTween(
-                                      end: progress.progress.clamp(0.0, 1.0),
-                                      duration:
-                                          const Duration(milliseconds: 1100),
-                                      curve: Curves.easeOutCubic,
-                                      builder: (_, v) => AnimalSilhouette(
-                                        animalId: currentChar,
-                                        fillRatio: v,
-                                        accentColor: _brandCyan,
-                                        solidFillColor: _brandCyan,
-                                        size: 280,
-                                        // 点亮态显示全彩插画，否则剪影+液体填充
-                                        fullArt: isLit,
-                                      ),
+                          ),
+                          const SizedBox(height: 12),
+                          // 2. 中央：大羊驼剪影（弹性区域撑开）
+                          // 已完成目标时可点击重新点亮 2 秒
+                          Expanded(
+                            child: Center(
+                              child: Container(
+                                key: _animalKey,
+                                child: GestureDetector(
+                                  onTap: done ? _triggerLit : null,
+                                  // 液面过渡：返回首页后液体从旧液位慢慢
+                                  // 涨到新液位（1.1s easeOut，非跳变）
+                                  child: _DeferredTween(
+                                    end: progress.progress.clamp(0.0, 1.0),
+                                    duration: const Duration(
+                                      milliseconds: 1100,
+                                    ),
+                                    curve: Curves.easeOutCubic,
+                                    builder: (_, v) => AnimalSilhouette(
+                                      animalId: currentChar,
+                                      fillRatio: v,
+                                      accentColor: _brandCyan,
+                                      solidFillColor: _brandCyan,
+                                      size: 280,
+                                      // 点亮态显示全彩插画，否则剪影+液体填充
+                                      fullArt: isLit,
                                     ),
                                   ),
                                 ),
                               ),
                             ),
-                            const SizedBox(height: 8),
-                            // 2.5 完成态轮播：第1页「庆祝我的一天！」按钮 + 第2页鼓励横幅
-                            //（可横滑+自动翻页，圆点指示；celebrateDay 开关控制第1页显隐；
-                            //  点击进入「今日回顾」庆祝海报页）
-                            if (done)
-                              _CelebrationCarousel(
-                                animalId: currentChar,
-                              ),
-                            const SizedBox(height: 8),
-                            // 3. 底部饮品栏：设置页「功能 → 娱乐玩法」一键切换
-                            //  开：弧线轨道（弹弓发射水滴击中角色）
-                            //  关：经典直线饮品栏（进入加量页选容量）
-                            ListenableBuilder(
-                              listenable: SettingsFlags.instance,
-                              builder: (ctx, _) =>
-                                  SettingsFlags.instance.funPlay
-                                      ? Transform.translate(
-                                          offset: const Offset(0, -26),
-                                          child: SlingshotDrinkTrack(
-                                            targetKey: _animalKey,
-                                            height: 206,
-                                          ),
-                                        )
-                                      : SizedBox(
-                                          // 横向 ListView 必须有确定高度，否则
-                                          // 会撑满 Column 剩余空间把角色挤没
-                                          height: 96,
-                                          child: _buildDrinkBar(
-                                            currentChar,
-                                            catalogAsync.value
-                                                ?.uploadedFilePaths[currentChar],
-                                          ),
-                                        ),
+                          ),
+                          const SizedBox(height: 8),
+                          // 2.5 完成态轮播：第1页「庆祝我的一天！」按钮 + 第2页鼓励横幅
+                          //（可横滑+自动翻页，圆点指示；celebrateDay 开关控制第1页显隐；
+                          //  点击进入「今日回顾」庆祝海报页）
+                          if (done) _CelebrationCarousel(animalId: currentChar),
+                          const SizedBox(height: 8),
+                          // 3. 底部饮品栏：固定为弧线轨道（弹弓发射水滴击中角色）
+                          Transform.translate(
+                            offset: const Offset(0, -26),
+                            child: SlingshotDrinkTrack(
+                              targetKey: _animalKey,
+                              height: 206,
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
-                    ),
-                    // 5. 习惯挑战列表（养成健康的日常习惯 N/9）
-                    SliverToBoxAdapter(
-                      child: HabitModule(scrollPixels: _scrollPixels),
-                    ),
-                    // 6. 页面到底提示
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.only(top: 8, bottom: 16),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            SvgPicture.asset(
-                              'assets/icons/home/bottom_tip.svg',
-                              width: 18,
-                              height: 18,
-                            ),
-                            const SizedBox(width: 6),
-                            const Text(
-                              '到底啦',
-                              style: TextStyle(
-                                color: Color(0xFFB0B0B5),
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    // 末端留出系统导航栏安全区（内容已铺到屏幕底部）
-                    SliverToBoxAdapter(
-                      child: SizedBox(
-                          height: MediaQuery.paddingOf(context).bottom),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            // 顶层：悬浮按钮（不随内容滚动），下移状态栏高度避免被遮挡
-            Positioned(
-              top: topInset + 8,
-              left: 20,
-              right: 12,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  // 左上角：天数徽章（外圈进度环 + 启动展开动画）→ 打开历史记录页
-                  // 签到天数 = 当天打开过 App 即记录一天
-                  // 完成态时在「天数」和「✓」之间循环切换（持续，不是只点亮时）
-                  checkin.maybeWhen(
-                    data: (days) => _DayBadge(
-                      days: days,
-                      progress: progress.progress,
-                      showCycle: done,
-                      onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const HistoryScreen()),
-                      ),
-                    ),
-                    orElse: () => _DayBadge(
-                      days: 0,
-                      progress: progress.progress,
-                      onTap: null,
                     ),
                   ),
-                  // 右上角：菜单按钮（三根波浪线，尺寸与左上角徽章按钮一致）
-                  IconButton(
-                    onPressed: () => context.push('/settings'),
-                    constraints: const BoxConstraints.tightFor(
-                      width: 42,
-                      height: 42,
+                  // 5. 习惯挑战列表（养成健康的日常习惯 N/9）
+                  SliverToBoxAdapter(
+                    child: HabitModule(scrollPixels: _scrollPixels),
+                  ),
+                  // 6. 页面到底提示
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 8, bottom: 16),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          SvgPicture.asset(
+                            'assets/icons/home/bottom_tip.svg',
+                            width: 18,
+                            height: 18,
+                          ),
+                          const SizedBox(width: 6),
+                          const Text(
+                            '到底啦',
+                            style: TextStyle(
+                              color: Color(0xFFB0B0B5),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    padding: EdgeInsets.zero,
-                    icon: const CustomPaint(
-                      size: Size(32, 24),
-                      painter: _MenuWavesPainter(),
+                  ),
+                  // 末端留出系统导航栏安全区（内容已铺到屏幕底部）
+                  SliverToBoxAdapter(
+                    child: SizedBox(
+                      height: MediaQuery.paddingOf(context).bottom,
                     ),
                   ),
                 ],
               ),
             ),
-            // 礼炮彩带层：完成态时持续从屏幕上方飘落（不阻挡点击）
-            Positioned.fill(
-              child: IgnorePointer(
-                child: ConfettiRain(active: done),
-              ),
+          ),
+          // 顶层：悬浮按钮（不随内容滚动），下移状态栏高度避免被遮挡
+          Positioned(
+            top: topInset + 8,
+            left: 20,
+            right: 12,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                // 左上角：天数徽章（外圈进度环 + 启动展开动画）→ 打开历史记录页
+                // 签到天数 = 当天打开过 App 即记录一天
+                // 完成态时在「天数」和「✓」之间循环切换（持续，不是只点亮时）
+                checkin.maybeWhen(
+                  data: (days) => _DayBadge(
+                    days: days,
+                    progress: progress.progress,
+                    showCycle: done,
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const HistoryScreen()),
+                    ),
+                  ),
+                  orElse: () => _DayBadge(
+                    days: 0,
+                    progress: progress.progress,
+                    onTap: null,
+                  ),
+                ),
+                // 右上角：菜单按钮（三根波浪线，尺寸与左上角徽章按钮一致）
+                IconButton(
+                  onPressed: () => context.push('/settings'),
+                  constraints: const BoxConstraints.tightFor(
+                    width: 42,
+                    height: 42,
+                  ),
+                  padding: EdgeInsets.zero,
+                  icon: const CustomPaint(
+                    size: Size(32, 24),
+                    painter: _MenuWavesPainter(),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+          // 礼炮彩带层：完成态时持续从屏幕上方飘落（不阻挡点击）
+          Positioned.fill(
+            child: IgnorePointer(child: ConfettiRain(active: done)),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -740,13 +588,10 @@ class _DayBadgeState extends State<_DayBadge> {
 
   void _startToggle() {
     _toggleTimer?.cancel();
-    _toggleTimer = Timer.periodic(
-      const Duration(seconds: 2),
-      (_) {
-        if (!mounted) return;
-        setState(() => _showCheck = !_showCheck);
-      },
-    );
+    _toggleTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (!mounted) return;
+      setState(() => _showCheck = !_showCheck);
+    });
   }
 
   void _stopToggle() {
@@ -811,54 +656,53 @@ class _DayBadgeState extends State<_DayBadge> {
                           ),
                         )
                       : _showExpandedContent(w)
-                          ? Padding(
-                              key: const ValueKey('full'),
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 18),
-                              // 数字居左、「天」居右，对标原版展开态的宽松间距；
-                              // 内容宽度固定为目标胶囊宽（不绑定当前帧宽 w）：
-                              // 收回时出场子组件会被 AnimatedSwitcher 冻结，
-                              // 若绑定 w 会被收缩中的容器钳制产生文字骤缩跳变；
-                              // 固定宽度 + FittedBox 保证任意帧宽下连续缩放、绝不溢出
-                              child: FittedBox(
-                                fit: BoxFit.scaleDown,
-                                alignment: Alignment.center,
-                                child: SizedBox(
-                                  width: _shapeWidth - 36.0,
-                                  child: Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text(
-                                        '${widget.days}',
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 15,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                      const Text(
-                                        '天',
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 15,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                    ],
+                      ? Padding(
+                          key: const ValueKey('full'),
+                          padding: const EdgeInsets.symmetric(horizontal: 18),
+                          // 数字居左、「天」居右，对标原版展开态的宽松间距；
+                          // 内容宽度固定为目标胶囊宽（不绑定当前帧宽 w）：
+                          // 收回时出场子组件会被 AnimatedSwitcher 冻结，
+                          // 若绑定 w 会被收缩中的容器钳制产生文字骤缩跳变；
+                          // 固定宽度 + FittedBox 保证任意帧宽下连续缩放、绝不溢出
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.center,
+                            child: SizedBox(
+                              width: _shapeWidth - 36.0,
+                              child: Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    '${widget.days}',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w700,
+                                    ),
                                   ),
-                                ),
-                              ),
-                            )
-                          : Text(
-                              '${widget.days}',
-                              key: const ValueKey('num'),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 15,
-                                fontWeight: FontWeight.w700,
+                                  const Text(
+                                    '天',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
+                          ),
+                        )
+                      : Text(
+                          '${widget.days}',
+                          key: const ValueKey('num'),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                 ),
               ),
             ],
@@ -876,8 +720,7 @@ class _DayBadgeState extends State<_DayBadge> {
 
   /// 展开内容仅在动画接近完成时切换：早期帧就显示会让文字缩得过小、观感差
   /// （溢出已由「固定内容宽度 + FittedBox」从根本上排除，此处阈值纯为观感）
-  bool _showExpandedContent(double w) =>
-      _expanded && w >= _shapeWidth - 20;
+  bool _showExpandedContent(double w) => _expanded && w >= _shapeWidth - 20;
 }
 
 /// 徽章外圈进度环：沿按钮当前形状（圆形/胶囊）外轮廓描边
@@ -1165,7 +1008,8 @@ class _LiquidShimmerTextState extends State<_LiquidShimmerText>
             ],
             stops: const [0.3, 0.5, 0.7],
             transform: _SlidingHighlightTransform(
-                shift: Curves.easeInOut.transform(sweep)),
+              shift: Curves.easeInOut.transform(sweep),
+            ),
           ).createShader(bounds),
           child: Text(widget.text, style: widget.style),
         );
@@ -1184,94 +1028,6 @@ class _SlidingHighlightTransform extends GradientTransform {
   @override
   Matrix4? transform(Rect bounds, {TextDirection? textDirection}) =>
       Matrix4.translationValues(bounds.width * (shift * 3 - 1.5), 0, 0);
-}
-
-/// 饮品快捷项：圆底图标 + 标签
-class _DrinkItem extends StatelessWidget {
-  const _DrinkItem({
-    super.key,
-    required this.label,
-    required this.color,
-    required this.onTap,
-    this.beverageId,
-    this.icon,
-    this.bg,
-    this.highlight = false,
-    this.badgeIcon,
-  });
-
-  /// 饮品插画 id（icon 为空时使用）
-  final String? beverageId;
-
-  /// 自定义插画 widget（角色项用 CharacterArt）；为空时按 beverageId 渲染饮品插画
-  final Widget? icon;
-  final String label;
-  final Color color;
-  final Color? bg;
-  final VoidCallback onTap;
-  final bool highlight;
-
-  /// 底部中央徽章图标（如水的 ⊕、羊驼的 ↻）
-  final IconData? badgeIcon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 14),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // 对标原版：无圆底，饮品插画独立大图直接立在白色背景上
-            SizedBox(
-              width: 52,
-              height: 56,
-              child: Stack(
-                clipBehavior: Clip.none,
-                alignment: Alignment.center,
-                children: [
-                  icon ??
-                      DrinkIllustration(
-                        beverageId: beverageId ?? '',
-                        color: color,
-                        size: 52,
-                        highlight: highlight,
-                      ),
-                  // 底部中央徽章：水的 ⊕ 用品牌色
-                  if (badgeIcon != null)
-                    Positioned(
-                      bottom: -2,
-                      child: Container(
-                        width: 20,
-                        height: 20,
-                        decoration: BoxDecoration(
-                          color: color,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 1.5),
-                        ),
-                        child: Icon(badgeIcon,
-                            size: 12, color: Colors.white),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                color: highlight ? color : const Color(0xFF8E8E93),
-                fontSize: 12,
-                fontWeight: highlight ? FontWeight.w600 : FontWeight.w400,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 /// 完成态轮播条（对标原版：角色卡与饮品栏之间，可横滑两页）
@@ -1320,145 +1076,142 @@ class _CelebrationCarouselState extends State<_CelebrationCarousel> {
 
   void _openReview() {
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => DailyReviewScreen(animalId: widget.animalId)),
+      MaterialPageRoute(
+        builder: (_) => DailyReviewScreen(animalId: widget.animalId),
+      ),
     );
   }
 
   /// 青色角色剪影（第1页白色方块内）
   Widget _cyanSilhouette(double size) => ColorFiltered(
-        colorFilter: const ColorFilter.mode(
-            Color(0xFF4DB8D8), BlendMode.srcIn),
-        child: CharacterArt(
-          animalId: widget.animalId,
-          unlocked: false,
-          size: size,
-        ),
-      );
+    colorFilter: const ColorFilter.mode(Color(0xFF4DB8D8), BlendMode.srcIn),
+    child: CharacterArt(animalId: widget.animalId, unlocked: false, size: size),
+  );
 
   /// 第1页：黑色胶囊庆祝按钮——固定 280 宽与上方角色对齐、水平居中，
   /// 双层斜卡片层叠在胶囊左端上方；点击进入今日回顾页
   Widget _celebrateButton() => Center(
-        child: GestureDetector(
-          onTap: _openReview,
-          child: SizedBox(
-            width: 280,
-            height: 66,
-            child: Stack(
-              alignment: Alignment.centerLeft,
-              children: [
-                // 黑色胶囊：占满 280 宽（卡片下方）
-                Positioned(
-                  left: 12,
-                  right: 0,
-                  top: 7,
-                  bottom: 7,
+    child: GestureDetector(
+      onTap: _openReview,
+      child: SizedBox(
+        width: 280,
+        height: 66,
+        child: Stack(
+          alignment: Alignment.centerLeft,
+          children: [
+            // 黑色胶囊：占满 280 宽（卡片下方）
+            Positioned(
+              left: 12,
+              right: 0,
+              top: 7,
+              bottom: 7,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1C1C22),
+                  borderRadius: BorderRadius.circular(26),
+                ),
+                alignment: Alignment.center,
+                padding: const EdgeInsets.only(left: 70),
+                child: const Text(
+                  '庆祝我的一天！',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+            // 双层斜卡片：浅青外框 + 白色内芯（对标原版拍立得样式）
+            Positioned(
+              left: 0,
+              child: Transform.rotate(
+                angle: -0.1, // 约 -6°，对标原版斜置卡片
+                child: Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFDCEFF6),
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.1),
+                        blurRadius: 10,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  padding: const EdgeInsets.all(5),
                   child: Container(
                     decoration: BoxDecoration(
-                      color: const Color(0xFF1C1C22),
-                      borderRadius: BorderRadius.circular(26),
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                    alignment: Alignment.center,
-                    padding: const EdgeInsets.only(left: 70),
-                    child: const Text(
-                      '庆祝我的一天！',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
+                    child: Center(child: _cyanSilhouette(40)),
                   ),
                 ),
-              // 双层斜卡片：浅青外框 + 白色内芯（对标原版拍立得样式）
-                Positioned(
-                  left: 0,
-                  child: Transform.rotate(
-                    angle: -0.1, // 约 -6°，对标原版斜置卡片
-                    child: Container(
-                      width: 64,
-                      height: 64,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFDCEFF6),
-                        borderRadius: BorderRadius.circular(14),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.1),
-                            blurRadius: 10,
-                            offset: const Offset(0, 3),
-                          ),
-                        ],
-                      ),
-                      padding: const EdgeInsets.all(5),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Center(child: _cyanSilhouette(40)),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
+          ],
         ),
-      );
+      ),
+    ),
+  );
 
   /// 第2页：白色鼓励横幅——固定 280 宽与上方角色对齐、水平居中
   Widget _tipBanner() => Center(
-        child: GestureDetector(
-          onTap: _openReview,
-          child: Container(
-            width: 280,
-            height: 54,
-            padding: const EdgeInsets.fromLTRB(10, 10, 14, 10),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 10,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE3F4F8),
-                  borderRadius: BorderRadius.circular(9),
-                ),
-                child: Center(
-                  child: CharacterArt(
-                    animalId: widget.animalId,
-                    unlocked: true,
-                    size: 25,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              const Expanded(
-                child: Text(
-                  '今天主打纯净补水，干得漂亮！',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Color(0xFF1C1C1E),
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          ),
+    child: GestureDetector(
+      onTap: _openReview,
+      child: Container(
+        width: 280,
+        height: 54,
+        padding: const EdgeInsets.fromLTRB(10, 10, 14, 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
-      );
+        child: Row(
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: const Color(0xFFE3F4F8),
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: Center(
+                child: CharacterArt(
+                  animalId: widget.animalId,
+                  unlocked: true,
+                  size: 25,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Text(
+                '今天主打纯净补水，干得漂亮！',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: Color(0xFF1C1C1E),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -1482,10 +1235,7 @@ class _CelebrationCarouselState extends State<_CelebrationCarousel> {
                   _autoTimer?.cancel();
                   setState(() => _page = i);
                 },
-                children: [
-                  _celebrateButton(),
-                  _tipBanner(),
-                ],
+                children: [_celebrateButton(), _tipBanner()],
               ),
             ),
             // 翻页圆点

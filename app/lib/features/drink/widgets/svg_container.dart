@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -6,6 +7,7 @@ import 'package:flutter/services.dart' show AssetManifest, rootBundle;
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../settings/settings_flags.dart';
+import '../../../core/sync/container_icon_sync.dart';
 import '../../../core/sync/sync_api.dart';
 
 /// SVG 矢量容器渲染组件
@@ -56,9 +58,32 @@ const Set<String> kHiddenContainerIds = {
 /// 资产扫描结果缓存：图标库在运行期不变，避免每次进编辑页重复全量扫描
 List<String>? _containerIdsCache;
 
+/// 云端图标同步完成后调用，让图标选择页下次打开时重新取列表
+void invalidateSvgContainerIdsCache() => _containerIdsCache = null;
+
+/// 容器图标的 SVG 加载器：本地已下载的云端图标优先，
+/// 否则回退到安装包内置资源（离线首次使用）
+SvgLoader<dynamic> svgContainerLoader(String id) {
+  final cached = ContainerIconStore.filePathSync(id);
+  return cached == null
+      ? SvgAssetLoader(svgContainerAsset(id))
+      : SvgFileLoader(File(cached));
+}
+
 Future<List<String>> loadSvgContainerIds() async {
   final cached = _containerIdsCache;
   if (cached != null) return cached;
+  // 联网同步过：以服务端列表为准（安装包内置但服务端已删除的不再展示）
+  if (ContainerIconStore.hasRemoteList) {
+    final ids = ContainerIconStore.remoteNames
+        .map((name) => 'svg:$name')
+        .where((id) => !kHiddenContainerIds.contains(id))
+        .toList()
+      ..sort();
+    _containerIdsCache = ids;
+    return ids;
+  }
+  // 从未联网：使用安装包自带的图标，离线可用
   try {
     final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
     const prefix = 'assets/images/containers/';
@@ -415,7 +440,7 @@ class _SvgContainerIconState extends State<SvgContainerIcon> {
       final info = await vg.loadPicture(
         isRemoteContainer(id)
             ? SvgNetworkLoader(remoteContainerUrl(id))
-            : SvgAssetLoader(svgContainerAsset(id)),
+            : svgContainerLoader(id),
         context,
       );
       final metrics = await loadSvgArtMetrics(id, info.picture, info.size);
@@ -460,9 +485,21 @@ class _SvgContainerIconState extends State<SvgContainerIcon> {
           placeholderBuilder: (_) => SizedBox.square(dimension: widget.size),
         );
       }
+      // 失败回退：优先用已下载的本地文件，其次安装包内置资源
+      final cachedPath = ContainerIconStore.filePathSync(widget.containerId);
+      final colorFilter = ColorFilter.mode(widget.color, BlendMode.srcIn);
+      if (cachedPath != null) {
+        return SvgPicture.file(
+          File(cachedPath),
+          colorFilter: colorFilter,
+          width: widget.size,
+          height: widget.size,
+          fit: BoxFit.contain,
+        );
+      }
       return SvgPicture.asset(
         svgContainerAsset(widget.containerId),
-        colorFilter: ColorFilter.mode(widget.color, BlendMode.srcIn),
+        colorFilter: colorFilter,
         width: widget.size,
         height: widget.size,
         fit: BoxFit.contain,
@@ -688,7 +725,7 @@ class _SvgContainerFillState extends State<SvgContainerFill> {
       final info = await vg.loadPicture(
         isRemoteContainer(id)
             ? SvgNetworkLoader(remoteContainerUrl(id))
-            : SvgAssetLoader(svgContainerAsset(id)),
+            : svgContainerLoader(id),
         context,
       );
       final metrics = await loadSvgArtMetrics(id, info.picture, info.size);

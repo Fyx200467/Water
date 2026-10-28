@@ -10,6 +10,8 @@ import '../../../shared/widgets/drink_illustration.dart';
 import '../../settings/settings_flags.dart';
 import '../../settings/widget_settings_screen.dart';
 import '../../home/providers/home_providers.dart';
+import '../../membership/membership_provider.dart';
+import '../../membership/membership_screen.dart' show ensureMember;
 import '../providers/beverage_catalog_provider.dart';
 import '../providers/custom_beverage_provider.dart';
 import '../widgets/liquid_preview.dart';
@@ -169,6 +171,19 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
         duration: const Duration(milliseconds: 1500),
       ));
       return;
+    }
+    // 会员权益：非会员可以进入编辑页自由调整参数，但「保存」新增自定义
+    // 饮品时才校验会员（输入框不可用时无法体验，故不在这里提前拦截）
+    if (!_isEditing && !ref.read(membershipProvider).isMember) {
+      final unlocked = await ensureMember(context, ref, feature: '自定义饮品');
+      if (!mounted) return;
+      if (!unlocked) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('开通会员后才能保存自定义饮品'),
+          duration: Duration(milliseconds: 1600),
+        ));
+        return;
+      }
     }
     setState(() => _saving = true);
     final navigator = Navigator.of(context);
@@ -753,7 +768,7 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
                     if (widget.readOnly) ...[
                       const SizedBox(height: 4),
                       const Text(
-                        '内置饮品为只读展示，如需自定义请返回后点右上「添加」',
+                        '后台发布的饮品仅可查看，参数不可修改；如需自定义请返回后点右上「添加」',
                         textAlign: TextAlign.center,
                         style: TextStyle(color: _valueGray, fontSize: 12),
                       ),

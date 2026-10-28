@@ -33,6 +33,9 @@ class Beverage {
     this.animation,
     this.containerId,
     this.memberOnly = false,
+    this.categoryKey,
+    this.categoryName,
+    this.categoryAccent,
     this.calories,
     this.caffeineMg,
     this.alcoholPercent,
@@ -61,6 +64,21 @@ class Beverage {
 
   /// 会员专属：后台可配置，非会员不可记录
   final bool memberOnly;
+
+  /// 后台分类 code / 显示名 / 分类色（后台「饮品分类」维护）。
+  /// 为空时回退到本地枚举（内置预设与用户自定义饮品）。
+  final String? categoryKey;
+  final String? categoryName;
+  final Color? categoryAccent;
+
+  /// 分类 code（后台新增分类可能不在枚举内）
+  String get categoryCode => categoryKey ?? category.name;
+
+  /// 分类显示名（App 饮品页胶囊与卡片副标题使用）
+  String get categoryLabel => categoryName ?? category.label;
+
+  /// 分类色（筛选胶囊选中色）
+  Color get categoryColor => categoryAccent ?? category.color;
 
   /// 当前身份是否无权使用（非会员 + 会员专属）
   bool lockedFor(bool isMember) => memberOnly && !isMember;

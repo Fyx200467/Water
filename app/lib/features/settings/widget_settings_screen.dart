@@ -1440,7 +1440,12 @@ Future<File?> _rasterizeDrinkIcon(Beverage b, {int dim = 96}) async {
       assetPath = 'assets/images/drinks/$illustId.svg';
       tint = null;
     }
-    final info = await vg.loadPicture(SvgAssetLoader(assetPath), null);
+    final info = await vg.loadPicture(
+      isSvgContainer(b.containerId)
+          ? svgContainerLoader(b.containerId!)
+          : SvgAssetLoader(assetPath),
+      null,
+    );
     final rec = ui.PictureRecorder();
     final canvas = ui.Canvas(rec);
     final box = Offset.zero & Size.square(dim.toDouble());

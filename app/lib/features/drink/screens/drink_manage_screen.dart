@@ -34,8 +34,8 @@ class _DrinkManageScreenState extends ConsumerState<DrinkManageScreen> {
   static const _textDark = Color(0xFF1C1C1E);
   static const _hintGray = Color(0xFF8E8E93);
 
-  /// 当前筛选品类（null = 所有）
-  BeverageCategory? _filter;
+  /// 当前筛选分类 code（null = 所有；后台可新增内置九类之外的分类）
+  String? _filter;
 
   /// 品类胶囊短标签（对标原版：茶 / 咖啡 / 酒精…）
   String _chipLabel(BeverageCategory c) => switch (c) {
@@ -50,10 +50,30 @@ class _DrinkManageScreenState extends ConsumerState<DrinkManageScreen> {
         BeverageCategory.alcohol => '酒精',
       };
 
-  /// 品类筛选匹配规则：直接按饮品自身的分类字段筛选
+  /// 胶囊列表：内置九类在前（短标签），后台新增分类按库中出现顺序追加
+  List<({String code, String label, Color color})> _chips(
+      List<Beverage> library) {
+    final list = <({String code, String label, Color color})>[
+      for (final c in BeverageCategory.values)
+        (code: c.name, label: _chipLabel(c), color: c.color),
+    ];
+    final seen = {for (final c in BeverageCategory.values) c.name};
+    for (final b in library) {
+      if (seen.add(b.categoryCode)) {
+        list.add((
+          code: b.categoryCode,
+          label: b.categoryLabel,
+          color: b.categoryColor,
+        ));
+      }
+    }
+    return list;
+  }
+
+  /// 品类筛选匹配规则：直接按饮品自身的分类 code 筛选
   /// （编辑页新增了「分类」选择项，分类成为唯一权威口径；
   /// 早期按名称关键词猜测的规则会让自定义饮品归错品类）
-  bool _matchesFilter(Beverage b) => b.category == _filter!;
+  bool _matchesFilter(Beverage b) => b.categoryCode == _filter;
 
   @override
   Widget build(BuildContext context) {
@@ -147,12 +167,12 @@ class _DrinkManageScreenState extends ConsumerState<DrinkManageScreen> {
                       selectedColor: _textDark,
                       onTap: () => setState(() => _filter = null),
                     ),
-                    for (final c in BeverageCategory.values)
+                    for (final c in _chips(raw))
                       _CategoryChip(
-                        label: _chipLabel(c),
-                        selected: _filter == c,
+                        label: c.label,
+                        selected: _filter == c.code,
                         selectedColor: c.color,
-                        onTap: () => setState(() => _filter = c),
+                        onTap: () => setState(() => _filter = c.code),
                       ),
                   ],
                 ),
@@ -414,9 +434,7 @@ class _DrinkManageScreenState extends ConsumerState<DrinkManageScreen> {
   // ---------------- 添加 / 编辑（对标原版的全屏编辑页） ----------------
 
   Future<void> _showAddSheet() async {
-    // 会员权益：自定义饮品属于「全部饮品库」，非会员先走付费墙
-    if (!await ensureMember(context, ref, feature: '全部饮品库')) return;
-    if (!mounted) return;
+    // 非会员也能进入编辑页：只有「保存」自定义饮品时才校验会员
     await Navigator.push<void>(
       context,
       MaterialPageRoute(builder: (_) => const DrinkEditScreen()),
@@ -571,7 +589,7 @@ class _DrinkCard extends StatelessWidget {
       subtitle = null;
     } else {
       subtitle =
-          '${b.category.label} · ${UnitFormat.volume(b.defaultMl, compact: true)}';
+          '${b.categoryLabel} · ${UnitFormat.volume(b.defaultMl, compact: true)}';
     }
     return Material(
       color: const Color(0xFFF5F5F7),

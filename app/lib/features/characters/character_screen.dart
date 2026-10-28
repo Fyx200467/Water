@@ -22,12 +22,12 @@ class CharacterScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final currentChar = ref.watch(currentCharacterProvider);
     final catalog = ref.watch(characterCatalogProvider);
-    // 当前角色为后台上传素材时的本地 SVG 路径（内置素材为 null）
-    final currentFilePath =
-        catalog.asData?.value.uploadedFilePaths[currentChar];
+    final catalogData = catalog.asData?.value;
+    // 当前角色为后台上传/云端下载素材时的本地 SVG 路径（内置素材为 null）
+    final currentFilePath = catalogData?.uploadedFilePaths[currentChar];
     // 全解锁模式：所有角色均可直接选用（便于测试随意切换填充角色；
     // 正式版恢复为 characterCollectionProvider 的里程碑解锁集合）
-    final collected = characters.keys.toSet();
+    final collected = catalogData?.allIds ?? characters.keys.toSet();
     // 会员权益：免费用户仅可使用「每日」分类，其余分类为会员专属
     final isMember = ref.watch(membershipProvider).isMember;
 
@@ -47,6 +47,8 @@ class CharacterScreen extends ConsumerWidget {
                 currentChar: currentChar,
                 currentFilePath: currentFilePath,
                 collectedCount: collected.length,
+                displayNames: catalogData?.displayNames,
+                totalCount: collected.length,
               ),
               Expanded(
                 child: catalog.when(
@@ -108,7 +110,9 @@ class _HeaderBar extends StatelessWidget {
   const _HeaderBar({
     required this.currentChar,
     required this.collectedCount,
+    required this.totalCount,
     this.currentFilePath,
+    this.displayNames,
   });
 
   final String currentChar;
@@ -116,8 +120,14 @@ class _HeaderBar extends StatelessWidget {
   /// 当前角色为后台上传素材时的本地 SVG 路径（内置素材为 null）
   final String? currentFilePath;
 
+  /// 角色 id → 显示名称（含后台新增/改名的角色）
+  final Map<String, String>? displayNames;
+
   /// 已点亮（收集）角色数
   final int collectedCount;
+
+  /// 当前可见角色总数（含后台新增）
+  final int totalCount;
 
   @override
   Widget build(BuildContext context) {
@@ -179,6 +189,8 @@ class _HeaderBar extends StatelessWidget {
             animalId: currentChar,
             filePath: currentFilePath,
             collectedCount: collectedCount,
+            totalCount: totalCount,
+            displayName: displayNames?[currentChar],
           ),
         ],
       ),
@@ -191,7 +203,9 @@ class _CurrentCharacterCard extends StatelessWidget {
   const _CurrentCharacterCard({
     required this.animalId,
     required this.collectedCount,
+    required this.totalCount,
     this.filePath,
+    this.displayName,
   });
 
   final String animalId;
@@ -201,6 +215,12 @@ class _CurrentCharacterCard extends StatelessWidget {
 
   /// 已点亮（收集）角色数
   final int collectedCount;
+
+  /// 当前可见角色总数（含后台新增）
+  final int totalCount;
+
+  /// 后台下发的显示名称（未下发时用内置名称）
+  final String? displayName;
 
   @override
   Widget build(BuildContext context) {
@@ -234,7 +254,7 @@ class _CurrentCharacterCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            characters[animalId]?.displayName ?? '角色',
+            displayName ?? characters[animalId]?.displayName ?? '角色',
             style: const TextStyle(
               color: Color(0xFF1C1C1E),
               fontSize: 18,
@@ -249,7 +269,7 @@ class _CurrentCharacterCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            '已收集 $collectedCount 个，共 $totalCharacterCount 个',
+            '已收集 $collectedCount 个，共 $totalCount 个',
             style: const TextStyle(
               color: Color(0xFF5AC8FA),
               fontSize: 13,

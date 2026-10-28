@@ -133,8 +133,8 @@ class TodayEntriesNotifier extends StateNotifier<List<DrinkEntry>> {
     await _load();
     // 健康同步开启时，把这条新记录立刻写进健康 App（失败只记日志）
     unawaited(HealthSyncService.afterEntryAdded(storage));
-    // 云同步：先把本地记录推到服务端（离线则留待下次启动/回前台）
-    unawaited(SyncService.syncNow(storage));
+    // 云同步：开启无感同步时把本地记录推到服务端（离线则留待下次启动/回前台）
+    unawaited(SyncService.autoSync(storage));
     final afterMl = HydrationCalculator.sumEffective(state);
     // 只有「真实加水后跨过目标」才庆祝：
     // 删除记录、回前台重载、数据抖动都不会触发（避免误播音效/误点亮）
@@ -155,7 +155,7 @@ class TodayEntriesNotifier extends StateNotifier<List<DrinkEntry>> {
     await _load();
     // 健康同步开启时，把已导出的样本从健康 App 撤掉
     unawaited(HealthSyncService.afterEntryRemoved(storage));
-    unawaited(SyncService.syncNow(storage));
+    unawaited(SyncService.autoSync(storage));
     unawaited(pushHomeWidget(ref));
   }
 }

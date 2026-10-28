@@ -10,10 +10,16 @@ import '../../core/notification/notification_service.dart';
 import '../../core/storage/providers.dart';
 import '../../core/sync/sync_api.dart';
 import '../../shared/models/preferred_unit.dart';
-import '../../shared/models/user_profile.dart';
+import '../../shared/widgets/account_avatar.dart';
+import '../characters/character_art.dart';
+import '../characters/character_catalog.dart';
+import '../characters/character_screen.dart';
+import '../characters/current_character_provider.dart';
 import '../drink/providers/custom_beverage_provider.dart';
 import '../home/challenge_sheet.dart' show challengeJoined;
 import '../home/providers/home_providers.dart';
+import '../membership/membership_provider.dart';
+import '../membership/membership_screen.dart';
 import '../reminder/reminder_providers.dart';
 import '../stats/providers/stats_providers.dart';
 import 'app_icon_screen.dart';
@@ -24,8 +30,6 @@ import 'health_sync_screen.dart';
 import 'reset_time_screen.dart';
 import 'settings_flags.dart';
 import 'widget_settings_screen.dart';
-import '../membership/membership_provider.dart';
-import '../membership/membership_screen.dart';
 
 /// PRD §2.8 设置页 — 对标原版 WaterLlama App 设计
 ///
@@ -52,7 +56,6 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   // ---- 设计规范色板 ----
   static const _bgColor = Color(0xFFF2F2F7);
-  static const _brandCyan = Color(0xFF4DB8D8);
   static const _textPrimary = Color(0xFF1C1C1E);
   static const _textSecondary = Color(0xFF8E8E93);
   static const _arrowColor = Color(0xFFC7C7CC);
@@ -78,6 +81,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Widget build(BuildContext context) {
     final profile = ref.watch(profileProvider);
     final reminder = ref.watch(reminderProvider);
+    final currentChar = ref.watch(currentCharacterProvider);
 
     if (profile == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
@@ -95,216 +99,189 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ListView(
               padding: EdgeInsets.fromLTRB(16, topInset + 56, 16, 40),
               children: [
-                    // ---- 卡片0：账号信息 ----
-                    _buildAccountCard(
-                      ref
-                              .watch(cloudBackupStateProvider)
-                              .valueOrNull
-                              ?.nickname ??
-                          '喝水羊驼',
-                    ),
-                    const SizedBox(height: 12),
-                    // ---- 卡片1：提醒 ----
-                    _buildReminderCard(reminder),
-                    const SizedBox(height: 12),
-                    // ---- 卡片2：每日目标 ----
-                    _buildGoalCard(profile),
-                    const SizedBox(height: 12),
-                    // ---- 卡片3：会员 ----
-                    _buildMembershipCard(),
-                    const SizedBox(height: 28),
-
-                    // ---- 分组1：功能 ----
-                    _buildSection(
-                      '功能',
-                      [
-                        _settingRow(
-                          iconAsset: 'edit_drink.svg',
-                          title: '添加/编辑饮料',
-                          onTap: () => context.push('/drink/manage'),
-                        ),
-                        _settingRow(
-                          iconAsset: 'widget.svg',
-                          title: '小组件',
-                          onTap: () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                                builder: (_) => const WidgetSettingsScreen()),
-                          ),
-                        ),
-                        // 「App 图标」行：左侧小图标动态显示当前选中的桌面图标
-                        ListenableBuilder(
-                          listenable: selectedAppIcon,
-                          builder: (ctx, _) => _settingRow(
-                            leading: const AppIconPreview(size: 30),
-                            title: 'App 图标',
-                            onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                  builder: (_) => const AppIconScreen()),
-                            ),
-                          ),
-                        ),
-                        // 「水滴发射」行：一键切换首页饮品栏（弧线弹弓 / 经典直线）
-                        ListenableBuilder(
-                          listenable: SettingsFlags.instance,
-                          builder: (ctx, _) => _settingRow(
-                            iconAsset: 'launch.svg',
-                            title: '水滴发射',
-                            showArrow: false,
-                            onTap: () => SettingsFlags.instance
-                                .save(funPlay: !SettingsFlags.instance.funPlay),
-                            trailing: Switch(
-                              value: SettingsFlags.instance.funPlay,
-                              activeThumbColor: const Color(0xFF4DB8D8),
-                              onChanged: (v) =>
-                                  SettingsFlags.instance.save(funPlay: v),
-                            ),
-                          ),
-                        ),
-                        // 「消消乐」行：进入饮品三消小游戏
-                        _settingRow(
-                          iconAsset: 'match3.svg',
-                          title: '消消乐',
-                          onTap: () => context.push('/game/match3'),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 28),
-
-                    // ---- 分组2：偏好 ----
-                    _buildSection(
-                      '偏好',
-                      [
-                        ListenableBuilder(
-                          listenable: SettingsFlags.instance,
-                          builder: (ctx, _) => _settingRow(
-                            iconAsset: 'reset_time.svg',
-                            title: '一天中的重置时间',
-                            trailingText: SettingsFlags.instance.resetLabel,
-                            onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                  builder: (_) => const ResetTimeScreen()),
-                            ),
-                          ),
-                        ),
-                        ListenableBuilder(
-                          listenable: SettingsFlags.instance,
-                          builder: (ctx, _) => _settingRow(
-                            iconAsset: 'calories.svg',
-                            title: '卡路里',
-                            trailingText:
-                                SettingsFlags.instance.trackCalories
-                                    ? '开'
-                                    : '关',
-                            onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                  builder: (_) => const CalorieScreen()),
-                            ),
-                          ),
-                        ),
-                        _settingRow(
-                          iconAsset: 'measure_unit.svg',
-                          title: '测量单位',
-                          trailingText:
-                              ref.watch(preferredUnitProvider).symbol,
-                          onTap: () => _showUnitPicker(),
-                        ),
-                        _settingRow(
-                          iconAsset: 'app_sound.svg',
-                          title: 'App、声音、动画',
-                          onTap: () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                                builder: (_) => const AppPrefsScreen()),
-                          ),
-                        ),
-                        // 「健康」同步与手表联动仅 iOS 提供；Android 不展示
-                        if (Platform.isIOS) ...[
-                          _settingRow(
-                            iconAsset: 'health.svg',
-                            title: '"健康"同步',
-                            trailingText: ref
-                                        .watch(healthSyncEnabledProvider)
-                                        .valueOrNull ==
-                                    true
-                                ? '已连接'
-                                : '连接',
-                            onTap: () async {
-                              await Navigator.of(context).push(
-                                MaterialPageRoute(
-                                    builder: (_) => const HealthSyncScreen()),
-                              );
-                              ref.invalidate(healthSyncEnabledProvider);
-                            },
-                          ),
-                          _settingRow(
-                            iconAsset: 'watch.svg',
-                            title: '手表',
-                          ),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 28),
-
-                    // ---- 分组4：语言 / 帮助 ----
-                    _buildSection(
-                      '',
-                      [
-                        _settingRow(
-                          iconAsset: 'language.svg',
-                          title: '语言',
-                          trailingText: '简体中文',
-                        ),
-                        _settingRow(
-                          iconAsset: 'help.svg',
-                          title: '帮助与支持',
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 28),
-
-                    // ---- 分组5：清除数据（保留入口） ----
-                    _buildSection(
-                      '',
-                      [
-                        _settingRow(
-                          iconAsset: 'delete.svg',
-                          title: '清除全部数据',
-                          showArrow: false,
-                          isDestructive: true,
-                          onTap: _confirmClearAll,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 28),
-
-                    // ---- 分组6：社区 ----
-                    _buildSection(
-                      '',
-                      [
-                        _settingRow(
-                          iconAsset: 'social.svg',
-                          title: '社交媒体上的喝水羊驼社区',
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-
-                    // ---- CTA 分享按钮 ----
-                    _buildShareButton(),
-                    const SizedBox(height: 32),
-
-                    // ---- "我们的网站" 推荐区 ----
-                    _buildOurAppsSection(),
-                    const SizedBox(height: 24),
-
-                    // ---- 底部 footer ----
-                    _buildFooter(),
-                  ],
+                // ---- 卡片0：账号信息 ----
+                _buildAccountCard(
+                  ref.watch(cloudBackupStateProvider).valueOrNull,
                 ),
-            Positioned(
-              top: topInset + 6,
-              left: 12,
-              child: _buildBackButton(),
+                const SizedBox(height: 12),
+                // ---- 卡片1/2：提醒 + 饮水目标（左右并排） ----
+                IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(child: _buildReminderCard(reminder)),
+                      const SizedBox(width: 12),
+                      Expanded(child: _buildGoalCard()),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 28),
+
+                // ---- 分组1：功能 ----
+                _buildSection('功能', [
+                  // 「角色」行：左侧小头像显示当前角色，点击进入角色选择页
+                  _settingRow(
+                    leading: CharacterArt(
+                      animalId: currentChar,
+                      unlocked: true,
+                      size: 30,
+                      filePath: ref
+                          .watch(characterCatalogProvider)
+                          .valueOrNull
+                          ?.uploadedFilePaths[currentChar],
+                    ),
+                    title: '角色',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const CharacterScreen(),
+                      ),
+                    ),
+                  ),
+                  _settingRow(
+                    iconAsset: 'edit_drink.svg',
+                    title: '添加/编辑饮料',
+                    onTap: () => context.push('/drink/manage'),
+                  ),
+                  _settingRow(
+                    iconAsset: 'widget.svg',
+                    title: '小组件',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const WidgetSettingsScreen(),
+                      ),
+                    ),
+                  ),
+                  // 「App 图标」行：左侧小图标动态显示当前选中的桌面图标
+                  ListenableBuilder(
+                    listenable: selectedAppIcon,
+                    builder: (ctx, _) => _settingRow(
+                      leading: const AppIconPreview(size: 30),
+                      title: 'App 图标',
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const AppIconScreen(),
+                        ),
+                      ),
+                    ),
+                  ),
+                  // 「消消乐」行：进入饮品三消小游戏
+                  _settingRow(
+                    iconAsset: 'match3.svg',
+                    title: '消消乐',
+                    onTap: () => context.push('/game/match3'),
+                  ),
+                ]),
+                const SizedBox(height: 28),
+
+                // ---- 分组2：偏好 ----
+                _buildSection('偏好', [
+                  ListenableBuilder(
+                    listenable: SettingsFlags.instance,
+                    builder: (ctx, _) => _settingRow(
+                      iconAsset: 'reset_time.svg',
+                      title: '一天中的重置时间',
+                      trailingText: SettingsFlags.instance.resetLabel,
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const ResetTimeScreen(),
+                        ),
+                      ),
+                    ),
+                  ),
+                  ListenableBuilder(
+                    listenable: SettingsFlags.instance,
+                    builder: (ctx, _) => _settingRow(
+                      iconAsset: 'calories.svg',
+                      title: '卡路里',
+                      trailingText: SettingsFlags.instance.trackCalories
+                          ? '开'
+                          : '关',
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const CalorieScreen(),
+                        ),
+                      ),
+                    ),
+                  ),
+                  _settingRow(
+                    iconAsset: 'measure_unit.svg',
+                    title: '测量单位',
+                    trailingText: ref.watch(preferredUnitProvider).symbol,
+                    onTap: () => _showUnitPicker(),
+                  ),
+                  _settingRow(
+                    iconAsset: 'app_sound.svg',
+                    title: 'App、声音、动画',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const AppPrefsScreen()),
+                    ),
+                  ),
+                  // 「健康」同步与手表联动仅 iOS 提供；Android 不展示
+                  if (Platform.isIOS) ...[
+                    _settingRow(
+                      iconAsset: 'health.svg',
+                      title: '"健康"同步',
+                      trailingText:
+                          ref.watch(healthSyncEnabledProvider).valueOrNull ==
+                              true
+                          ? '已连接'
+                          : '连接',
+                      onTap: () async {
+                        await Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const HealthSyncScreen(),
+                          ),
+                        );
+                        ref.invalidate(healthSyncEnabledProvider);
+                      },
+                    ),
+                    _settingRow(iconAsset: 'watch.svg', title: '手表'),
+                  ],
+                ]),
+                const SizedBox(height: 28),
+
+                // ---- 分组4：语言 / 帮助 ----
+                _buildSection('', [
+                  _settingRow(
+                    iconAsset: 'language.svg',
+                    title: '语言',
+                    trailingText: '简体中文',
+                  ),
+                  _settingRow(iconAsset: 'help.svg', title: '帮助与支持'),
+                ]),
+                const SizedBox(height: 28),
+
+                // ---- 分组5：清除数据（保留入口） ----
+                _buildSection('', [
+                  _settingRow(
+                    iconAsset: 'delete.svg',
+                    title: '清除全部数据',
+                    showArrow: false,
+                    isDestructive: true,
+                    onTap: _confirmClearAll,
+                  ),
+                ]),
+                const SizedBox(height: 28),
+
+                // ---- 分组6：社区 ----
+                _buildSection('', [
+                  _settingRow(iconAsset: 'social.svg', title: '社交媒体上的喝水羊驼社区'),
+                ]),
+                const SizedBox(height: 24),
+
+                // ---- CTA 分享按钮 ----
+                _buildShareButton(),
+                const SizedBox(height: 32),
+
+                // ---- "我们的网站" 推荐区 ----
+                _buildOurAppsSection(),
+                const SizedBox(height: 24),
+
+                // ---- 底部 footer ----
+                _buildFooter(),
+              ],
             ),
+            Positioned(top: topInset + 6, left: 12, child: _buildBackButton()),
           ],
         ),
       ),
@@ -333,248 +310,202 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  // ==================== 卡片3：会员 ====================
-
-  Widget _buildMembershipCard() {
-    final m = ref.watch(membershipProvider);
-    const gold = Color(0xFFD9A13B);
-    return GestureDetector(
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const MembershipScreen()),
-      ),
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: m.isMember
-                ? const [Color(0xFFFFF3DC), Color(0xFFFFE7BE)]
-                : const [Color(0xFFEAF7FB), Color(0xFFDDF1F8)],
-          ),
-          borderRadius: BorderRadius.circular(22),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.workspace_premium,
-                size: 30, color: m.isMember ? gold : const Color(0xFF3BB3DB)),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    m.isMember ? '吨吨会员' : '开通吨吨会员',
-                    style: const TextStyle(
-                      color: _textPrimary,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    m.isMember
-                        ? m.statusLabel
-                        : '解锁全部动物、饮品与专属小组件',
-                    style: const TextStyle(
-                      color: Color(0xFF7C7C82),
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Text(
-              m.isMember ? '管理' : '去开通',
-              style: TextStyle(
-                color: m.isMember ? gold : const Color(0xFF3BB3DB),
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const Icon(Icons.chevron_right,
-                color: _arrowColor, size: 20),
-          ],
-        ),
-      ),
-    );
-  }
-
   // ==================== 卡片0：账号信息 ====================
 
-  /// 头像 + 昵称（含会员角标），点击进入账号信息页
-  Widget _buildAccountCard(String nickname) {
-    return GestureDetector(
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const CloudBackupScreen()),
+  /// 头像 + 昵称 + 分隔线下的会员入口（按菜单页原型排版）
+  Widget _buildAccountCard(CloudBackupState? state) {
+    final m = ref.watch(membershipProvider);
+    final loggedIn = state?.isLoggedIn ?? false;
+    final nickname = state?.nickname ?? '未登录';
+    const gold = Color(0xFFD9A13B);
+    // 整卡不再套一层 GestureDetector：上半区进账号页，昵称改名，
+    // 会员行单独进会员页，避免嵌套手势同时触发「打开弹窗 + 跳转页面」
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 26, 14, 24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
       ),
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(22),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 64,
-              height: 64,
-              padding: const EdgeInsets.all(2.5),
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white,
-                boxShadow: [
-                  BoxShadow(
-                    color: Color(0x14000000),
-                    blurRadius: 8,
-                    offset: Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: ClipOval(
-                child: Container(
-                  color: const Color(0xFFEAF4FB),
-                  alignment: Alignment.center,
-                  child: SvgPicture.asset(
-                    'assets/images/characters/alpaca.svg',
-                    width: 46,
-                    height: 46,
-                    fit: BoxFit.contain,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Row(
-                children: [
-                  Text(
-                    nickname,
-                    style: const TextStyle(
-                      color: _textPrimary,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w800,
-                      height: 1.2,
-                    ),
-                  ),
-                  if (ref.watch(membershipProvider).isMember) ...[
-                    const SizedBox(width: 6),
-                    SvgPicture.asset('assets/icons/menu/crown.svg',
-                        width: 17, height: 17),
-                  ],
-                ],
-              ),
-            ),
-            const Icon(Icons.chevron_right,
-                color: _arrowColor, size: 22),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ==================== 卡片1：提醒 ====================
-
-  Widget _buildReminderCard(ReminderSettings reminder) {
-    return GestureDetector(
-      onTap: () => context.push('/settings/reminder'),
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(20, 18, 16, 18),
-        decoration: BoxDecoration(
-          color: const Color(0xFFE8F6F6),
-          borderRadius: BorderRadius.circular(22),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    '提醒',
-                    style: TextStyle(
-                      color: _brandCyan,
-                      fontSize: 24,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '当你忘记喝水时的健康提醒'
-                    '${reminder.enabled ? ' · 已开启' : ''}',
-                    style: const TextStyle(
-                      color: _textSecondary,
-                      fontSize: 13,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            // 提醒图标（自带青色圆底的完整插画，替代原蓝色闹钟圆）
-            SvgPicture.asset('assets/icons/menu/reminder.svg',
-                width: 58, height: 58),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ==================== 卡片2：每日目标 ====================
-
-  Widget _buildGoalCard(UserProfile profile) {
-    return GestureDetector(
-      onTap: () => context.push('/settings/goal'),
-      child: Stack(
+      child: Column(
         children: [
-          Container(
-            padding: const EdgeInsets.fromLTRB(20, 22, 12, 22),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFF4DD0E1), Color(0xFF26C6DA)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(22),
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const CloudBackupScreen()),
             ),
             child: Row(
               children: [
+                // 头像：未登录为灰色用户图标，登录后为上传头像 / 默认插画
+                AccountAvatar(
+                  size: 72,
+                  loggedIn: loggedIn,
+                  avatarPath: state?.avatarPath,
+                  padding: 2,
+                  background: loggedIn
+                      ? const Color(0xFFDCEFFD)
+                      : const Color(0xFFF2F2F7),
+                ),
+                const SizedBox(width: 16),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // 昵称只做展示，修改入口放到账号信息页
                       Text(
-                        UnitFormat.volume(profile.dailyGoalMl, compact: true),
+                        nickname,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 46,
+                          color: _textPrimary,
+                          fontSize: 22,
                           fontWeight: FontWeight.w800,
-                          height: 1.1,
+                          height: 1.2,
                         ),
                       ),
-                      const SizedBox(height: 2),
+                      const SizedBox(height: 6),
                       const Text(
-                        '常见目标',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      const Text(
-                        '更改体重、日常活动或天气',
-                        style: TextStyle(color: Colors.white70, fontSize: 12),
+                        '吨吨账户、云同步等',
+                        style: TextStyle(color: _textSecondary, fontSize: 13),
                       ),
                     ],
                   ),
                 ),
-                const Icon(
-                  Icons.chevron_right,
-                  color: Colors.white70,
-                  size: 28,
+                const Icon(Icons.chevron_right, color: _arrowColor, size: 22),
+              ],
+            ),
+          ),
+          // 分隔线：细线且两端向内收，不与卡片信息同宽
+          const Padding(
+            padding: EdgeInsets.only(top: 26, bottom: 24),
+            child: Divider(
+              height: 1,
+              thickness: 0.6,
+              indent: 32,
+              endIndent: 32,
+              color: Color(0xFFDDDDE3),
+            ),
+          ),
+          // 会员入口：未开通展示开通文案，已开通展示有效期
+          GestureDetector(
+            onTap: () => Navigator.of(
+              context,
+            ).push(MaterialPageRoute(builder: (_) => const MembershipScreen())),
+            child: Row(
+              children: [
+                // 会员图标直接展示，不套方块底
+                SvgPicture.asset(
+                  'assets/icons/menu/member.svg',
+                  width: 20,
+                  height: 20,
                 ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    m.isMember ? '吨吨会员 · ${m.statusLabel}' : '开通吨吨会员，积分限时兑换',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: m.isMember ? gold : _textPrimary,
+                      fontSize: 14,
+                      fontWeight: m.isMember
+                          ? FontWeight.w700
+                          : FontWeight.w500,
+                    ),
+                  ),
+                ),
+                const Icon(Icons.chevron_right, color: _arrowColor, size: 20),
               ],
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  // ==================== 卡片1/2：提醒 · 饮水目标（左右并排） ====================
+
+  /// 提醒卡：浅青底 + 图标 + 文案
+  Widget _buildReminderCard(ReminderSettings reminder) {
+    return _buildQuickCard(
+      iconAsset: 'assets/icons/menu/reminder.svg',
+      // 闹钟图标在原画布中留白较多，放大 1.5 倍后与目标图标视觉大小一致
+      iconScale: 1.5,
+      caption: '当你忘记喝水时提醒你',
+      background: const Color(0xFFD8F3F7),
+      textColor: const Color(0xFF4C5A60),
+      onTap: () => context.push('/settings/reminder'),
+    );
+  }
+
+  /// 饮水目标卡：青底白字 + 白色图标
+  Widget _buildGoalCard() {
+    return _buildQuickCard(
+      iconAsset: 'assets/icons/menu/goal.svg',
+      caption: '我的饮水目标',
+      background: const Color(0xFF1BC5DE),
+      textColor: Colors.white,
+      whiteIcon: true,
+      onTap: () => context.push('/settings/goal'),
+    );
+  }
+
+  /// 并排小卡片统一样式：图标距卡片顶部约 20%，文字紧跟图标下方
+  /// （只做水平居中，两张卡文字起始位置一致）
+  Widget _buildQuickCard({
+    required String iconAsset,
+    required String caption,
+    required Color background,
+    required Color textColor,
+    required VoidCallback onTap,
+    bool whiteIcon = false,
+    double iconScale = 1,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: SizedBox(
+          // 内容区高度：112；图标上留白 20%，文字距卡片底部约 10%
+          height: 112,
+          child: Column(
+            children: [
+              const SizedBox(height: 22),
+              Transform.scale(
+                scale: iconScale,
+                child: SvgPicture.asset(
+                  iconAsset,
+                  width: 40,
+                  height: 40,
+                  colorFilter: whiteIcon
+                      ? const ColorFilter.mode(Colors.white, BlendMode.srcIn)
+                      : null,
+                ),
+              ),
+              const Spacer(),
+              SizedBox(
+                height: 32,
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: Text(
+                    caption,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    style: TextStyle(
+                      color: textColor,
+                      fontSize: 12,
+                      height: 1.3,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 3),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -602,9 +533,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             color: Colors.white,
             borderRadius: BorderRadius.circular(_cardRadius),
           ),
-          child: Column(
-            children: _insertDividers(rows),
-          ),
+          child: Column(children: _insertDividers(rows)),
         ),
       ],
     );
@@ -616,10 +545,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     for (var i = 0; i < rows.length; i++) {
       out.add(rows[i]);
       if (i < rows.length - 1) {
-        out.add(const Padding(
-          padding: EdgeInsets.only(left: 60),
-          child: Divider(height: 1, thickness: 0.5, color: _separatorColor),
-        ));
+        out.add(
+          const Padding(
+            padding: EdgeInsets.only(left: 60),
+            child: Divider(height: 1, thickness: 0.5, color: _separatorColor),
+          ),
+        );
       }
     }
     return out;
@@ -681,20 +612,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             if (trailingText != null)
               Text(
                 trailingText,
-                style: const TextStyle(
-                  color: _textSecondary,
-                  fontSize: 15,
-                ),
+                style: const TextStyle(color: _textSecondary, fontSize: 15),
               ),
             if (trailing != null) trailing,
             if (showArrow)
               const Padding(
                 padding: EdgeInsets.only(left: 6),
-                child: Icon(
-                  Icons.chevron_right,
-                  color: _arrowColor,
-                  size: 20,
-                ),
+                child: Icon(Icons.chevron_right, color: _arrowColor, size: 20),
               ),
           ],
         ),
@@ -981,12 +905,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text('你使用什么单位',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      color: _textPrimary,
-                      fontSize: 24,
-                      fontWeight: FontWeight.w800)),
+              const Text(
+                '你使用什么单位',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: _textPrimary,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
               const SizedBox(height: 26),
               for (final u in PreferredUnit.values) ...[
                 SizedBox(
@@ -1002,14 +929,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       backgroundColor: const Color(0xFF35B5D6),
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(26)),
+                        borderRadius: BorderRadius.circular(26),
+                      ),
                     ),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text(u.label == 'ml（毫升）' ? 'ml (毫升)' : u.label,
-                            style: const TextStyle(
-                                fontSize: 17, fontWeight: FontWeight.w800)),
+                        Text(
+                          u.label == 'ml（毫升）' ? 'ml (毫升)' : u.label,
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
                         if (u == selected) ...[
                           const SizedBox(width: 8),
                           const Icon(Icons.check_rounded, size: 20),
@@ -1034,18 +966,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('清除全部数据？'),
-        content: const Text(
-          '将删除所有饮水记录、个人档案与设置，操作不可恢复。',
-        ),
+        content: const Text('将删除所有饮水记录、个人档案与设置，操作不可恢复。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
             child: const Text('取消'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Colors.redAccent,
-            ),
+            style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('清除'),
           ),
@@ -1080,7 +1008,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     challengeJoined.value = false;
 
     // 同步桌面小组件：全部清零（此时 profile 已失效，目标显示回退由原生缺省处理）
-    await syncWidgetFromSettings(ref.read, todayMl: 0, goalMl: 0, streakDays: 0);
+    await syncWidgetFromSettings(
+      ref.read,
+      todayMl: 0,
+      goalMl: 0,
+      streakDays: 0,
+    );
 
     if (mounted) context.go('/onboarding');
   }

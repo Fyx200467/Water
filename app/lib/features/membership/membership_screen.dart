@@ -1,11 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/storage/providers.dart';
 import '../../core/sync/sync_api.dart';
-import '../../core/sync/sync_service.dart';
+import '../points/points_provider.dart';
+import '../settings/cloud_backup_screen.dart';
 import 'membership_provider.dart';
 
 /// 会员权益统一校验：
@@ -17,11 +19,9 @@ Future<bool> ensureMember(
   required String feature,
 }) async {
   if (ref.read(membershipProvider).isMember) return true;
-  await Navigator.of(context).push(
-    MaterialPageRoute(
-      builder: (_) => MembershipScreen(feature: feature),
-    ),
-  );
+  await Navigator.of(
+    context,
+  ).push(MaterialPageRoute(builder: (_) => MembershipScreen(feature: feature)));
   return ref.read(membershipProvider).isMember;
 }
 
@@ -66,104 +66,103 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
       ),
     );
 
-    return Scaffold(
-      backgroundColor: _bg,
-      body: SafeArea(
-        bottom: false,
-        child: Column(
+    // 内容铺满整屏（状态栏区域同为页面底色），返回按钮悬浮在内容之上
+    final topInset = MediaQuery.of(context).padding.top;
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.dark,
+      child: Scaffold(
+        backgroundColor: _bg,
+        body: Stack(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
-              child: Row(
-                children: [
-                  InkWell(
-                    onTap: () => Navigator.of(context).maybePop(),
-                    customBorder: const CircleBorder(),
-                    child: Container(
-                      width: 36,
-                      height: 36,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFFE5E5EA),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.arrow_back_ios_new,
-                          size: 15, color: _ink),
+            ListView(
+              padding: EdgeInsets.fromLTRB(20, topInset + 62, 20, 32),
+              children: [
+                _header(membership),
+                const SizedBox(height: 20),
+                if (widget.feature != null && !membership.isMember) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
                     ),
-                  ),
-                  const Spacer(),
-                  const Text('会员中心',
-                      style: TextStyle(
-                          color: _ink,
-                          fontSize: 17,
-                          fontWeight: FontWeight.w800)),
-                  const Spacer(),
-                  const SizedBox(width: 36),
-                ],
-              ),
-            ),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(20, 18, 20, 32),
-                children: [
-                  _header(membership),
-                  const SizedBox(height: 20),
-                  if (widget.feature != null && !membership.isMember) ...[
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFFF6E6),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.lock_outline,
-                              size: 16, color: _gold),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              '「${widget.feature}」为会员专属权益',
-                              style: const TextStyle(
-                                  color: Color(0xFF9A6B12), fontSize: 13),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF6E6),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.lock_outline, size: 16, color: _gold),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            '「${widget.feature}」为会员专属权益',
+                            style: const TextStyle(
+                              color: Color(0xFF9A6B12),
+                              fontSize: 13,
                             ),
                           ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-                  if (!membership.isMember) ...[
-                    Row(
-                      children: [
-                        for (var i = 0; i < plans.length; i++) ...[
-                          if (i > 0) const SizedBox(width: 10),
-                          Expanded(child: _planCard(plans[i], selected)),
-                        ],
+                        ),
                       ],
                     ),
-                    const SizedBox(height: 18),
-                  ],
-                  _benefitsCard(),
-                  const SizedBox(height: 18),
-                  _subscribeButton(selected, membership),
-                  const SizedBox(height: 14),
-                  Center(
-                    child: TextButton(
-                      onPressed: _restore,
-                      child: const Text('恢复购买',
-                          style:
-                              TextStyle(color: _gray, fontSize: 14)),
-                    ),
                   ),
-                  const Center(
-                    child: Text(
-                      '开通需联网提交订单，支付确认后权益生效；'
-                      '正式版接入应用内购买（iOS IAP / Google Play）',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: _gray, fontSize: 11, height: 1.5),
-                    ),
-                  ),
+                  const SizedBox(height: 16),
                 ],
+                if (!membership.isMember) ...[
+                  Row(
+                    children: [
+                      for (var i = 0; i < plans.length; i++) ...[
+                        if (i > 0) const SizedBox(width: 10),
+                        Expanded(child: _planCard(plans[i], selected)),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                ],
+                _pointsCard(membership),
+                const SizedBox(height: 18),
+                _benefitsCard(),
+                const SizedBox(height: 18),
+                _subscribeButton(selected, membership),
+                const SizedBox(height: 14),
+                Center(
+                  child: TextButton(
+                    onPressed: _restore,
+                    child: const Text(
+                      '恢复购买',
+                      style: TextStyle(color: _gray, fontSize: 14),
+                    ),
+                  ),
+                ),
+                const Center(
+                  child: Text(
+                    '开通需联网提交订单，支付确认后权益生效；'
+                    '正式版接入应用内购买（iOS IAP / Google Play）',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: _gray, fontSize: 11, height: 1.5),
+                  ),
+                ),
+              ],
+            ),
+            // 悬浮返回按钮：不随内容滚动，压在页面左上角
+            Positioned(
+              top: topInset + 8,
+              left: 12,
+              child: InkWell(
+                onTap: () => Navigator.of(context).maybePop(),
+                customBorder: const CircleBorder(),
+                child: Container(
+                  width: 36,
+                  height: 36,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFE5E5EA),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.arrow_back_ios_new,
+                    size: 15,
+                    color: _ink,
+                  ),
+                ),
               ),
             ),
           ],
@@ -182,14 +181,16 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
             color: Color(0xFFFFF1D6),
             shape: BoxShape.circle,
           ),
-          child: const Icon(Icons.workspace_premium,
-              size: 38, color: _gold),
+          child: const Icon(Icons.workspace_premium, size: 38, color: _gold),
         ),
         const SizedBox(height: 12),
         Text(
           m.isMember ? '吨吨会员已开通' : '开通吨吨会员',
           style: const TextStyle(
-              color: _ink, fontSize: 24, fontWeight: FontWeight.w800),
+            color: _ink,
+            fontSize: 24,
+            fontWeight: FontWeight.w800,
+          ),
         ),
         const SizedBox(height: 6),
         Text(
@@ -219,38 +220,186 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
             if (plan.badge != null)
               Container(
                 margin: const EdgeInsets.only(bottom: 6),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
                   color: _gold,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Text(plan.badge!,
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700)),
+                child: Text(
+                  plan.badge!,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               )
             else
               const SizedBox(height: 18),
-            Text(plan.name,
-                style: const TextStyle(
-                    color: _ink,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700)),
+            Text(
+              plan.name,
+              style: const TextStyle(
+                color: _ink,
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
             const SizedBox(height: 6),
-            Text(plan.priceLabel,
-                style: TextStyle(
-                    color: on ? _cyan : _ink,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800)),
+            Text(
+              plan.priceLabel,
+              style: TextStyle(
+                color: on ? _cyan : _ink,
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
             const SizedBox(height: 3),
-            Text(plan.perDayLabel ?? plan.badge ?? '长期有效',
-                style: const TextStyle(color: _gray, fontSize: 10)),
+            Text(
+              plan.perDayLabel ?? plan.badge ?? '长期有效',
+              style: const TextStyle(color: _gray, fontSize: 10),
+            ),
           ],
         ),
       ),
     );
+  }
+
+  /// 积分兑换入口：玩消消乐赚积分，1 天 / 份，到期后才能再兑
+  Widget _pointsCard(MembershipState m) {
+    final points = ref.watch(pointsProvider);
+    final cost = kMemberDayPoints;
+    final enough = points.balance >= cost;
+    final byPoints = m.isMember && !m.hasPaidOrder;
+
+    final String subtitle;
+    if (m.isMember) {
+      subtitle = byPoints ? '积分兑换的会员有效期内，到期后可再兑换 1 天' : '当前会员有效期内，到期后可再用积分兑换';
+    } else if (enough) {
+      subtitle = '$cost 积分兑换 1 天会员 · 当前 ${points.balance} 积分';
+    } else {
+      subtitle = '$cost 积分兑换 1 天会员 · 还差 ${cost - points.balance} 积分';
+    }
+
+    final String action;
+    if (m.isMember) {
+      action = '有效期内';
+    } else if (enough) {
+      action = '立即兑换';
+    } else {
+      action = '积分不足';
+    }
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: const BoxDecoration(
+              color: Color(0xFFFFF4E0),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.stars_rounded, size: 22, color: _gold),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '积分兑换会员',
+                  style: TextStyle(
+                    color: _ink,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    color: _gray,
+                    fontSize: 11,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          SizedBox(
+            height: 34,
+            child: FilledButton(
+              onPressed: (!m.isMember && enough) ? _redeemWithPoints : null,
+              style: FilledButton.styleFrom(
+                backgroundColor: _cyan,
+                disabledBackgroundColor: const Color(0xFFE9E9EC),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(17),
+                ),
+              ),
+              child: Text(
+                action,
+                style: TextStyle(
+                  color: (!m.isMember && enough) ? Colors.white : _gray,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 消耗积分兑换 1 天会员（仅非会员可兑，到期后才能再次兑换）
+  Future<void> _redeemWithPoints() async {
+    final cost = kMemberDayPoints;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('积分兑换 1 天会员'),
+        content: Text(
+          '将消耗 $cost 积分，兑换后立即生效 1 天。\n'
+          '到期后才能再次兑换，不能叠加、不能提前续期。',
+          style: const TextStyle(height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消', style: TextStyle(color: _gray)),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: _cyan),
+            child: const Text('确认兑换'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    final spent = await ref
+        .read(pointsProvider.notifier)
+        .redeem(itemId: 'member_day', cost: cost);
+    if (!mounted) return;
+    if (!spent) {
+      _toast('积分不足，去消消乐再赚一点吧');
+      return;
+    }
+    await ref
+        .read(membershipProvider.notifier)
+        .applyRedeemDay(DateTime.now().add(const Duration(days: 1)));
+    if (!mounted) return;
+    _toast('已兑换 1 天会员，特权立即生效');
   }
 
   Widget _benefitsCard() {
@@ -281,15 +430,19 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(title,
-                            style: const TextStyle(
-                                color: _ink,
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700)),
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            color: _ink,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                         const SizedBox(height: 2),
-                        Text(sub,
-                            style: const TextStyle(
-                                color: _gray, fontSize: 11)),
+                        Text(
+                          sub,
+                          style: const TextStyle(color: _gray, fontSize: 11),
+                        ),
                       ],
                     ),
                   ),
@@ -311,13 +464,17 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
             backgroundColor: const Color(0xFFE9E9EC),
             disabledBackgroundColor: const Color(0xFFE9E9EC),
             shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(25)),
+              borderRadius: BorderRadius.circular(25),
+            ),
           ),
-          child: const Text('已开通',
-              style: TextStyle(
-                  color: _gray,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700)),
+          child: const Text(
+            '已开通',
+            style: TextStyle(
+              color: _gray,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
         ),
       );
     }
@@ -327,14 +484,18 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
         onPressed: () => _subscribe(plan),
         style: FilledButton.styleFrom(
           backgroundColor: _cyan,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(25),
+          ),
         ),
-        child: Text('立即开通 ${plan.priceLabel}',
-            style: const TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                fontWeight: FontWeight.w700)),
+        child: Text(
+          '立即开通 ${plan.priceLabel}',
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
       ),
     );
   }
@@ -343,8 +504,7 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text('确认开通${plan.name}？'),
         content: Text(
           '${plan.priceLabel} · '
@@ -368,11 +528,18 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
     if (ok != true || !mounted) return;
 
     final storage = await ref.read(localStorageProvider.future);
+    if (!storage.hasAccountSession) {
+      if (!mounted) return;
+      _toast('开通会员需要先登录账号');
+      await _openLogin();
+      return;
+    }
     final Map<String, dynamic> order;
     try {
-      await SyncService.ensureSession(storage);
-      order =
-          await SyncApi.createMembershipOrder(storage.syncToken!, plan.code);
+      order = await SyncApi.createMembershipOrder(
+        storage.syncToken!,
+        plan.code,
+      );
     } catch (_) {
       if (!mounted) return;
       _toast('无法连接服务器：会员开通需要联网，请检查网络后重试');
@@ -393,7 +560,9 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
     );
     if (paid == null || !mounted) return;
 
-    await ref.read(membershipProvider.notifier).applyServer(
+    await ref
+        .read(membershipProvider.notifier)
+        .applyServer(
           planCode: (paid['planCode'] as String?) ?? plan.code,
           expireAt: DateTime.tryParse(paid['expireAt']?.toString() ?? ''),
           permanent: paid['permanent'] == true,
@@ -407,16 +576,46 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
       final ok = await ref.read(membershipProvider.notifier).restore();
       if (!mounted) return;
       _toast(ok ? '已恢复会员权益' : '未查询到可恢复的购买记录');
+    } on NotLoggedInError {
+      if (!mounted) return;
+      _toast('恢复购买需要先登录账号');
+      await _openLogin();
     } catch (_) {
       if (!mounted) return;
       _toast('恢复购买需要联网，请检查网络后重试');
     }
   }
 
+  /// 跳转账号页登录，返回后若已登录则继续原操作
+  Future<void> _openLogin() async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const CloudBackupScreen()));
+    if (!mounted) return;
+    final storage = await ref.read(localStorageProvider.future);
+    if (!storage.hasAccountSession) return;
+    final token = storage.syncToken!;
+    try {
+      final res = await SyncApi.membershipStatus(token);
+      if (res['isMember'] == true) {
+        await ref
+            .read(membershipProvider.notifier)
+            .applyServer(
+              planCode: (res['planCode'] as String?) ?? 'member',
+              expireAt: DateTime.tryParse(res['expireAt']?.toString() ?? ''),
+              permanent: res['permanent'] == true,
+            );
+        if (mounted) _toast('已同步会员权益');
+      }
+    } catch (_) {
+      // 登录后查会员失败不阻塞流程
+    }
+  }
+
   void _toast(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 }
 
@@ -462,8 +661,7 @@ class _OrderWaitSheetState extends State<_OrderWaitSheet> {
     if (_polling || _paid) return;
     _polling = true;
     try {
-      final res =
-          await SyncApi.membershipOrder(widget.token, widget.orderId);
+      final res = await SyncApi.membershipOrder(widget.token, widget.orderId);
       if (!mounted) return;
       if (res['status'] == 'paid') {
         _timer?.cancel();
@@ -518,7 +716,10 @@ class _OrderWaitSheetState extends State<_OrderWaitSheet> {
             Text(
               _paid ? '支付已确认' : '订单已提交，等待支付',
               style: const TextStyle(
-                  color: _ink, fontSize: 18, fontWeight: FontWeight.w800),
+                color: _ink,
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+              ),
             ),
             const SizedBox(height: 6),
             Text(
@@ -540,11 +741,9 @@ class _OrderWaitSheetState extends State<_OrderWaitSheet> {
               child: Text(
                 _paid
                     ? '会员权益已生效，正在返回会员中心…'
-                    : (_error ??
-                        '内测阶段：支付确认由运营在后台完成，本页会自动刷新状态'),
+                    : (_error ?? '内测阶段：支付确认由运营在后台完成，本页会自动刷新状态'),
                 textAlign: TextAlign.center,
-                style: const TextStyle(
-                    color: _gray, fontSize: 12, height: 1.5),
+                style: const TextStyle(color: _gray, fontSize: 12, height: 1.5),
               ),
             ),
             const SizedBox(height: 18),
@@ -559,7 +758,8 @@ class _OrderWaitSheetState extends State<_OrderWaitSheet> {
                         foregroundColor: _gray,
                         side: const BorderSide(color: Color(0xFFE5E5EA)),
                         shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(23)),
+                          borderRadius: BorderRadius.circular(23),
+                        ),
                       ),
                       child: const Text('稍后处理'),
                     ),
@@ -574,7 +774,8 @@ class _OrderWaitSheetState extends State<_OrderWaitSheet> {
                       style: FilledButton.styleFrom(
                         backgroundColor: _cyan,
                         shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(23)),
+                          borderRadius: BorderRadius.circular(23),
+                        ),
                       ),
                       child: const Text('刷新状态'),
                     ),

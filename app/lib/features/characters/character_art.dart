@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../../../core/sync/character_sync.dart';
+
 /// 角色插画渲染器：复用一张彩色 SVG，根据解锁状态切换两种渲染
 ///
 /// - 已点亮（unlocked = true）：原色 SVG，显示彩色精美插画
@@ -34,9 +36,11 @@ class CharacterArt extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final path = '$_assetDir/$animalId.svg';
-    final svg = filePath != null
+    // 后台新增/替换的角色会下载到本地缓存；内置角色没有缓存文件，仍走 assets
+    final resolvedPath = filePath ?? CharacterStore.filePathSync(animalId);
+    final svg = resolvedPath != null
         ? SvgPicture.file(
-            File(filePath!),
+            File(resolvedPath),
             width: size,
             height: size,
             fit: BoxFit.contain,

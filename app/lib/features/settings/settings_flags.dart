@@ -25,9 +25,6 @@ class SettingsFlags extends ChangeNotifier {
   bool widgetSounds = true;
   bool cupAnimations = true;
 
-  /// 首页饮品栏玩法：true = 娱乐玩法（弧线弹弓轨道），false = 经典直线栏
-  bool funPlay = true;
-
   bool _loaded = false;
 
   String get resetLabel =>
@@ -45,7 +42,6 @@ class SettingsFlags extends ChangeNotifier {
     appSounds = true;
     widgetSounds = true;
     cupAnimations = true;
-    funPlay = true;
     notifyListeners();
   }
 
@@ -56,8 +52,9 @@ class SettingsFlags extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       // 单位偏好与 PreferredUnitNotifier 共用同一个 key：
       // 启动时先同步到全局 UnitFormat，保证首屏就按用户单位显示
-      UnitFormat.unit =
-          prefs.getString('preferred_unit') == 'oz' ? PreferredUnit.oz : PreferredUnit.ml;
+      UnitFormat.unit = prefs.getString('preferred_unit') == 'oz'
+          ? PreferredUnit.oz
+          : PreferredUnit.ml;
       final raw = prefs.getString(_kKey);
       if (raw != null) {
         final m = jsonDecode(raw) as Map<String, dynamic>;
@@ -70,7 +67,6 @@ class SettingsFlags extends ChangeNotifier {
         appSounds = (m['appSounds'] as bool?) ?? true;
         widgetSounds = (m['widgetSounds'] as bool?) ?? true;
         cupAnimations = (m['cupAnimations'] as bool?) ?? true;
-        funPlay = (m['funPlay'] as bool?) ?? true;
         notifyListeners();
       }
     } catch (_) {
@@ -89,7 +85,6 @@ class SettingsFlags extends ChangeNotifier {
     bool? appSounds,
     bool? widgetSounds,
     bool? cupAnimations,
-    bool? funPlay,
   }) async {
     if (trackCalories != null) this.trackCalories = trackCalories;
     if (foodCalories != null) this.foodCalories = foodCalories;
@@ -100,22 +95,23 @@ class SettingsFlags extends ChangeNotifier {
     if (appSounds != null) this.appSounds = appSounds;
     if (widgetSounds != null) this.widgetSounds = widgetSounds;
     if (cupAnimations != null) this.cupAnimations = cupAnimations;
-    if (funPlay != null) this.funPlay = funPlay;
     notifyListeners();
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_kKey, jsonEncode({
-        'trackCalories': this.trackCalories,
-        'foodCalories': this.foodCalories,
-        'resetHour': this.resetHour,
-        'resetMinute': this.resetMinute,
-        'weekStart': this.weekStart,
-        'celebrateDay': this.celebrateDay,
-        'appSounds': this.appSounds,
-        'widgetSounds': this.widgetSounds,
-        'cupAnimations': this.cupAnimations,
-        'funPlay': this.funPlay,
-      }));
+      await prefs.setString(
+        _kKey,
+        jsonEncode({
+          'trackCalories': this.trackCalories,
+          'foodCalories': this.foodCalories,
+          'resetHour': this.resetHour,
+          'resetMinute': this.resetMinute,
+          'weekStart': this.weekStart,
+          'celebrateDay': this.celebrateDay,
+          'appSounds': this.appSounds,
+          'widgetSounds': this.widgetSounds,
+          'cupAnimations': this.cupAnimations,
+        }),
+      );
     } catch (_) {
       // 持久化失败不阻塞 UI
     }

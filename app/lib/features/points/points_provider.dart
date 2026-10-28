@@ -16,17 +16,16 @@ class PointsRecord {
   final DateTime at;
 
   Map<String, dynamic> toJson() => {
-        'source': source,
-        'amount': amount,
-        'at': at.millisecondsSinceEpoch,
-      };
+    'source': source,
+    'amount': amount,
+    'at': at.millisecondsSinceEpoch,
+  };
 
   static PointsRecord fromJson(Map<String, dynamic> m) => PointsRecord(
-        source: (m['source'] as String?) ?? '',
-        amount: (m['amount'] as num?)?.toInt() ?? 0,
-        at: DateTime.fromMillisecondsSinceEpoch(
-            (m['at'] as num?)?.toInt() ?? 0),
-      );
+    source: (m['source'] as String?) ?? '',
+    amount: (m['amount'] as num?)?.toInt() ?? 0,
+    at: DateTime.fromMillisecondsSinceEpoch((m['at'] as num?)?.toInt() ?? 0),
+  );
 }
 
 class PointsState {
@@ -52,13 +51,12 @@ class PointsState {
     int? todayEarned,
     String? dayKey,
     List<PointsRecord>? history,
-  }) =>
-      PointsState(
-        balance: balance ?? this.balance,
-        todayEarned: todayEarned ?? this.todayEarned,
-        dayKey: dayKey ?? this.dayKey,
-        history: history ?? this.history,
-      );
+  }) => PointsState(
+    balance: balance ?? this.balance,
+    todayEarned: todayEarned ?? this.todayEarned,
+    dayKey: dayKey ?? this.dayKey,
+    history: history ?? this.history,
+  );
 }
 
 /// 积分系统（本地持久化）
@@ -96,7 +94,9 @@ class PointsNotifier extends StateNotifier<PointsState> {
       state = PointsState(
         balance: (m['balance'] as num?)?.toInt() ?? 0,
         // 跨天：今日累计归零，余额不受影响
-        todayEarned: savedKey == key ? ((m['todayEarned'] as num?)?.toInt() ?? 0) : 0,
+        todayEarned: savedKey == key
+            ? ((m['todayEarned'] as num?)?.toInt() ?? 0)
+            : 0,
         dayKey: key,
         history: ((m['history'] as List?) ?? const [])
             .whereType<Map>()
@@ -164,12 +164,16 @@ class PointsNotifier extends StateNotifier<PointsState> {
     state = state.copyWith(
       balance: state.balance - cost,
       history: [
-        PointsRecord(source: 'redeem:$itemId', amount: -cost, at: DateTime.now()),
+        PointsRecord(
+          source: 'redeem:$itemId',
+          amount: -cost,
+          at: DateTime.now(),
+        ),
         ...state.history,
       ].take(_maxHistory).toList(),
     );
     await _persist();
-    // TODO(membership): 这里接入会员权益开通（本地占位时可直接落一个到期时间）
+    // 会员权益由调用方（会员中心积分兑换入口）落库
     return true;
   }
 }

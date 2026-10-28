@@ -4,7 +4,9 @@ import {
   createReadStream,
   existsSync,
   mkdirSync,
+  readdirSync,
   statSync,
+  unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import http from 'node:http';
@@ -139,6 +141,7 @@ const isIso = (v) => typeof v === 'string' && !Number.isNaN(Date.parse(v));
 // ==================== 管理员鉴权 ====================
 
 const ADMIN_TOKEN_TTL_DAYS = 7;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
@@ -184,9 +187,9 @@ const DEFAULT_ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@example.com';
 const DEFAULT_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123456';
 function ensureDefaultAdmin() {
   const email = DEFAULT_ADMIN_EMAIL.toLowerCase();
-  const existing = db.prepare('SELECT id FROM admins WHERE email = ?').get(email);
+  const count = db.prepare('SELECT COUNT(*) AS n FROM admins').get().n;
 
-  if (!existing) {
+  if (count === 0) {
     db.prepare(
       'INSERT INTO admins (id, email, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?)',
     ).run(
@@ -199,13 +202,18 @@ function ensureDefaultAdmin() {
     return;
   }
 
-  // 显式设置 ADMIN_PASSWORD 时重置口令并踢掉旧会话（公网暴露前改密用）
-  if (process.env.ADMIN_PASSWORD) {
-    db.prepare('UPDATE admins SET password_hash = ? WHERE id = ?').run(
+  // 应急重置：显式设置 ADMIN_RESET=1 时才用环境变量覆盖口令并踢掉旧会话
+  if (process.env.ADMIN_RESET === '1' && process.env.ADMIN_PASSWORD) {
+    const target =
+      db.prepare('SELECT id FROM admins WHERE email = ?').get(email) ||
+      db.prepare('SELECT id FROM admins ORDER BY created_at LIMIT 1').get();
+    if (!target) return;
+    db.prepare('UPDATE admins SET email = ?, password_hash = ? WHERE id = ?').run(
+      email,
       hashPassword(DEFAULT_ADMIN_PASSWORD),
-      existing.id,
+      target.id,
     );
-    db.prepare('DELETE FROM admin_sessions WHERE admin_id = ?').run(existing.id);
+    db.prepare('DELETE FROM admin_sessions WHERE admin_id = ?').run(target.id);
     console.log('[admin] password reset from ADMIN_PASSWORD');
   }
 }
@@ -220,11 +228,18 @@ function pageArgs(url) {
 const boolInt = (v) => (v ? 1 : 0);
 const toBool = (v) => v === 1 || v === true;
 
+const BEVERAGE_SELECT = `SELECT b.*, c.name AS category_name, c.color AS category_color,
+       c.base_category
+  FROM beverages b LEFT JOIN beverage_categories c ON c.code = b.category`;
+
 function mapBeverage(r) {
   return {
     id: r.id,
     name: r.name,
     category: r.category,
+    categoryName: r.category_name || null,
+    categoryColor: r.category_color || null,
+    baseCategory: r.base_category || null,
     defaultMl: r.default_ml,
     hydrationRatio: r.hydration_ratio,
     iconUrl: r.icon_url,
@@ -242,6 +257,7 @@ function mapCharacter(r) {
     id: r.id,
     code: r.code,
     name: r.name,
+    categoryCode: r.category_code || 'daily',
     assetUrl: r.asset_url,
     thumbnailUrl: r.thumbnail_url,
     memberOnly: toBool(r.member_only),
@@ -302,6 +318,10 @@ function createSession(userId) {
   const expires = new Date(
     created.getTime() + TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000,
   );
+  // 单设备登录：同一账号只保留最新会话，旧会话标记撤销
+  db.prepare(
+    'UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL',
+  ).run(created.toISOString(), userId);
   db.prepare(
     'INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)',
   ).run(token, userId, created.toISOString(), expires.toISOString());
@@ -314,12 +334,14 @@ function authenticate(req) {
   if (!token) return null;
   const row = db
     .prepare(
-      `SELECT s.expires_at, u.id, u.nickname, u.deleted_at
+      `SELECT s.expires_at, s.revoked_at, u.id, u.nickname, u.deleted_at
          FROM sessions s JOIN users u ON u.id = s.user_id
         WHERE s.token = ?`,
     )
     .get(token);
   if (!row || row.deleted_at) return null;
+  // 会话已被新设备登录顶掉：单独返回 revoked，便于客户端提示原因
+  if (row.revoked_at) return { revoked: true };
   if (row.expires_at < nowIso()) return null;
   return { id: row.id, nickname: row.nickname, token };
 }
@@ -372,12 +394,74 @@ async function handle(req, res, url) {
         'POST /v1/sync/push',
         'GET /v1/sync/pull',
         'GET /v1/membership/plans',
+        'POST /v1/auth/register',
         'POST /v1/auth/login',
+        'POST /v1/admin/login',
         'GET|POST /v1/beverages',
         'GET|POST /v1/characters',
         'GET /v1/user',
         'GET /v1/membership/orders',
       ],
+    });
+  }
+
+  // ==================== 账号注册 / 登录（邮箱 + 密码，暂代第三方登录） ====================
+
+  if (method === 'POST' && pathname === '/v1/auth/register') {
+    const body = await readJson(req);
+    const email = String(body.email || '').trim().toLowerCase();
+    const password = String(body.password || '');
+    const nickname = String(body.nickname || '').trim() || '喝水羊驼';
+    if (!EMAIL_RE.test(email)) {
+      return fail(res, 400, 'invalid_email', '邮箱格式不合法');
+    }
+    if (password.length < 8) {
+      return fail(res, 400, 'weak_password', '密码至少 8 位');
+    }
+    const existing = db
+      .prepare('SELECT id FROM users WHERE email = ?')
+      .get(email);
+    if (existing) return fail(res, 409, 'email_taken', '该邮箱已注册');
+    const userId = crypto.randomUUID();
+    db.prepare(
+      `INSERT INTO users (id, anon_id, nickname, email, password_hash, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(userId, `acct_${userId}`, nickname, email, hashPassword(password), nowIso());
+    const session = createSession(userId);
+    return send(res, 200, {
+      userId,
+      email,
+      nickname,
+      accessToken: session.token,
+      expiresAt: session.expiresAt,
+      cursor: 0,
+    });
+  }
+
+  if (method === 'POST' && pathname === '/v1/auth/login') {
+    const body = await readJson(req);
+    const email = String(body.email || '').trim().toLowerCase();
+    const password = String(body.password || '');
+    if (!email || !password) {
+      return fail(res, 400, 'invalid_credentials', '请输入邮箱和密码');
+    }
+    const user = db
+      .prepare(
+        `SELECT id, nickname, email, password_hash, rev_seq, deleted_at
+           FROM users WHERE email = ?`,
+      )
+      .get(email);
+    if (!user || user.deleted_at || !verifyPassword(password, user.password_hash)) {
+      return fail(res, 401, 'invalid_credentials', '邮箱或密码错误');
+    }
+    const session = createSession(user.id);
+    return send(res, 200, {
+      userId: user.id,
+      email: user.email,
+      nickname: user.nickname,
+      accessToken: session.token,
+      expiresAt: session.expiresAt,
+      cursor: user.rev_seq,
     });
   }
 
@@ -428,15 +512,63 @@ async function handle(req, res, url) {
     return createReadStream(file).pipe(res);
   }
 
+  // ==================== 容器图标库（App 拉取，公开） ====================
+  // 图标文件全部由后台上传到 assets/preset/containers，
+  // App 联网时按此列表补齐/清理本地缓存，离线则沿用上次结果或安装包内置图标
+  if (method === 'GET' && pathname === '/v1/catalog/containers') {
+    const dir = path.join(assetsDir, 'preset', 'containers');
+    const items = existsSync(dir)
+      ? readdirSync(dir)
+          .filter((n) => n.toLowerCase().endsWith('.svg'))
+          .sort()
+          .map((n) => ({
+            id: n.slice(0, -4),
+            url: `/static/preset/containers/${encodeURIComponent(n)}`,
+          }))
+      : [];
+    return send(res, 200, { items });
+  }
+
+  // ==================== 角色目录（App 拉取，公开） ====================
+  // 分类与角色全部由后台维护，App 联网时按此列表展示/下载素材；
+  // 离线时沿用上次同步结果，未同步过则用安装包内置角色
+  if (method === 'GET' && pathname === '/v1/catalog/characters') {
+    const categories = db
+      .prepare(
+        'SELECT code, name, sort FROM character_categories ORDER BY sort, created_at',
+      )
+      .all();
+    const items = db
+      .prepare(
+        `SELECT code, name, category_code, asset_url, sort
+           FROM characters WHERE is_published = 1
+          ORDER BY sort, created_at`,
+      )
+      .all();
+    return send(res, 200, {
+      categories: categories.map((r) => ({
+        code: r.code,
+        name: r.name,
+        sort: r.sort,
+      })),
+      items: items.map((r) => ({
+        id: r.code,
+        code: r.code,
+        name: r.name,
+        categoryCode: r.category_code || 'daily',
+        assetUrl: r.asset_url,
+        sort: r.sort,
+      })),
+    });
+  }
+
   // ==================== 饮品目录（App 拉取，公开，按登录态标记会员锁） ====================
   if (method === 'GET' && pathname === '/v1/catalog/beverages') {
     const rows = db
-      .prepare(
-        'SELECT * FROM beverages WHERE is_published = 1 ORDER BY sort, created_at',
-      )
+      .prepare(`${BEVERAGE_SELECT} WHERE b.is_published = 1 ORDER BY b.sort, b.created_at`)
       .all();
     const viewer = authenticate(req);
-    const member = isMemberUser(viewer?.id);
+    const member = isMemberUser(viewer?.revoked ? null : viewer?.id);
     return send(
       res,
       200,
@@ -458,7 +590,7 @@ async function handle(req, res, url) {
   }
 
   // ==================== 管理后台：登录 ====================
-  if (method === 'POST' && pathname === '/v1/auth/login') {
+  if (method === 'POST' && pathname === '/v1/admin/login') {
     const body = await readJson(req);
     const email = String(body.email || '').trim().toLowerCase();
     const password = String(body.password || '');
@@ -481,39 +613,75 @@ async function handle(req, res, url) {
     });
   }
 
-  // 仅在还没有管理员时允许自助注册，避免开放注册口
-  if (method === 'POST' && pathname === '/v1/auth/register') {
-    const body = await readJson(req);
-    const email = String(body.email || '').trim().toLowerCase();
-    const password = String(body.password || '');
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-      return fail(res, 400, 'invalid_email', '邮箱格式不合法');
-    }
-    if (password.length < 8) {
-      return fail(res, 400, 'weak_password', '密码至少 8 位');
-    }
-    if (db.prepare('SELECT COUNT(*) AS n FROM admins').get().n > 0) {
-      return fail(res, 403, 'register_closed', '已存在管理员账号，不能开放注册');
-    }
-    const id = crypto.randomUUID();
-    db.prepare(
-      'INSERT INTO admins (id, email, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?)',
-    ).run(id, email, hashPassword(password), 'admin', nowIso());
-    return send(res, 200, { userId: id, email });
-  }
-
   // ==================== 管理后台：业务数据 ====================
   const isAdminRoute =
     pathname === '/v1/user' ||
     pathname.startsWith('/v1/beverages') ||
     pathname.startsWith('/v1/characters') ||
+    pathname.startsWith('/v1/character-categories') ||
     (pathname === '/v1/membership/orders' && method === 'GET') ||
     /^\/v1\/membership\/orders\/[^/]+\/paid$/.test(pathname) ||
+    /^\/v1\/user\/[^/]+$/.test(pathname) ||
     pathname.startsWith('/v1/admin/');
 
   if (isAdminRoute) {
     const admin = authenticateAdmin(req);
     if (!admin) return fail(res, 401, 'unauthorized', '管理员登录已过期');
+
+    // ---------- 管理员账号：查看 / 修改邮箱与密码 ----------
+    if (pathname === '/v1/admin/account' && method === 'GET') {
+      return send(res, 200, {
+        id: admin.id,
+        email: admin.email,
+        role: admin.role,
+      });
+    }
+
+    if (pathname === '/v1/admin/account' && method === 'PATCH') {
+      const body = await readJson(req);
+      const currentPassword = String(body.currentPassword || '');
+      const row = db
+        .prepare('SELECT id, email, role, password_hash FROM admins WHERE id = ?')
+        .get(admin.id);
+      if (!row || !verifyPassword(currentPassword, row.password_hash)) {
+        return fail(res, 400, 'invalid_password', '当前密码不正确');
+      }
+      const nextEmail =
+        body.email === undefined
+          ? row.email
+          : String(body.email || '').trim().toLowerCase();
+      const nextPassword =
+        body.newPassword === undefined ? null : String(body.newPassword || '');
+      if (!EMAIL_RE.test(nextEmail)) {
+        return fail(res, 400, 'invalid_email', '邮箱格式不合法');
+      }
+      if (nextPassword !== null && nextPassword.length < 8) {
+        return fail(res, 400, 'weak_password', '新密码至少 8 位');
+      }
+      if (nextEmail !== row.email) {
+        const dup = db
+          .prepare('SELECT id FROM admins WHERE email = ? AND id <> ?')
+          .get(nextEmail, row.id);
+        if (dup) return fail(res, 409, 'email_taken', '该邮箱已被其他管理员使用');
+        db.prepare('UPDATE admins SET email = ? WHERE id = ?').run(nextEmail, row.id);
+      }
+      if (nextPassword !== null) {
+        db.prepare('UPDATE admins SET password_hash = ? WHERE id = ?').run(
+          hashPassword(nextPassword),
+          row.id,
+        );
+        // 其他设备的登录态全部失效，当前会话保留
+        const token = (req.headers.authorization || '').slice(7);
+        db.prepare(
+          'DELETE FROM admin_sessions WHERE admin_id = ? AND token <> ?',
+        ).run(row.id, token);
+      }
+      return send(res, 200, {
+        id: row.id,
+        email: nextEmail,
+        role: row.role,
+      });
+    }
 
     // ---------- 素材上传（图标 / 图片） ----------
     if (pathname === '/v1/admin/assets' && method === 'POST') {
@@ -534,15 +702,93 @@ async function handle(req, res, url) {
       if (!buffer.length) return fail(res, 400, 'empty_body', '文件为空');
 
       const name = `${crypto.randomUUID()}.${ext}`;
-      writeFileSync(path.join(assetsDir, name), buffer);
-      return send(res, 200, { url: `/static/${name}` });
+
+      // 目录可选：preset/containers（容器图标库，App 会同步）、preset/characters
+      const dirRaw = String(url.searchParams.get('dir') || '')
+        .replace(/^\/+|\/+$/g, '');
+      if (!['', 'preset/containers', 'preset/characters'].includes(dirRaw)) {
+        return fail(res, 400, 'invalid_dir', '非法目录');
+      }
+      // 保留原文件名（后台按图标文件名管理，App 以文件名作为容器 id）
+      const nameRaw = String(url.searchParams.get('name') || '').trim();
+      let fileName = name;
+      if (nameRaw) {
+        const base = path.basename(nameRaw).replace(/[^a-zA-Z0-9._-]/g, '_');
+        if (!base || base.startsWith('.')) {
+          return fail(res, 400, 'invalid_name', '非法文件名');
+        }
+        fileName = /\.[a-z0-9]+$/i.test(base) ? base : `${base}.${ext}`;
+        if (!['.svg', '.png', '.jpg', '.jpeg', '.webp'].includes(
+          path.extname(fileName).toLowerCase(),
+        )) {
+          return fail(res, 400, 'invalid_ext', '仅支持 svg/png/jpg/webp');
+        }
+      }
+
+      const targetDir = path.join(assetsDir, dirRaw);
+      mkdirSync(targetDir, { recursive: true });
+      writeFileSync(path.join(targetDir, fileName), buffer);
+      const rel = dirRaw ? `${dirRaw}/${fileName}` : fileName;
+      return send(res, 200, { url: `/static/${rel}` });
+    }
+
+    // ---------- 图标库（素材列表 / 删除） ----------
+    if (pathname === '/v1/admin/assets' && method === 'GET') {
+      // 递归列出 assets 目录：preset/containers（客户端容器图标）、
+      // preset/characters（客户端角色）以及后台上传的顶层素材
+      const walk = (dir, prefix = '') => {
+        const out = [];
+        for (const n of readdirSync(dir)) {
+          const full = path.join(dir, n);
+          let stat;
+          try {
+            stat = statSync(full);
+          } catch {
+            continue;
+          }
+          const rel = prefix ? `${prefix}/${n}` : n;
+          if (stat.isDirectory()) {
+            out.push(...walk(full, rel));
+          } else if (stat.isFile()) {
+            out.push({
+              name: rel,
+              url: `/static/${rel}`,
+              size: stat.size,
+              updatedAt: stat.mtime.toISOString(),
+            });
+          }
+        }
+        return out;
+      };
+      const files = walk(assetsDir).sort((a, b) =>
+        a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+      );
+      return send(res, 200, files);
+    }
+
+    const assetMatch = pathname.match(/^\/v1\/admin\/assets\/(.+)$/);
+    if (assetMatch && method === 'DELETE') {
+      // 支持子目录（preset/containers/xxx.svg），仍需防目录穿越
+      const rel = decodeURIComponent(assetMatch[1]);
+      const full = path.resolve(assetsDir, rel);
+      const root = path.resolve(assetsDir) + path.sep;
+      if (!rel || !full.startsWith(root) || !existsSync(full)) {
+        return fail(res, 404, 'not_found', '文件不存在');
+      }
+      if (statSync(full).isDirectory()) {
+        return fail(res, 400, 'invalid_name', '不能删除目录');
+      }
+      unlinkSync(full);
+      return send(res, 200, { ok: true });
     }
 
     // ---------- 饮品库 ----------
     if (pathname === '/v1/beverages' && method === 'GET') {
       const { pageSize, offset } = pageArgs(url);
       const rows = db
-        .prepare('SELECT * FROM beverages ORDER BY sort, created_at LIMIT ? OFFSET ?')
+        .prepare(
+          `${BEVERAGE_SELECT} ORDER BY b.sort, b.created_at LIMIT ? OFFSET ?`,
+        )
         .all(pageSize, offset);
       return send(res, 200, rows.map(mapBeverage));
     }
@@ -551,6 +797,10 @@ async function handle(req, res, url) {
       const body = await readJson(req);
       const name = String(body.name || '').trim();
       if (!name) return fail(res, 400, 'invalid_name', '名称不能为空');
+      const category = String(body.category || 'water');
+      if (!db.prepare('SELECT 1 FROM beverage_categories WHERE code = ?').get(category)) {
+        return fail(res, 400, 'invalid_category', '饮品分类不存在');
+      }
       const now = nowIso();
       const id = crypto.randomUUID();
       db.prepare(
@@ -560,7 +810,7 @@ async function handle(req, res, url) {
       ).run(
         id,
         name,
-        String(body.category || 'water'),
+        category,
         Number(body.defaultMl ?? 250) || 250,
         Number(body.hydrationRatio ?? 1),
         String(body.iconUrl || '').trim() || null,
@@ -571,14 +821,14 @@ async function handle(req, res, url) {
         now,
         now,
       );
-      const row = db.prepare('SELECT * FROM beverages WHERE id = ?').get(id);
+      const row = db.prepare(`${BEVERAGE_SELECT} WHERE b.id = ?`).get(id);
       return send(res, 200, mapBeverage(row));
     }
 
     const beverageMatch = pathname.match(/^\/v1\/beverages\/([^/]+)$/);
     if (beverageMatch) {
       const id = decodeURIComponent(beverageMatch[1]);
-      const row = db.prepare('SELECT * FROM beverages WHERE id = ?').get(id);
+      const row = db.prepare(`${BEVERAGE_SELECT} WHERE b.id = ?`).get(id);
       if (!row) return fail(res, 404, 'not_found', '饮品不存在');
 
       if (method === 'DELETE') {
@@ -590,6 +840,11 @@ async function handle(req, res, url) {
         const body = await readJson(req);
         const name = body.name === undefined ? row.name : String(body.name).trim();
         if (!name) return fail(res, 400, 'invalid_name', '名称不能为空');
+        const category =
+          body.category === undefined ? row.category : String(body.category);
+        if (!db.prepare('SELECT 1 FROM beverage_categories WHERE code = ?').get(category)) {
+          return fail(res, 400, 'invalid_category', '饮品分类不存在');
+        }
         db.prepare(
           `UPDATE beverages
               SET name = ?, category = ?, default_ml = ?, hydration_ratio = ?,
@@ -598,7 +853,7 @@ async function handle(req, res, url) {
             WHERE id = ?`,
         ).run(
           name,
-          body.category === undefined ? row.category : String(body.category),
+          category,
           body.defaultMl === undefined ? row.default_ml : Number(body.defaultMl),
           body.hydrationRatio === undefined
             ? row.hydration_ratio
@@ -617,17 +872,216 @@ async function handle(req, res, url) {
           nowIso(),
           id,
         );
-        const next = db.prepare('SELECT * FROM beverages WHERE id = ?').get(id);
+        const next = db.prepare(`${BEVERAGE_SELECT} WHERE b.id = ?`).get(id);
         return send(res, 200, mapBeverage(next));
+      }
+    }
+
+    // ---------- 饮品分类（后台管理） ----------
+    if (pathname === '/v1/admin/categories' && method === 'GET') {
+      const rows = db
+        .prepare('SELECT * FROM beverage_categories ORDER BY sort, created_at')
+        .all();
+      return send(
+        res,
+        200,
+        rows.map((r) => ({
+          code: r.code,
+          name: r.name,
+          color: r.color,
+          baseCategory: r.base_category,
+          sort: r.sort,
+          createdAt: r.created_at,
+        })),
+      );
+    }
+
+    if (pathname === '/v1/admin/categories' && method === 'POST') {
+      const body = await readJson(req);
+      const code = String(body.code || '').trim();
+      const name = String(body.name || '').trim();
+      const color = String(body.color || '').trim() || null;
+      const base = String(body.baseCategory || 'water').trim();
+      if (!/^[a-zA-Z][a-zA-Z0-9_]{0,31}$/.test(code)) {
+        return fail(res, 400, 'invalid_code', '分类代码需为字母开头的英文/数字/下划线');
+      }
+      if (!name || name.length > 12) {
+        return fail(res, 400, 'invalid_name', '分类名称需为 1-12 个字符');
+      }
+      if (!db.prepare('SELECT 1 FROM beverage_categories WHERE code = ?').get(base)) {
+        return fail(res, 400, 'invalid_base', '基础分类不存在');
+      }
+      if (db.prepare('SELECT 1 FROM beverage_categories WHERE code = ?').get(code)) {
+        return fail(res, 409, 'code_taken', '分类代码已存在');
+      }
+      db.prepare(
+        `INSERT INTO beverage_categories (code, name, color, base_category, sort, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(code, name, color, base, Number(body.sort ?? 0) || 0, nowIso());
+      return send(res, 200, { code, name, color, baseCategory: base });
+    }
+
+    const categoryMatch = pathname.match(/^\/v1\/admin\/categories\/([^/]+)$/);
+    if (categoryMatch && method === 'DELETE') {
+      const code = decodeURIComponent(categoryMatch[1]);
+      if (!db.prepare('SELECT 1 FROM beverage_categories WHERE code = ?').get(code)) {
+        return fail(res, 404, 'not_found', '分类不存在');
+      }
+      const used = db
+        .prepare('SELECT COUNT(*) AS n FROM beverages WHERE category = ?')
+        .get(code).n;
+      if (used > 0) {
+        return fail(res, 409, 'category_in_use', `该分类下还有 ${used} 款饮品，请先移走或删除`);
+      }
+      db.prepare('DELETE FROM beverage_categories WHERE code = ?').run(code);
+      return send(res, 200, { ok: true });
+    }
+
+    // ---------- 会员套餐（后台配置，App 直接读取） ----------
+    if (pathname === '/v1/admin/plans' && method === 'GET') {
+      const rows = db
+        .prepare('SELECT * FROM membership_plans ORDER BY sort, code')
+        .all();
+      return send(res, 200, rows.map(mapPlan));
+    }
+
+    const planMatch = pathname.match(/^\/v1\/admin\/plans\/([^/]+)$/);
+    if (planMatch && method === 'PATCH') {
+      const code = decodeURIComponent(planMatch[1]);
+      const row = db
+        .prepare('SELECT * FROM membership_plans WHERE code = ?')
+        .get(code);
+      if (!row) return fail(res, 404, 'not_found', '套餐不存在');
+      const body = await readJson(req);
+      const name = body.name === undefined ? row.name : String(body.name).trim();
+      const priceCents = body.priceCents === undefined
+        ? row.price_cents
+        : Number(body.priceCents);
+      const durationDays = body.durationDays === undefined
+        ? row.duration_days
+        : Number(body.durationDays);
+      if (!name) return fail(res, 400, 'invalid_name', '套餐名称不能为空');
+      if (!Number.isFinite(priceCents) || priceCents < 0) {
+        return fail(res, 400, 'invalid_price', '价格不合法');
+      }
+      if (!Number.isFinite(durationDays) || durationDays < 0 || durationDays > 3650) {
+        return fail(res, 400, 'invalid_duration', '时长需为 0-3650 天（0 表示永久）');
+      }
+      db.prepare(
+        `UPDATE membership_plans
+            SET name = ?, price_cents = ?, duration_days = ?, badge = ?,
+                is_published = ?, sort = ?, updated_at = ?
+          WHERE code = ?`,
+      ).run(
+        name,
+        Math.round(priceCents),
+        Math.round(durationDays),
+        body.badge === undefined
+          ? row.badge
+          : String(body.badge || '').trim() || null,
+        body.isPublished === undefined
+          ? row.is_published
+          : boolInt(body.isPublished),
+        body.sort === undefined ? row.sort : Number(body.sort) || 0,
+        nowIso(),
+        code,
+      );
+      const next = db
+        .prepare('SELECT * FROM membership_plans WHERE code = ?')
+        .get(code);
+      return send(res, 200, mapPlan(next));
+    }
+
+    // ---------- 角色分类 ----------
+    if (pathname === '/v1/character-categories' && method === 'GET') {
+      const rows = db
+        .prepare(
+          `SELECT c.code, c.name, c.sort,
+                  (SELECT COUNT(*) FROM characters ch WHERE ch.category_code = c.code) AS count
+             FROM character_categories c
+            ORDER BY c.sort, c.created_at`,
+        )
+        .all();
+      return send(
+        res,
+        200,
+        rows.map((r) => ({
+          code: r.code,
+          name: r.name,
+          sort: r.sort,
+          count: r.count,
+        })),
+      );
+    }
+
+    if (pathname === '/v1/character-categories' && method === 'POST') {
+      const body = await readJson(req);
+      const code = String(body.code || '').trim().toLowerCase();
+      const name = String(body.name || '').trim();
+      if (!/^[a-z0-9_]+$/.test(code) || !name) {
+        return fail(res, 400, 'invalid_payload', 'code（小写字母/数字/下划线）和名称必填');
+      }
+      if (db.prepare('SELECT 1 AS x FROM character_categories WHERE code = ?').get(code)) {
+        return fail(res, 409, 'duplicate_code', '分类 code 已存在');
+      }
+      db.prepare(
+        'INSERT INTO character_categories (code, name, sort, created_at) VALUES (?, ?, ?, ?)',
+      ).run(code, name, Number(body.sort ?? 0) || 0, nowIso());
+      return send(res, 200, { code, name, sort: Number(body.sort ?? 0) || 0, count: 0 });
+    }
+
+    const charCategoryMatch = pathname.match(
+      /^\/v1\/character-categories\/([^/]+)$/,
+    );
+    if (charCategoryMatch) {
+      const code = decodeURIComponent(charCategoryMatch[1]);
+      const row = db
+        .prepare('SELECT * FROM character_categories WHERE code = ?')
+        .get(code);
+      if (!row) return fail(res, 404, 'not_found', '分类不存在');
+
+      if (method === 'PATCH') {
+        const body = await readJson(req);
+        const name = body.name === undefined ? row.name : String(body.name).trim();
+        if (!name) return fail(res, 400, 'invalid_name', '名称不能为空');
+        db.prepare('UPDATE character_categories SET name = ?, sort = ? WHERE code = ?').run(
+          name,
+          body.sort === undefined ? row.sort : Number(body.sort) || 0,
+          code,
+        );
+        return send(res, 200, { code, name, sort: body.sort ?? row.sort });
+      }
+
+      if (method === 'DELETE') {
+        const used = db
+          .prepare('SELECT COUNT(*) AS c FROM characters WHERE category_code = ?')
+          .get(code);
+        if ((used?.c || 0) > 0) {
+          return fail(
+            res,
+            409,
+            'category_not_empty',
+            `该分类下还有 ${used.c} 个角色，请先删除或移动到其他分类`,
+          );
+        }
+        db.prepare('DELETE FROM character_categories WHERE code = ?').run(code);
+        return send(res, 200, { ok: true });
       }
     }
 
     // ---------- 角色素材 ----------
     if (pathname === '/v1/characters' && method === 'GET') {
       const { pageSize, offset } = pageArgs(url);
-      const rows = db
-        .prepare('SELECT * FROM characters ORDER BY sort, created_at LIMIT ? OFFSET ?')
-        .all(pageSize, offset);
+      const category = (url.searchParams.get('category') || '').trim();
+      const rows = category
+        ? db
+            .prepare(
+              'SELECT * FROM characters WHERE category_code = ? ORDER BY sort, created_at LIMIT ? OFFSET ?',
+            )
+            .all(category, pageSize, offset)
+        : db
+            .prepare('SELECT * FROM characters ORDER BY sort, created_at LIMIT ? OFFSET ?')
+            .all(pageSize, offset);
       return send(res, 200, rows.map(mapCharacter));
     }
 
@@ -642,16 +1096,21 @@ async function handle(req, res, url) {
       if (db.prepare('SELECT 1 AS x FROM characters WHERE code = ?').get(code)) {
         return fail(res, 409, 'duplicate_code', 'code 已存在');
       }
+      const categoryCode = String(body.categoryCode || 'daily').trim();
+      if (!db.prepare('SELECT 1 AS x FROM character_categories WHERE code = ?').get(categoryCode)) {
+        return fail(res, 400, 'invalid_category', '角色分类不存在');
+      }
       const now = nowIso();
       const id = crypto.randomUUID();
       db.prepare(
         `INSERT INTO characters
-           (id, code, name, asset_url, thumbnail_url, member_only, sort, is_published, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, code, name, category_code, asset_url, thumbnail_url, member_only, sort, is_published, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
         code,
         name,
+        categoryCode,
         assetUrl,
         String(body.thumbnailUrl || '').trim() || null,
         boolInt(body.memberOnly),
@@ -688,15 +1147,23 @@ async function handle(req, res, url) {
           .prepare('SELECT 1 AS x FROM characters WHERE code = ? AND id <> ?')
           .get(code, id);
         if (duplicated) return fail(res, 409, 'duplicate_code', 'code 已存在');
+        const categoryCode =
+          body.categoryCode === undefined
+            ? row.category_code || 'daily'
+            : String(body.categoryCode).trim();
+        if (!db.prepare('SELECT 1 AS x FROM character_categories WHERE code = ?').get(categoryCode)) {
+          return fail(res, 400, 'invalid_category', '角色分类不存在');
+        }
 
         db.prepare(
           `UPDATE characters
-              SET code = ?, name = ?, asset_url = ?, thumbnail_url = ?,
+              SET code = ?, name = ?, category_code = ?, asset_url = ?, thumbnail_url = ?,
                   member_only = ?, sort = ?, is_published = ?, updated_at = ?
             WHERE id = ?`,
         ).run(
           code,
           name,
+          categoryCode,
           assetUrl,
           body.thumbnailUrl === undefined
             ? row.thumbnail_url
@@ -714,17 +1181,21 @@ async function handle(req, res, url) {
       }
     }
 
-    // ---------- 用户列表（只读） ----------
+    // ---------- 用户列表（支持搜索 + 会员状态） ----------
     if (pathname === '/v1/user' && method === 'GET') {
       const { pageSize, offset } = pageArgs(url);
+      const q = (url.searchParams.get('q') || '').trim();
+      const where = q ? 'WHERE (id LIKE ? OR nickname LIKE ? OR email LIKE ?)' : '';
+      const params = q ? [`%${q}%`, `%${q}%`, `%${q}%`] : [];
       const rows = db
         .prepare(
           `SELECT id, nickname, email, phone, gender, weight_kg, height_cm,
-                  daily_goal_ml, membership_expire_at, created_at
+                  daily_goal_ml, membership_expire_at, membership_permanent, created_at
              FROM users
+            ${where}
             ORDER BY created_at DESC LIMIT ? OFFSET ?`,
         )
-        .all(pageSize, offset);
+        .all(...params, pageSize, offset);
       return send(
         res,
         200,
@@ -738,9 +1209,39 @@ async function handle(req, res, url) {
           heightCm: r.height_cm,
           dailyGoalMl: r.daily_goal_ml,
           membershipExpireAt: r.membership_expire_at,
+          membershipPermanent: toBool(r.membership_permanent),
           createdAt: r.created_at,
         })),
       );
+    }
+
+    // ---------- 人工调整用户会员（赠送 / 延长） ----------
+    const userMatch = pathname.match(/^\/v1\/user\/([^/]+)$/);
+    if (userMatch && method === 'PATCH') {
+      const id = decodeURIComponent(userMatch[1]);
+      if (!db.prepare('SELECT 1 FROM users WHERE id = ?').get(id)) {
+        return fail(res, 404, 'not_found', '用户不存在');
+      }
+      const body = await readJson(req);
+      if (body.permanent === true) {
+        grantMembership(id, 0);
+      } else {
+        const days = Number(body.membershipDays);
+        if (!Number.isFinite(days) || days < 1 || days > 3650) {
+          return fail(res, 400, 'invalid_days', '赠送天数需为 1-3650');
+        }
+        grantMembership(id, days);
+      }
+      const u = db
+        .prepare(
+          'SELECT membership_expire_at, membership_permanent FROM users WHERE id = ?',
+        )
+        .get(id);
+      return send(res, 200, {
+        id,
+        membershipExpireAt: u.membership_expire_at,
+        membershipPermanent: toBool(u.membership_permanent),
+      });
     }
 
     // ---------- 订单查询 ----------
@@ -822,6 +1323,9 @@ async function handle(req, res, url) {
   const user = authenticate(req);
   if (pathname.startsWith('/v1/') && !user) {
     return fail(res, 401, 'unauthorized', '缺少或无效的访问令牌');
+  }
+  if (user && user.revoked) {
+    return fail(res, 401, 'session_revoked', '账号已在其他设备登录');
   }
 
   if (method === 'GET' && pathname === '/v1/me') {

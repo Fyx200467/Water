@@ -155,6 +155,18 @@
   .row-actions { display: flex; gap: 6px; }
   .empty { padding: 40px; text-align: center; color: var(--gray); font-size: 13px; }
   .pager { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; font-size: 12px; color: var(--gray); align-items: center; }
+  /* 图标库网格 */
+  .icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 12px; padding: 16px; }
+  .icon-cell { background: #f7f8fa; border-radius: 14px; padding: 10px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .icon-cell img { width: 92px; height: 92px; object-fit: contain; border-radius: 12px; background: rgba(0,0,0,.20); padding: 8px; }
+  .icon-cell .fname { font-size: 11px; color: var(--gray); font-family: ui-monospace, Consolas, monospace; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .swatch { display: inline-block; width: 14px; height: 14px; border-radius: 4px; vertical-align: -2px; margin-right: 6px; border: 1px solid rgba(0,0,0,.08); }
+  /* 饮品图标：容器剪影 + 液体色填充，与 App 饮品页一致 */
+  .icon-tile {
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 9px; background: #eef4f8; overflow: hidden; vertical-align: middle;
+  }
+  .icon-tile img { object-fit: contain; }
 
   /* ---------------- 弹窗 ---------------- */
   #modalMask {
@@ -187,7 +199,7 @@
 <div id="loginView" class="login-wrap">
   <form class="login-card" id="loginForm">
     <h1>吨吨管理后台</h1>
-    <p class="sub">饮品库 · 角色素材 · 用户 · 订单</p>
+    <p class="sub">饮品库 · 分类 · 图标 · 角色 · 会员套餐 · 用户 · 订单</p>
     <div class="field">
       <label>API 地址</label>
       <input id="apiBase" placeholder="http://localhost:3000/api/v1" />
@@ -214,11 +226,15 @@
   <aside>
     <div class="brand">吨吨<span>.</span><small>WaterLlama Admin</small></div>
     <button class="nav-btn" data-tab="beverages">饮品库</button>
+    <button class="nav-btn" data-tab="categories">饮品分类</button>
+    <button class="nav-btn" data-tab="icons">容器图标库</button>
     <button class="nav-btn" data-tab="characters">角色素材</button>
     <button class="nav-btn" data-tab="users">用户列表</button>
+    <button class="nav-btn" data-tab="plans">会员套餐</button>
     <button class="nav-btn" data-tab="orders">订单查询</button>
     <div class="nav-foot">
       <div id="whoami" style="margin-bottom:8px;word-break:break-all;"></div>
+      <button id="accountBtn" style="margin-bottom:6px;">账号安全</button>
       <button id="logoutBtn">退出登录</button>
     </div>
   </aside>
@@ -241,6 +257,7 @@
   var LS_API = "wl_admin_api";
   var LS_TOKEN = "wl_admin_token";
   var LS_USER = "wl_admin_user";
+  var LS_EMAIL = "wl_admin_email";
 
   var state = {
     token: localStorage.getItem(LS_TOKEN) || "",
@@ -253,6 +270,9 @@
     pageSize: 20,
     orderStatus: "",
     orderUser: "",
+    userQuery: "",
+    charCategory: "",
+    charCategories: [],
     rows: [],
   };
 
@@ -312,14 +332,18 @@
     return assetOrigin() + (u.charAt(0) === "/" ? u : "/" + u);
   }
 
-  async function uploadAsset(file) {
+  async function uploadAsset(file, dir, keepName) {
     var m = /\.([a-z0-9]+)$/i.exec(file.name || "");
     var ext = m ? m[1].toLowerCase() : "svg";
     if (["svg", "png", "jpg", "jpeg", "webp"].indexOf(ext) < 0) {
       throw new Error("仅支持 SVG / PNG / JPG / WEBP");
     }
     if (file.size > 3 * 1024 * 1024) throw new Error("文件不能超过 3MB");
-    var res = await fetch(state.api + "/admin/assets?ext=" + encodeURIComponent(ext), {
+    var q = "?ext=" + encodeURIComponent(ext);
+    if (dir) q += "&dir=" + encodeURIComponent(dir);
+    // 容器图标保留原文件名：App 以文件名作为容器 id，删除/覆盖都按它对应
+    if (keepName) q += "&name=" + encodeURIComponent(file.name || "");
+    var res = await fetch(state.api + "/admin/assets" + q, {
       method: "POST",
       headers: {
         "Authorization": "Bearer " + state.token,
@@ -346,6 +370,9 @@
 
   function logout() {
     state.token = "";
+    state.tab = "beverages";
+    state.page = 1;
+    state.categories = [];
     localStorage.removeItem(LS_TOKEN);
     localStorage.removeItem(LS_USER);
     showLogin();
@@ -362,7 +389,7 @@
     btn.disabled = true;
     btn.textContent = "登录中…";
     try {
-      var data = await api("/auth/login", {
+      var data = await api("/admin/login", {
         method: "POST",
         body: JSON.stringify({
           email: $("email").value.trim(),
@@ -372,6 +399,10 @@
       state.token = data.accessToken;
       localStorage.setItem(LS_TOKEN, state.token);
       localStorage.setItem(LS_USER, data.userId || "");
+      localStorage.setItem(LS_EMAIL, data.email || "");
+      // 重新登录总是回到饮品库，避免上次页面接口异常导致循环跳登录
+      state.tab = "beverages";
+      state.page = 1;
       enterApp();
     } catch (err) {
       $("loginErr").textContent = err.message || "登录失败";
@@ -381,19 +412,74 @@
     }
   }
 
+  function renderWho() {
+    var email = localStorage.getItem(LS_EMAIL) || "";
+    var uid = localStorage.getItem(LS_USER) || "";
+    $("whoami").textContent = "已登录：" + (email || uid || "—");
+  }
+
   function enterApp() {
     $("loginView").classList.add("hidden");
     $("app").classList.remove("hidden");
     $("apiHint").textContent = state.api;
-    $("whoami").textContent = "已登录：" + (localStorage.getItem(LS_USER) || "");
+    renderWho();
     switchTab(state.tab);
+  }
+
+  /* ---------------- 账号安全：修改邮箱 / 密码 ---------------- */
+  async function openAccountModal() {
+    var currentEmail = localStorage.getItem(LS_EMAIL) || "";
+    try {
+      var info = await api("/admin/account");
+      currentEmail = info.email || currentEmail;
+      localStorage.setItem(LS_EMAIL, currentEmail);
+      renderWho();
+    } catch (err) {
+      // 取不到就用本地缓存邮箱继续，保存时会由服务端校验
+    }
+
+    openModal(
+      "账号安全",
+      '<div class="form-grid">' +
+        '<div class="full"><label>登录邮箱</label><input id="a_email" value="' + esc(currentEmail) + '" /></div>' +
+        '<div class="full"><label>当前密码</label><input id="a_old" type="password" autocomplete="current-password" /></div>' +
+        '<div class="full"><label>新密码（留空表示不修改）</label><input id="a_new" type="password" autocomplete="new-password" /></div>' +
+        '<div class="full"><label>确认新密码</label><input id="a_new2" type="password" autocomplete="new-password" /></div>' +
+        '<div class="full" style="font-size:12px;opacity:.7;">修改密码后，其他设备上的登录态会失效，当前设备保持登录。</div>' +
+      "</div>",
+      async function () {
+        var email = $("a_email").value.trim();
+        var oldPwd = $("a_old").value;
+        var newPwd = $("a_new").value;
+        var newPwd2 = $("a_new2").value;
+        if (!email) throw new Error("请填写登录邮箱");
+        if (!oldPwd) throw new Error("请输入当前密码");
+        if (newPwd || newPwd2) {
+          if (newPwd.length < 8) throw new Error("新密码至少 8 位");
+          if (newPwd !== newPwd2) throw new Error("两次输入的新密码不一致");
+        }
+        var dto = { currentPassword: oldPwd, email: email };
+        if (newPwd) dto.newPassword = newPwd;
+        var res = await api("/admin/account", {
+          method: "PATCH",
+          body: JSON.stringify(dto),
+        });
+        localStorage.setItem(LS_EMAIL, res.email || email);
+        renderWho();
+        closeModal();
+        toast("账号信息已更新");
+      }
+    );
   }
 
   /* ---------------- 导航 ---------------- */
   var TITLES = {
     beverages: "饮品库",
+    categories: "饮品分类",
+    icons: "容器图标库",
     characters: "角色素材",
     users: "用户列表",
+    plans: "会员套餐",
     orders: "订单查询",
   };
 
@@ -412,8 +498,11 @@
     view.innerHTML = '<div class="card"><div class="empty">加载中…</div></div>';
     try {
       if (state.tab === "beverages") await renderBeverages();
+      else if (state.tab === "categories") await renderCategories();
+      else if (state.tab === "icons") await renderIcons();
       else if (state.tab === "characters") await renderCharacters();
       else if (state.tab === "users") await renderUsers();
+      else if (state.tab === "plans") await renderPlans();
       else await renderOrders();
     } catch (err) {
       view.innerHTML = '<div class="card"><div class="empty">' + esc(err.message) + "</div></div>";
@@ -448,17 +537,68 @@
   }
 
   /* ---------------- 饮品库 ---------------- */
+  // 内置饮品图标：与 App 饮品页同款容器剪影（containers/<id>_user.svg），
+  // 渲染时按液体色填充；后台新增分类按基础分类回退
+  var PRESET_CONTAINERS = {
+    water_pure: "water_pure_user", tea: "tea_user", coffee: "coffee_user",
+    milk_milk: "milk_milk_user", milk_tea: "milk_tea_user", milk_juice: "milk_juice_user",
+    soda: "soda_user", soup_porridge: "soup_porridge_user", soup_chicken: "soup_chicken_user",
+    alcohol_beer: "alcohol_beer_user", alcohol_wine: "alcohol_wine_user",
+    alcohol_spirits: "alcohol_spirits_user",
+  };
+  var BASE_CONTAINERS = {
+    water: "water_pure_user", tea: "tea_user", coffee: "coffee_user",
+    milk: "milk_milk_user", milkTea: "milk_tea_user", juice: "milk_juice_user",
+    soda: "soda_user", soup: "soup_porridge_user", alcohol: "alcohol_beer_user",
+  };
+  var BASE_COLORS = {
+    water: "#4FC3F7", tea: "#C79A5B", coffee: "#6B3E2E", milk: "#C8CDD0",
+    milkTea: "#A8723C", juice: "#FFB300", soda: "#C9364F", soup: "#E9D8B4",
+    alcohol: "#F0B429",
+  };
+
+  function containerName(b, categoryCode) {
+    var id = String(b.id || "");
+    if (PRESET_CONTAINERS[id]) return PRESET_CONTAINERS[id];
+    var code = categoryCode || b.category || "";
+    return BASE_CONTAINERS[code] || BASE_CONTAINERS[b.baseCategory] || BASE_CONTAINERS.water;
+  }
+
+  function liquidColor(b, categoryCode) {
+    return b.liquidColor || b.categoryColor ||
+      BASE_COLORS[categoryCode || b.category] || BASE_COLORS[b.baseCategory] || "#4FC3F7";
+  }
+
+  /// 容器剪影着色渲染（mask + 液体色）
+  function containerIconHtml(b, px, categoryCode) {
+    var url = assetUrl("/static/preset/containers/" + containerName(b, categoryCode) + ".svg");
+    var fill = liquidColor(b, categoryCode);
+    var inner = Math.round(px * 0.74);
+    return '<span class="icon-tile" style="width:' + px + "px;height:" + px + 'px;" title="内置图标">' +
+      '<i style="display:block;width:' + inner + "px;height:" + inner + "px;background:" + esc(fill) + ";" +
+      "filter:drop-shadow(0 0 1px rgba(0,0,0,.28));" +
+      "-webkit-mask:url('" + esc(url) + "') center/contain no-repeat;" +
+      "mask:url('" + esc(url) + "') center/contain no-repeat;\"></i></span>";
+  }
+
+  function uploadedIconHtml(url, px) {
+    var inner = Math.round(px * 0.8);
+    return '<span class="icon-tile" style="width:' + px + "px;height:" + px + 'px;background:rgba(0,0,0,.28);" title="已上传图标">' +
+      '<img src="' + esc(assetUrl(url)) + '" alt="" style="width:' + inner + "px;height:" + inner + 'px;" /></span>';
+  }
+
+  function beverageIconCell(b) {
+    return b.iconUrl ? uploadedIconHtml(b.iconUrl, 34) : containerIconHtml(b, 34);
+  }
+
   async function renderBeverages() {
     var rows = await api("/beverages?page=" + state.page + "&pageSize=" + state.pageSize);
     state.rows = Array.isArray(rows) ? rows : [];
     var body = state.rows.map(function (b) {
-      var thumb = b.iconUrl
-        ? '<img src="' + esc(assetUrl(b.iconUrl)) + '" alt="" style="width:34px;height:34px;object-fit:contain;border-radius:9px;background:rgba(0,0,0,.28);padding:3px;" />'
-        : '<span class="tag off">无</span>';
       return [
         "<b>" + esc(b.name) + "</b>",
-        thumb,
-        '<span class="tag">' + esc(b.category) + "</span>",
+        beverageIconCell(b),
+        '<span class="tag">' + esc(b.categoryName || b.category) + "</span>",
         esc(b.defaultMl) + " ml",
         esc(b.hydrationRatio),
         b.memberOnly ? '<span class="tag gold">会员</span>' : '<span class="tag off">免费</span>',
@@ -488,22 +628,23 @@
     });
   }
 
-  function beverageModal(item) {
+  async function beverageModal(item) {
     var isEdit = !!item;
     item = item || { category: "water", name: "", defaultMl: 250, hydrationRatio: 1.0, memberOnly: false, sort: 0, isPublished: true, iconUrl: "", liquidColor: "" };
-    var cats = [
-      ["water", "纯水"],
-      ["tea", "茶水"],
-      ["coffee", "咖啡"],
-      ["milk", "牛奶"],
-      ["milkTea", "奶茶"],
-      ["juice", "果汁"],
-      ["soda", "碳酸饮料"],
-      ["soup", "汤粥"],
-      ["alcohol", "酒类"],
-    ];
+    // 分类下拉由「饮品分类」页维护，新增分类后这里立即可选
+    var cats = state.categories || [];
+    try {
+      cats = await api("/admin/categories");
+      state.categories = cats;
+    } catch (_) {}
+    if (!cats.length) {
+      cats = [{ code: "water", name: "纯水" }];
+    }
+    if (!cats.some(function (c) { return c.code === item.category; })) {
+      cats = cats.concat([{ code: item.category, name: item.category + "（已失效）" }]);
+    }
     var opts = cats.map(function (c) {
-      return '<option value="' + c[0] + '"' + (item.category === c[0] ? " selected" : "") + ">" + c[1] + "</option>";
+      return '<option value="' + esc(c.code) + '"' + (item.category === c.code ? " selected" : "") + ">" + esc(c.name) + "</option>";
     }).join("");
     openModal(
       (isEdit ? "编辑饮品" : "新增饮品"),
@@ -517,7 +658,7 @@
             "</label>" +
           "</div>" +
           '<div style="margin-top:8px;display:flex;gap:10px;align-items:center;">' +
-            '<img id="f_preview" alt="" style="width:56px;height:56px;object-fit:contain;border-radius:12px;background:rgba(0,0,0,.28);padding:4px;" />' +
+            '<span id="f_preview" style="display:inline-flex;"></span>' +
             '<span id="f_icon_hint" style="font-size:12px;opacity:.7;">未设置图标时，客户端使用内置插画</span>' +
           "</div>" +
         "</div>" +
@@ -554,18 +695,36 @@
     var iconInput = $("f_icon");
     var preview = $("f_preview");
     var hint = $("f_icon_hint");
+    var catSelect = $("f_category");
+    var colorInput = $("f_color");
+    // 未上传图标时预览内置容器剪影（按分类 + 液体色着色），与客户端展示一致
     function syncPreview() {
       var u = iconInput.value.trim();
       if (!u) {
-        preview.style.display = "none";
+        var code = catSelect.value;
+        var cat = null;
+        cats.forEach(function (c) { if (c.code === code) cat = c; });
+        preview.innerHTML = containerIconHtml(
+          {
+            id: isEdit ? item.id : "",
+            category: code,
+            baseCategory: cat ? cat.baseCategory : "",
+            liquidColor: colorInput.value.trim(),
+            categoryColor: cat ? cat.color : "",
+          },
+          56,
+          code
+        );
         hint.style.display = "";
+        hint.textContent = "当前为内置图标（与客户端一致），可上传或填写地址替换";
         return;
       }
-      preview.src = assetUrl(u);
-      preview.style.display = "";
+      preview.innerHTML = uploadedIconHtml(u, 56);
       hint.style.display = "none";
     }
     iconInput.oninput = syncPreview;
+    catSelect.onchange = syncPreview;
+    colorInput.oninput = syncPreview;
     syncPreview();
     $("f_file").onchange = async function () {
       var file = this.files && this.files[0];
@@ -591,15 +750,185 @@
     } catch (err) { toast(err.message); }
   }
 
+  /* ---------------- 饮品分类 ---------------- */
+  // 基础分类固定为 App 内置九类，用于新分类的折算/插画回退
+  var BASE_CATEGORIES = [
+    ["water", "纯水"], ["tea", "茶水类"], ["coffee", "咖啡类"],
+    ["milk", "牛奶"], ["milkTea", "奶茶"], ["juice", "果汁"],
+    ["soda", "碳酸饮料"], ["soup", "汤粥类"], ["alcohol", "酒类"],
+  ];
+
+  async function renderCategories() {
+    var rows = await api("/admin/categories");
+    state.categories = rows;
+    var body = rows.map(function (c) {
+      var sw = c.color
+        ? '<span class="swatch" style="background:' + esc(c.color) + '"></span>'
+        : "";
+      return [
+        '<span class="mono">' + esc(c.code) + "</span>",
+        "<b>" + sw + esc(c.name) + "</b>",
+        esc(c.color || "-"),
+        esc(c.baseCategory),
+        esc(c.sort),
+        '<button class="btn danger sm" data-del-cat="' + esc(c.code) + '">删除</button>',
+      ];
+    });
+    $("view").innerHTML =
+      '<div class="toolbar"><span class="api-hint">分类会同步到 App 饮品页的筛选胶囊</span>' +
+      '<div class="grow"></div>' +
+      '<button class="btn" id="addCategory">+ 新增分类</button></div>' +
+      tableWrap(["代码", "名称", "颜色", "基础分类", "排序", "操作"], body);
+    $("addCategory").onclick = beverageCategoryModal;
+    document.querySelectorAll("[data-del-cat]").forEach(function (el) {
+      el.onclick = function () { removeCategory(el.dataset.delCat); };
+    });
+  }
+
+  function beverageCategoryModal() {
+    var baseOpts = BASE_CATEGORIES.map(function (c) {
+      return '<option value="' + c[0] + '">' + c[1] + "</option>";
+    }).join("");
+    openModal(
+      "新增饮品分类",
+      '<div class="form-grid">' +
+        '<div><label>分类代码（英文）</label><input id="ct_code" placeholder="sports" /></div>' +
+        '<div><label>显示名称</label><input id="ct_name" placeholder="运动饮料" /></div>' +
+        '<div><label>分类颜色</label><input id="ct_color" placeholder="#4FC3F7" value="#4FC3F7" /></div>' +
+        '<div><label>基础分类</label><select id="ct_base">' + baseOpts + "</select></div>" +
+        '<div><label>排序</label><input id="ct_sort" type="number" value="0" /></div>' +
+        '<div class="full" style="font-size:12px;opacity:.7;">代码用于 App 归类（字母开头，可用英文/数字/下划线）；基础分类决定默认折算比例与插画风格。</div>' +
+      "</div>",
+      async function () {
+        var dto = {
+          code: $("ct_code").value.trim(),
+          name: $("ct_name").value.trim(),
+          color: $("ct_color").value.trim(),
+          baseCategory: $("ct_base").value,
+          sort: Number($("ct_sort").value),
+        };
+        if (!/^[a-zA-Z][a-zA-Z0-9_]{0,31}$/.test(dto.code)) {
+          throw new Error("分类代码需为字母开头的英文/数字/下划线");
+        }
+        if (!dto.name) throw new Error("请填写显示名称");
+        await api("/admin/categories", { method: "POST", body: JSON.stringify(dto) });
+        closeModal();
+        toast("已新增分类");
+        render();
+      }
+    );
+  }
+
+  async function removeCategory(code) {
+    if (!confirm("确认删除分类「" + code + "」？分类下还有饮品时无法删除。")) return;
+    try {
+      await api("/admin/categories/" + encodeURIComponent(code), { method: "DELETE" });
+      toast("已删除");
+      render();
+    } catch (err) { toast(err.message); }
+  }
+
+  /* ---------------- 容器图标库（只存放容器图标） ---------------- */
+  async function renderIcons() {
+    var rows = await api("/admin/assets");
+    var list = rows.filter(function (a) {
+      return a.name.indexOf("preset/containers/") === 0;
+    });
+    var cells = list.map(function (a) {
+      var base = String(a.name).split("/").pop();
+      return '<div class="icon-cell">' +
+        '<img src="' + esc(assetUrl(a.url)) + '" alt="" />' +
+        '<div class="fname" title="' + esc(a.url) + '">' + esc(base) + "</div>" +
+        '<div style="display:flex;gap:6px;">' +
+          '<button class="btn ghost sm" data-copy="' + esc(a.url) + '">复制地址</button>' +
+          '<button class="btn danger sm" data-del-asset="' + esc(a.name) + '">删除</button>' +
+        "</div></div>";
+    }).join("");
+    $("view").innerHTML =
+      '<div class="toolbar"><span class="api-hint">共 ' + list.length +
+        " 个容器图标，App 联网后会自动与本地图标库对齐（文件名即容器 id）</span>" +
+      '<div class="grow"></div>' +
+      '<label class="btn" style="margin:0;cursor:pointer;">上传容器图标' +
+        '<input id="containerUpload" type="file" multiple accept=".svg" style="display:none;" />' +
+      "</label></div>" +
+      (list.length
+        ? '<div class="card"><div class="icon-grid">' + cells + "</div></div>"
+        : '<div class="card"><div class="empty">容器图标库为空，点击右上「上传容器图标」</div></div>');
+    $("containerUpload").onchange = async function () {
+      var files = Array.prototype.slice.call(this.files || []);
+      this.value = "";
+      var ok = 0;
+      for (var i = 0; i < files.length; i++) {
+        try {
+          await uploadAsset(files[i], "preset/containers", true);
+          ok += 1;
+        } catch (err) {
+          toast(files[i].name + "：" + (err.message || "上传失败"));
+        }
+      }
+      if (ok) { toast("已上传 " + ok + " 个容器图标"); render(); }
+    };
+    document.querySelectorAll("[data-copy]").forEach(function (el) {
+      el.onclick = function () { copyText(el.dataset.copy); };
+    });
+    document.querySelectorAll("[data-del-asset]").forEach(function (el) {
+      el.onclick = function () { removeAsset(el.dataset.delAsset); };
+    });
+  }
+
+  function copyText(text) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text);
+        toast("已复制地址");
+        return;
+      }
+    } catch (_) {}
+    prompt("复制图标地址：", text);
+  }
+
+  async function removeAsset(name) {
+    if (!confirm("确认从图标库删除「" + name + "」？已引用该图标的饮品会变成无图标。")) return;
+    try {
+      await api("/admin/assets/" + encodeURIComponent(name), { method: "DELETE" });
+      toast("已删除");
+      render();
+    } catch (err) { toast(err.message); }
+  }
+
   /* ---------------- 角色素材 ---------------- */
+  /* ---------------- 角色素材（按客户端分类管理） ---------------- */
   async function renderCharacters() {
-    var rows = await api("/characters?page=" + state.page + "&pageSize=" + state.pageSize);
+    var cats = await api("/character-categories");
+    state.charCategories = Array.isArray(cats) ? cats : [];
+    if (state.charCategory &&
+        !state.charCategories.some(function (c) { return c.code === state.charCategory; })) {
+      state.charCategory = "";
+    }
+    var qs = "/characters?page=" + state.page + "&pageSize=" + state.pageSize;
+    if (state.charCategory) qs += "&category=" + encodeURIComponent(state.charCategory);
+    var rows = await api(qs);
     state.rows = Array.isArray(rows) ? rows : [];
+
+    var total = state.charCategories.reduce(function (s, c) { return s + c.count; }, 0);
+    var chips = [{ code: "", name: "全部", count: total }]
+      .concat(state.charCategories)
+      .map(function (c) {
+        var active = (c.code || "") === (state.charCategory || "");
+        return '<button class="btn sm' + (active ? "" : " ghost") + '" style="margin:0;" data-cat="' +
+          esc(c.code) + '">' + esc(c.name) +
+          ' <span style="opacity:.55;">' + esc(c.count) + "</span></button>";
+      }).join("");
+
+    var catName = {};
+    state.charCategories.forEach(function (c) { catName[c.code] = c.name; });
+
     var body = state.rows.map(function (c) {
       var thumb = c.thumbnailUrl || c.assetUrl || "";
       return [
         (thumb ? '<img src="' + esc(thumb) + '" alt="" style="width:34px;height:34px;object-fit:cover;border-radius:9px;margin-right:8px;vertical-align:middle;" />' : "") +
           "<b>" + esc(c.name) + "</b>",
+        '<span class="tag">' + esc(catName[c.categoryCode] || c.categoryCode || "未分类") + "</span>",
         '<span class="tag">' + esc(c.code) + "</span>",
         c.memberOnly ? '<span class="tag gold">会员</span>' : '<span class="tag off">免费</span>',
         esc(c.sort),
@@ -610,13 +939,53 @@
         "</div>",
       ];
     });
+
     $("view").innerHTML =
-      '<div class="toolbar"><div class="grow"></div>' +
+      '<div class="toolbar"><span class="api-hint">共 ' + total + " 个角色</span>" +
+      '<div class="grow"></div>' +
+      '<label class="btn ghost" style="margin:0;cursor:pointer;">上传角色素材' +
+        '<input id="charUpload" type="file" multiple accept=".svg" style="display:none;" />' +
+      "</label>" +
+      '<button class="btn ghost" id="manageCats">管理分类</button>' +
       '<button class="btn" id="addCharacter">+ 新增角色</button></div>' +
-      tableWrap(["名称", "code", "权益", "排序", "状态", "操作"], body) +
+      '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">' + chips + "</div>" +
+      tableWrap(["名称", "分类", "code", "权益", "排序", "状态", "操作"], body) +
       pager();
     bindPager();
     $("addCharacter").onclick = function () { characterModal(null); };
+    $("manageCats").onclick = categoryModal;
+    document.querySelectorAll("[data-cat]").forEach(function (el) {
+      el.onclick = function () {
+        state.charCategory = el.dataset.cat;
+        state.page = 1;
+        render();
+      };
+    });
+    $("charUpload").onchange = async function () {
+      var files = Array.prototype.slice.call(this.files || []);
+      this.value = "";
+      var ok = 0;
+      for (var i = 0; i < files.length; i++) {
+        try {
+          var url = await uploadAsset(files[i], "preset/characters", true);
+          var code = String(files[i].name || "").replace(/\.[^.]+$/, "")
+            .replace(/[^a-zA-Z0-9_-]/g, "_");
+          await api("/characters", {
+            method: "POST",
+            body: JSON.stringify({
+              code: code,
+              name: code,
+              categoryCode: state.charCategory || "daily",
+              assetUrl: url,
+            }),
+          });
+          ok += 1;
+        } catch (err) {
+          toast(files[i].name + "：" + (err.message || "上传失败"));
+        }
+      }
+      if (ok) { toast("已上传并新增 " + ok + " 个角色"); render(); }
+    };
     document.querySelectorAll("[data-edit]").forEach(function (el) {
       el.onclick = function () {
         characterModal(state.rows.find(function (x) { return x.id === el.dataset.edit; }));
@@ -627,14 +996,70 @@
     });
   }
 
+  /* ---------------- 角色分类管理 ---------------- */
+  function categoryModal() {
+    var cats = state.charCategories || [];
+    var rowsHtml = cats.map(function (c) {
+      return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #F0F2F5;">' +
+        '<b style="flex:1;">' + esc(c.name) + "</b>" +
+        '<span class="tag">' + esc(c.code) + "</span>" +
+        '<span class="tag off">' + esc(c.count) + " 个</span>" +
+        '<button class="btn danger sm" data-del-cat="' + esc(c.code) + '">删除</button></div>';
+    }).join("");
+    openModal(
+      "角色分类",
+      '<div style="max-height:240px;overflow:auto;margin-bottom:12px;">' +
+        (rowsHtml || '<div class="empty">暂无分类</div>') + "</div>" +
+        '<div class="form-grid">' +
+          '<div><label>分类 code</label><input id="cc_code" placeholder="daily" /></div>' +
+          '<div><label>显示名称</label><input id="cc_name" placeholder="每日" /></div>' +
+        "</div>" +
+        '<div class="api-hint">分类与客户端一一对应；删除分类前需先清空该分类下的角色</div>',
+      async function () {
+        var code = $("cc_code").value.trim().toLowerCase();
+        var name = $("cc_name").value.trim();
+        if (!code || !name) throw new Error("code 和名称必填");
+        await api("/character-categories", {
+          method: "POST",
+          body: JSON.stringify({ code: code, name: name }),
+        });
+        closeModal();
+        toast("已新增分类");
+        render();
+      }
+    );
+    $("modalSave").textContent = "添加分类";
+    document.querySelectorAll("[data-del-cat]").forEach(function (el) {
+      el.onclick = async function () {
+        if (!confirm("确认删除该分类？")) return;
+        try {
+          await api("/character-categories/" + encodeURIComponent(el.dataset.delCat), {
+            method: "DELETE",
+          });
+          toast("已删除分类");
+          closeModal();
+          render();
+        } catch (err) {
+          toast(err.message);
+        }
+      };
+    });
+  }
+
   function characterModal(item) {
     var isEdit = !!item;
-    item = item || { code: "", name: "", assetUrl: "", thumbnailUrl: "", memberOnly: false, sort: 0, isPublished: true };
+    item = item || { code: "", name: "", categoryCode: state.charCategory || "daily", assetUrl: "", thumbnailUrl: "", memberOnly: false, sort: 0, isPublished: true };
+    var catOpts = (state.charCategories || []).map(function (c) {
+      return '<option value="' + esc(c.code) + '"' +
+        (c.code === (item.categoryCode || "daily") ? " selected" : "") + ">" +
+        esc(c.name) + "（" + esc(c.code) + "）</option>";
+    }).join("");
     openModal(
       (isEdit ? "编辑角色" : "新增角色"),
       '<div class="form-grid">' +
         '<div><label>code</label><input id="c_code" value="' + esc(item.code) + '" placeholder="llama" /></div>' +
         '<div><label>名称</label><input id="c_name" value="' + esc(item.name) + '" /></div>' +
+        '<div class="full"><label>分类</label><select id="c_category">' + catOpts + "</select></div>" +
         '<div class="full"><label>素材地址 (assetUrl)</label><input id="c_asset" value="' + esc(item.assetUrl) + '" placeholder="https://…/llama.png" /></div>' +
         '<div class="full"><label>缩略图地址 (thumbnailUrl)</label><input id="c_thumb" value="' + esc(item.thumbnailUrl || "") + '" /></div>' +
         '<div><label>排序</label><input id="c_sort" type="number" value="' + esc(item.sort) + '" /></div>' +
@@ -645,6 +1070,7 @@
         var dto = {
           code: $("c_code").value.trim(),
           name: $("c_name").value.trim(),
+          categoryCode: $("c_category").value || "daily",
           assetUrl: $("c_asset").value.trim(),
           thumbnailUrl: $("c_thumb").value.trim() || null,
           sort: Number($("c_sort").value),
@@ -671,8 +1097,19 @@
   }
 
   /* ---------------- 用户列表 ---------------- */
+  function memberCell(u) {
+    if (u.membershipPermanent) return '<span class="tag gold">永久会员</span>';
+    var exp = u.membershipExpireAt ? Date.parse(u.membershipExpireAt) : NaN;
+    if (Number.isFinite(exp) && exp > Date.now()) {
+      return '<span class="tag on">会员至 ' + esc(u.membershipExpireAt.slice(0, 10)) + "</span>";
+    }
+    return '<span class="tag off">非会员</span>';
+  }
+
   async function renderUsers() {
-    var rows = await api("/user?page=" + state.page + "&pageSize=" + state.pageSize);
+    var qs = "/user?page=" + state.page + "&pageSize=" + state.pageSize;
+    if (state.userQuery) qs += "&q=" + encodeURIComponent(state.userQuery);
+    var rows = await api(qs);
     state.rows = Array.isArray(rows) ? rows : [];
     var body = state.rows.map(function (u) {
       return [
@@ -683,14 +1120,147 @@
         u.weightKg != null ? esc(u.weightKg) + " kg" : "-",
         u.heightCm != null ? esc(u.heightCm) + " cm" : "-",
         esc(u.dailyGoalMl) + " ml",
-        '<span class="mono">' + esc(u.id) + "</span>",
+        memberCell(u),
         esc((u.createdAt || "").slice(0, 10)),
+        '<button class="btn ghost sm" data-member="' + esc(u.id) + '">设置会员</button>',
       ];
     });
     $("view").innerHTML =
-      tableWrap(["昵称", "邮箱", "手机", "性别", "体重", "身高", "目标", "ID", "注册日"], body) +
+      '<div class="toolbar">' +
+        '<input id="userQuery" placeholder="搜索昵称 / 邮箱 / ID" value="' + esc(state.userQuery) + '" />' +
+        '<button class="btn ghost" id="queryUsers">搜索</button>' +
+        '<button class="btn ghost" id="resetUsers">重置</button>' +
+        '<div class="grow"></div>' +
+        '<span class="api-hint">会员到期后客户端自动回退为免费版</span>' +
+      "</div>" +
+      tableWrap(["昵称", "邮箱", "手机", "性别", "体重", "身高", "目标", "会员", "注册日", "操作"], body) +
       pager();
     bindPager();
+    $("queryUsers").onclick = function () {
+      state.userQuery = $("userQuery").value.trim();
+      state.page = 1;
+      render();
+    };
+    $("userQuery").onkeydown = function (e) {
+      if (e.key === "Enter") $("queryUsers").click();
+    };
+    $("resetUsers").onclick = function () {
+      state.userQuery = "";
+      state.page = 1;
+      render();
+    };
+    document.querySelectorAll("[data-member]").forEach(function (el) {
+      el.onclick = function () {
+        var user = state.rows.find(function (x) { return x.id === el.dataset.member; });
+        memberModal(user);
+      };
+    });
+  }
+
+  /// 人工赠送会员：按天数顺延，或直接设为永久
+  function memberModal(user) {
+    if (!user) return;
+    var state_ = user.membershipPermanent
+      ? "永久会员"
+      : user.membershipExpireAt && Date.parse(user.membershipExpireAt) > Date.now()
+        ? "会员至 " + user.membershipExpireAt.slice(0, 10)
+        : "非会员";
+    openModal(
+      "设置会员 · " + (user.nickname || user.id),
+      '<div class="form-grid">' +
+        '<div class="full" style="font-size:12px;opacity:.72;">当前状态：' + esc(state_) + "</div>" +
+        '<div><label>赠送天数（1-3650）</label><input id="m_days" type="number" value="30" /></div>' +
+        '<div class="check"><input id="m_forever" type="checkbox"' + (user.membershipPermanent ? " checked" : "") + ' /><label style="margin:0">设为永久会员</label></div>' +
+        '<div class="full" style="font-size:12px;opacity:.7;">赠送天数会从当前有效期继续顺延（已过期则从今天算起）。</div>' +
+      "</div>",
+      async function () {
+        var dto;
+        if ($("m_forever").checked) {
+          dto = { permanent: true };
+        } else {
+          var days = Number($("m_days").value);
+          if (!Number.isFinite(days) || days < 1 || days > 3650) {
+            throw new Error("赠送天数需为 1-3650");
+          }
+          dto = { membershipDays: Math.round(days) };
+        }
+        await api("/user/" + encodeURIComponent(user.id), {
+          method: "PATCH",
+          body: JSON.stringify(dto),
+        });
+        closeModal();
+        toast("会员状态已更新");
+        render();
+      }
+    );
+  }
+
+  /* ---------------- 会员套餐 ---------------- */
+  async function renderPlans() {
+    var rows = await api("/admin/plans");
+    state.rows = Array.isArray(rows) ? rows : [];
+    var body = state.rows.map(function (p) {
+      return [
+        '<span class="mono">' + esc(p.code) + "</span>",
+        "<b>" + esc(p.name) + "</b>",
+        "¥" + ((p.priceCents || 0) / 100).toFixed(2),
+        p.durationDays > 0 ? esc(p.durationDays) + " 天" : "永久",
+        p.badge ? '<span class="tag gold">' + esc(p.badge) + "</span>" : "-",
+        esc(p.sort),
+        p.isPublished ? '<span class="tag on">上架</span>' : '<span class="tag off">下架</span>',
+        '<button class="btn ghost sm" data-plan="' + esc(p.code) + '">编辑</button>',
+      ];
+    });
+    $("view").innerHTML =
+      '<div class="toolbar"><span class="api-hint">套餐会实时同步到 App 会员页，改价/下架后客户端下次拉取即生效</span>' +
+      '<div class="grow"></div></div>' +
+      tableWrap(["代码", "名称", "价格", "时长", "角标", "排序", "状态", "操作"], body);
+    document.querySelectorAll("[data-plan]").forEach(function (el) {
+      el.onclick = function () {
+        var plan = state.rows.find(function (x) { return x.code === el.dataset.plan; });
+        planModal(plan);
+      };
+    });
+  }
+
+  function planModal(plan) {
+    if (!plan) return;
+    openModal(
+      "编辑套餐 · " + plan.code,
+      '<div class="form-grid">' +
+        '<div class="full"><label>套餐名称</label><input id="p_name" value="' + esc(plan.name) + '" /></div>' +
+        '<div><label>价格（元）</label><input id="p_price" type="number" step="0.01" value="' + esc((plan.priceCents || 0) / 100) + '" /></div>' +
+        '<div><label>时长（天，0 表示永久）</label><input id="p_days" type="number" value="' + esc(plan.durationDays) + '" /></div>' +
+        '<div><label>角标文案</label><input id="p_badge" placeholder="如 限时优惠" value="' + esc(plan.badge || "") + '" /></div>' +
+        '<div><label>排序</label><input id="p_sort" type="number" value="' + esc(plan.sort) + '" /></div>' +
+        '<div class="check"><input id="p_pub" type="checkbox"' + (plan.isPublished ? " checked" : "") + ' /><label style="margin:0">上架到客户端</label></div>' +
+        '<div class="full" style="font-size:12px;opacity:.7;">修改价格只影响之后的订单金额，已支付订单不会被改写。</div>' +
+      "</div>",
+      async function () {
+        var dto = {
+          name: $("p_name").value.trim(),
+          priceCents: Math.round(Number($("p_price").value) * 100),
+          durationDays: Number($("p_days").value),
+          badge: $("p_badge").value.trim(),
+          sort: Number($("p_sort").value),
+          isPublished: $("p_pub").checked,
+        };
+        if (!dto.name) throw new Error("套餐名称不能为空");
+        if (!Number.isFinite(dto.priceCents) || dto.priceCents < 0) {
+          throw new Error("价格不合法");
+        }
+        if (!Number.isFinite(dto.durationDays) || dto.durationDays < 0) {
+          throw new Error("时长需为 0-3650 天");
+        }
+        await api("/admin/plans/" + encodeURIComponent(plan.code), {
+          method: "PATCH",
+          body: JSON.stringify(dto),
+        });
+        closeModal();
+        toast("套餐已更新");
+        render();
+      }
+    );
   }
 
   /* ---------------- 订单查询 ---------------- */
@@ -795,6 +1365,7 @@
   /* ---------------- 启动 ---------------- */
   $("loginForm").onsubmit = doLogin;
   $("logoutBtn").onclick = logout;
+  $("accountBtn").onclick = openAccountModal;
   document.querySelectorAll(".nav-btn").forEach(function (b) {
     b.onclick = function () { switchTab(b.dataset.tab); };
   });

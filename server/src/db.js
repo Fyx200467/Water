@@ -100,6 +100,17 @@ db.exec(`
     updated_at     TEXT NOT NULL
   );
 
+  -- 饮品分类：后台可增删，App 按 code 归类；base_category 用于
+  -- 未知分类在客户端的默认折算/插画回退（取值同 App 内置九类）
+  CREATE TABLE IF NOT EXISTS beverage_categories (
+    code          TEXT PRIMARY KEY,
+    name          TEXT NOT NULL,
+    color         TEXT,
+    base_category TEXT NOT NULL,
+    sort          INTEGER NOT NULL DEFAULT 0,
+    created_at    TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS characters (
     id            TEXT PRIMARY KEY,
     code          TEXT NOT NULL UNIQUE,
@@ -111,6 +122,13 @@ db.exec(`
     is_published  INTEGER NOT NULL DEFAULT 1,
     created_at    TEXT NOT NULL,
     updated_at    TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS character_categories (
+    code       TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    sort       INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
   );
 
   CREATE TABLE IF NOT EXISTS membership_orders (
@@ -145,6 +163,7 @@ function addMissingColumns(table, columns) {
 
 addMissingColumns('users', {
   email: 'TEXT',
+  password_hash: 'TEXT',
   phone: 'TEXT',
   gender: 'TEXT',
   weight_kg: 'REAL',
@@ -154,6 +173,17 @@ addMissingColumns('users', {
   membership_permanent: 'INTEGER NOT NULL DEFAULT 0',
 });
 
+// 单设备登录：新登录时旧会话标记为撤销，客户端据此提示「已在其他设备登录」
+addMissingColumns('sessions', {
+  revoked_at: 'TEXT',
+});
+
+// 邮箱登录：同一邮箱只允许一个账号（未登录用户 email 为空，故使用部分索引）
+db.exec(`
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email
+    ON users(email) WHERE email IS NOT NULL;
+`);
+
 addMissingColumns('beverages', {
   icon_url: 'TEXT',
   liquid_color: 'TEXT',
@@ -162,6 +192,11 @@ addMissingColumns('beverages', {
 addMissingColumns('membership_orders', {
   plan_name: 'TEXT',
   duration_days: 'INTEGER NOT NULL DEFAULT 0',
+});
+
+// 角色分类：与客户端「每日 / 可爱 / 人 / 家 / 蔬果 / 植物」一一对应
+addMissingColumns('characters', {
+  category_code: "TEXT NOT NULL DEFAULT 'daily'",
 });
 
 // 套餐默认值与 App 内置兜底保持一致
@@ -200,6 +235,173 @@ const builtinBeverages = [
 for (const [id, name, category, ml, ratio, color, sort] of builtinBeverages) {
   seedBeverage.run(id, name, category, ml, ratio, color, sort, seededAt, seededAt);
 }
+
+// 内置九个分类：code 与 App 的 BeverageCategory 枚举名一致。
+// ON CONFLICT DO NOTHING：后台改过的名称/颜色/排序重启后不被覆盖。
+const seedCategory = db.prepare(
+  `INSERT INTO beverage_categories (code, name, color, base_category, sort, created_at)
+   VALUES (?, ?, ?, ?, ?, ?)
+   ON CONFLICT(code) DO NOTHING`,
+);
+const builtinCategories = [
+  ['water', '纯水', '#00BFDC', 'water', 0],
+  ['tea', '茶水类', '#8BC34A', 'tea', 1],
+  ['coffee', '咖啡类', '#795548', 'coffee', 2],
+  ['milk', '牛奶', '#90A4AE', 'milk', 3],
+  ['milkTea', '奶茶', '#A8723C', 'milkTea', 4],
+  ['juice', '果汁', '#FFB300', 'juice', 5],
+  ['soda', '碳酸饮料', '#C9364F', 'soda', 6],
+  ['soup', '汤粥类', '#FF8A65', 'soup', 7],
+  ['alcohol', '酒类', '#E57373', 'alcohol', 8],
+];
+for (const [code, name, color, base, sort] of builtinCategories) {
+  seedCategory.run(code, name, color, base, sort, seededAt);
+}
+
+// 角色分类：与客户端分类一一对应
+const seedCharacterCategory = db.prepare(
+  `INSERT INTO character_categories (code, name, sort, created_at)
+   VALUES (?, ?, ?, ?)
+   ON CONFLICT(code) DO NOTHING`,
+);
+const builtinCharacterCategories = [
+  ['daily', '每日', 0],
+  ['cute', '可爱', 1],
+  ['people', '人', 2],
+  ['home', '家', 3],
+  ['fruits', '蔬果', 4],
+  ['plants', '植物', 5],
+];
+for (const [code, name, sort] of builtinCharacterCategories) {
+  seedCharacterCategory.run(code, name, sort, seededAt);
+}
+
+// 内置 90 个角色：与客户端 assets/images/characters 同名素材，
+// 素材由部署时上传到 assets/preset/characters/<code>.svg。
+// ON CONFLICT(code) DO NOTHING：运营改过的名称/排序重启后不被覆盖。
+const seedCharacter = db.prepare(
+  `INSERT INTO characters
+     (id, code, name, category_code, asset_url, thumbnail_url, member_only, sort, is_published, created_at, updated_at)
+   VALUES (?, ?, ?, ?, ?, NULL, 0, ?, 1, ?, ?)
+   ON CONFLICT(code) DO NOTHING`,
+);
+const builtinCharacters = [
+  ['alpaca', '羊驼'],
+  ['pony', '小马'],
+  ['rabbit', '兔子'],
+  ['fox', '狐'],
+  ['polar_bear', '白熊'],
+  ['red_squirrel', '红松鼠'],
+  ['hedgehog', '刺猬'],
+  ['beaver', '河狸'],
+  ['otter', '海獭'],
+  ['duck', '鸭鸭'],
+  ['parrot', '鹦鹉'],
+  ['turtle', '乌龟'],
+  ['husky', '二哈'],
+  ['rooster', '公鸡'],
+  ['chameleon', '变色龙'],
+  ['gecko', '壁虎'],
+  ['swan', '天鹅'],
+  ['goat_kid', '小山羊'],
+  ['otter_kid', '小海獭'],
+  ['goat', '山羊'],
+  ['mole', '打地鼠'],
+  ['zebra', '斑马'],
+  ['hippo', '河马'],
+  ['dolphin', '海豚'],
+  ['turkey', '火鸡'],
+  ['leopard', '灰豹'],
+  ['sheep', '绵羊'],
+  ['ram', '羊'],
+  ['skunk', '臭鼬'],
+  ['firefly2', '萤火虫'],
+  ['firefly', '萤火虫'],
+  ['snake', '蛇'],
+  ['hummingbird', '蜂鸟'],
+  ['bat', '蝙蝠'],
+  ['panther', '豹子'],
+  ['boar', '野猪'],
+  ['pheasant', '野鸡'],
+  ['fish', '鱼'],
+  ['whale', '鲸鱼'],
+  ['bird', '鸟'],
+  ['lobster', '龙虾'],
+  ['comfort', '安慰'],
+  ['greeting', '打招呼'],
+  ['inspired', '振奋'],
+  ['delighted', '欣喜'],
+  ['pensive', '沉思'],
+  ['content', '满足'],
+  ['person_04', '人物 04'],
+  ['person_06', '人物 06'],
+  ['person_07', '人物 07'],
+  ['zannet_01', '人物 01'],
+  ['zannet_02', '人物 02'],
+  ['zannet_04', '人物 03'],
+  ['zannet_07', '人物 05'],
+  ['zannet_11', '人物 08'],
+  ['raise_cup', '举杯'],
+  ['cartoon_person', '卡通人物'],
+  ['eating_pizza', '吃披萨'],
+  ['sofa_snacks', '沙发零食'],
+  ['sofa_drink', '沙发饮料'],
+  ['delivery_rider', '外卖员'],
+  ['bride', '新娘'],
+  ['discussion', '讨论'],
+  ['shopping_girl', '购物女孩'],
+  ['orange_cat', '乖橘猫'],
+  ['silly_dog', '大傻狗狗'],
+  ['pet', '宠物'],
+  ['corgi', '小柯基'],
+  ['poodle', '小贵宾'],
+  ['homesick_rabbit', '想家兔兔'],
+  ['sleepy_cat', '瞌睡喵'],
+  ['pineapple', '菠萝'],
+  ['strawberry', '草莓'],
+  ['cherries', '车厘子'],
+  ['orange', '橙子'],
+  ['orange_smile', '橙子微笑'],
+  ['blueberry_kid', '蓝莓小子'],
+  ['avocado', '牛油果'],
+  ['avocado_watermelon', '牛油果和西瓜'],
+  ['persimmon', '柿子'],
+  ['watermelon_smile', '西瓜笑脸'],
+  ['cherry', '樱桃'],
+  ['cherry_pair', '一对樱桃'],
+  ['flower_bunch', '一小撮花'],
+  ['little_flower', '一朵小花'],
+  ['big_leaf_plant', '大叶植物'],
+  ['little_thing', '小之物'],
+  ['potted_big_leaf', '大叶盆栽'],
+  ['green_cactus', '绿色仙人球'],
+  ['mushroom_baby', '蘑菇宝宝'],
+];
+// 客户端分类顺序：每日 41 / 可爱 6 / 人 17 / 家 7 / 蔬果 12 / 植物 7
+const characterCategorySlices = [
+  ['daily', 0, 41],
+  ['cute', 41, 47],
+  ['people', 47, 64],
+  ['home', 64, 71],
+  ['fruits', 71, 83],
+  ['plants', 83, 90],
+];
+builtinCharacters.forEach(([code, name], i) => {
+  const category =
+    characterCategorySlices.find(([, start, end]) => i >= start && i < end)?.[0] ??
+    'daily';
+  seedCharacter.run(
+    code,
+    code,
+    name,
+    category,
+    `/static/preset/characters/${code}.svg`,
+    i,
+    seededAt,
+    seededAt,
+  );
+});
+
 
 export const nowIso = () => new Date().toISOString();
 export { dbPath };

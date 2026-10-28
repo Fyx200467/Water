@@ -1,11 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/storage/providers.dart';
+import '../../../core/sync/character_sync.dart';
 import 'character_data.dart';
 
 /// 角色素材目录 + 后台管理预留接口（PRD §3 后台管理 / M5 数据同步）
@@ -238,13 +240,55 @@ class CharacterCatalogState {
   const CharacterCatalogState({
     required this.categories,
     required this.uploadedFilePaths,
+    required this.displayNames,
   });
 
   /// 当前可见分类（每个分类的 characterIds 已过滤下架、追加可见的上传素材）
   final List<CharacterCategory> categories;
 
-  /// 上传素材 id → 本地 SVG 文件路径（渲染用 SvgPicture.file）
+  /// 上传/下载素材 id → 本地 SVG 文件路径（渲染用 SvgPicture.file）
   final Map<String, String> uploadedFilePaths;
+
+  /// 角色 id → 显示名称（含后台新增/改名的角色）
+  final Map<String, String> displayNames;
+
+  /// 全部可见角色 id
+  Set<String> get allIds => {
+        for (final c in categories) ...c.characterIds,
+      };
+
+  /// 全部可见角色总数
+  int get totalCount =>
+      categories.fold(0, (sum, c) => sum + c.characterIds.length);
+}
+
+/// 分类色：内置分类沿用客户端配色，后台新增分类按 code 稳定取色
+const _builtinCategoryColors = <String, Color>{
+  'daily': Color(0xFF5AC8FA),
+  'cute': Color(0xFF5AC8FA),
+  'people': Color(0xFFE0528C),
+  'home': Color(0xFF34C759),
+  'fruits': Color(0xFFFF9500),
+  'plants': Color(0xFF34C759),
+};
+
+const _fallbackCategoryColors = <Color>[
+  Color(0xFF5AC8FA),
+  Color(0xFFE0528C),
+  Color(0xFF34C759),
+  Color(0xFFFF9500),
+  Color(0xFFAF52DE),
+  Color(0xFF5856D6),
+];
+
+Color _categoryColor(String code) {
+  final builtin = _builtinCategoryColors[code];
+  if (builtin != null) return builtin;
+  var sum = 0;
+  for (final c in code.codeUnits) {
+    sum += c;
+  }
+  return _fallbackCategoryColors[sum % _fallbackCategoryColors.length];
 }
 
 /// 角色目录 provider：监听 admin 仓库，输出可见分类
@@ -264,42 +308,95 @@ class CharacterCatalogNotifier
   Future<void> _reload() async {
     try {
       final repo = ref.read(characterAdminRepositoryProvider);
-      final assets = await repo.listAssets();
-      final enabledById = {for (final a in assets) a.id: a};
-      final uploadedPaths = <String, String>{
-        for (final a in assets)
-          if (a.source == CharacterAssetSource.uploaded &&
-              a.svgFilePath != null)
-            a.id: a.svgFilePath!,
+      final localAssets = await repo.listAssets();
+      final localUploaded = localAssets
+          .where((a) => a.source == CharacterAssetSource.uploaded)
+          .toList();
+
+      final names = <String, String>{
+        for (final e in characters.entries) e.key: e.value.displayName,
+      };
+      final paths = <String, String>{
+        for (final a in localUploaded)
+          if (a.svgFilePath != null) a.id: a.svgFilePath!,
       };
 
-      final visibleCategories = <CharacterCategory>[];
-      for (final cat in characterCategories) {
-        final ids = <String>[];
-        for (final id in cat.characterIds) {
-          final asset = enabledById[id];
-          // 内置角色：不在下架集合即可见
-          if (asset == null || asset.enabled) ids.add(id);
-        }
-        // 追加该分类下可见的上传素材
-        for (final a in assets) {
-          if (a.source == CharacterAssetSource.uploaded &&
-              a.categoryId == cat.id &&
-              a.enabled) {
-            ids.add(a.id);
-          }
-        }
-        visibleCategories.add(CharacterCategory(
-          id: cat.id,
-          name: cat.name,
-          color: cat.color,
-          subtitle: cat.subtitle,
-          characterIds: ids,
-        ));
+      final serverItems = CharacterStore.items;
+      final useServer = CharacterStore.hasRemoteList && serverItems.isNotEmpty;
+
+      String text(Map<String, dynamic> m, String key) =>
+          (m[key] ?? '').toString();
+      String idOf(Map<String, dynamic> m) {
+        final id = text(m, 'id');
+        return id.isEmpty ? text(m, 'code') : id;
       }
+
+      final visibleCategories = <CharacterCategory>[];
+
+      if (useServer) {
+        // 服务端列表为准：分类、名称、排序、素材全部来自后台
+        for (final item in serverItems) {
+          final id = idOf(item);
+          if (id.isEmpty) continue;
+          final name = text(item, 'name');
+          if (name.isNotEmpty) names[id] = name;
+          final cached = CharacterStore.filePathSync(id);
+          if (cached != null) paths[id] = cached;
+        }
+
+        for (final raw in CharacterStore.categories) {
+          final code = text(raw, 'code');
+          if (code.isEmpty) continue;
+          final ids = <String>[
+            for (final item in serverItems)
+              if ((text(item, 'categoryCode').isEmpty
+                      ? 'daily'
+                      : text(item, 'categoryCode')) ==
+                  code)
+                idOf(item),
+          ].where((id) => id.isNotEmpty).toList();
+          // 本地后台上传的素材仍可追加进同名分类
+          for (final a in localUploaded) {
+            if (a.categoryId == code && a.enabled && !ids.contains(a.id)) {
+              ids.add(a.id);
+            }
+          }
+          if (ids.isEmpty) continue;
+
+          final name = text(raw, 'name');
+          visibleCategories.add(CharacterCategory(
+            id: code,
+            name: name.isEmpty ? code : name,
+            color: _categoryColor(code),
+            characterIds: ids,
+          ));
+        }
+      } else {
+        // 内置分类：不在下架集合即可见，再追加本地上传素材
+        final enabledById = {for (final a in localAssets) a.id: a};
+        for (final cat in characterCategories) {
+          final ids = <String>[];
+          for (final id in cat.characterIds) {
+            final asset = enabledById[id];
+            if (asset == null || asset.enabled) ids.add(id);
+          }
+          for (final a in localUploaded) {
+            if (a.categoryId == cat.id && a.enabled) ids.add(a.id);
+          }
+          visibleCategories.add(CharacterCategory(
+            id: cat.id,
+            name: cat.name,
+            color: cat.color,
+            subtitle: cat.subtitle,
+            characterIds: ids,
+          ));
+        }
+      }
+
       state = AsyncValue.data(CharacterCatalogState(
         categories: visibleCategories,
-        uploadedFilePaths: uploadedPaths,
+        uploadedFilePaths: paths,
+        displayNames: names,
       ));
     } catch (e, st) {
       state = AsyncValue.error(e, st);

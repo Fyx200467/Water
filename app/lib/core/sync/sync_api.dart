@@ -5,9 +5,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 /// 本地/局域网服务端调用（开发期）
 class SyncApiException implements Exception {
-  SyncApiException(this.message);
+  SyncApiException(this.message, {this.code, this.status});
 
   final String message;
+
+  /// 服务端返回的业务码，如 session_revoked（账号已在其他设备登录）
+  final String? code;
+  final int? status;
+
+  bool get isSessionRevoked => code == 'session_revoked';
 
   @override
   String toString() => message;
@@ -59,6 +65,45 @@ class SyncApi {
     return _request('POST', '/v1/auth/guest', body: {'anonId': anonId});
   }
 
+  static Future<Map<String, dynamic>> register({
+    required String email,
+    required String password,
+    String? nickname,
+  }) {
+    return _request(
+      'POST',
+      '/v1/auth/register',
+      body: {
+        'email': email,
+        'password': password,
+        if (nickname != null && nickname.isNotEmpty) 'nickname': nickname,
+      },
+    );
+  }
+
+  static Future<Map<String, dynamic>> login({
+    required String email,
+    required String password,
+  }) {
+    return _request(
+      'POST',
+      '/v1/auth/login',
+      body: {'email': email, 'password': password},
+    );
+  }
+
+  static Future<Map<String, dynamic>> updateNickname(
+    String token,
+    String nickname,
+  ) {
+    return _request(
+      'PATCH',
+      '/v1/me',
+      token: token,
+      body: {'nickname': nickname},
+    );
+  }
+
   static Future<Map<String, dynamic>> push(
     String token, {
     required List<Map<String, dynamic>> entries,
@@ -88,10 +133,13 @@ class SyncApi {
   static Future<List<Map<String, dynamic>>> membershipPlans() async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
     try {
-      final request =
-          await client.openUrl('GET', Uri.parse('$baseUrl/v1/membership/plans'));
-      final response =
-          await request.close().timeout(const Duration(seconds: 8));
+      final request = await client.openUrl(
+        'GET',
+        Uri.parse('$baseUrl/v1/membership/plans'),
+      );
+      final response = await request.close().timeout(
+        const Duration(seconds: 8),
+      );
       final text = await response.transform(utf8.decoder).join();
       if (response.statusCode != 200) {
         throw SyncApiException('HTTP ${response.statusCode}');
@@ -143,8 +191,9 @@ class SyncApi {
         'GET',
         Uri.parse('$baseUrl/v1/catalog/beverages'),
       );
-      final response =
-          await request.close().timeout(const Duration(seconds: 8));
+      final response = await request.close().timeout(
+        const Duration(seconds: 8),
+      );
       final text = await response.transform(utf8.decoder).join();
       if (response.statusCode != 200) {
         throw SyncApiException('HTTP ${response.statusCode}');
@@ -162,14 +211,64 @@ class SyncApi {
     }
   }
 
+  /// 云端容器图标列表（免鉴权）：App 联网时据此补齐/清理本地图标缓存
+  static Future<List<Map<String, dynamic>>> containerCatalog() async {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+    try {
+      final request = await client.openUrl(
+        'GET',
+        Uri.parse('$baseUrl/v1/catalog/containers'),
+      );
+      final response = await request.close().timeout(
+        const Duration(seconds: 15),
+      );
+      final text = await response.transform(utf8.decoder).join();
+      if (response.statusCode != 200) {
+        throw SyncApiException('HTTP ${response.statusCode}');
+      }
+      final decoded = jsonDecode(text);
+      final items = decoded is Map ? decoded['items'] : decoded;
+      if (items is List) {
+        return items.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+      }
+      return const [];
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  /// 云端角色目录（免鉴权）：分类 + 已发布角色，App 联网时据此同步
+  static Future<Map<String, dynamic>> characterCatalog() async {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+    try {
+      final request = await client.openUrl(
+        'GET',
+        Uri.parse('$baseUrl/v1/catalog/characters'),
+      );
+      final response = await request.close().timeout(
+        const Duration(seconds: 15),
+      );
+      final text = await response.transform(utf8.decoder).join();
+      if (response.statusCode != 200) {
+        throw SyncApiException('HTTP ${response.statusCode}');
+      }
+      final decoded = jsonDecode(text);
+      if (decoded is Map) {
+        return Map<String, dynamic>.from(decoded);
+      }
+      return const {};
+    } finally {
+      client.close(force: true);
+    }
+  }
+
   static Future<Map<String, dynamic>> _request(
     String method,
     String path, {
     String? token,
     Object? body,
   }) async {
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 8);
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
     try {
       final request = await client.openUrl(method, Uri.parse('$baseUrl$path'));
       request.headers.contentType = ContentType.json;
@@ -179,8 +278,8 @@ class SyncApi {
       if (body != null) request.write(jsonEncode(body));
 
       final response = await request.close().timeout(
-            const Duration(seconds: 20),
-          );
+        const Duration(seconds: 20),
+      );
       final text = await response.transform(utf8.decoder).join();
       final decoded = text.isEmpty
           ? <String, dynamic>{}
@@ -189,7 +288,12 @@ class SyncApi {
       if (response.statusCode != 200) {
         final error = decoded['error'];
         final message = (error is Map ? error['message'] : null)?.toString();
-        throw SyncApiException(message ?? 'HTTP ${response.statusCode}');
+        final code = (error is Map ? error['code'] : null)?.toString();
+        throw SyncApiException(
+          message ?? 'HTTP ${response.statusCode}',
+          code: code,
+          status: response.statusCode,
+        );
       }
       return decoded;
     } finally {

@@ -23,7 +23,7 @@ class LocalStorage {
   }) : _db = db;
 
   static const String _dbName = 'water_llama.db';
-  static const int _dbVersion = 4;
+  static const int _dbVersion = 5;
 
   late final SharedPreferences prefs;
   final Database? _db;
@@ -54,6 +54,7 @@ class LocalStorage {
         onCreate: _onCreate,
         onUpgrade: _onUpgrade,
       );
+      await _claimLegacyEntries(prefs, db);
       return LocalStorage._(prefs: prefs, db: db);
     } catch (e) {
       // ignore: avoid_print
@@ -78,6 +79,7 @@ class LocalStorage {
         calories INTEGER NOT NULL DEFAULT -1,
         health_sample_id TEXT,
         health_state INTEGER NOT NULL DEFAULT 0,
+        owner_user_id TEXT NOT NULL DEFAULT '',
         updated_at TEXT
       )
     ''');
@@ -87,6 +89,33 @@ class LocalStorage {
     await db.execute(
       'CREATE INDEX idx_synced ON drink_entries(synced, deleted)',
     );
+    await db.execute(
+      'CREATE INDEX idx_owner_at ON drink_entries(owner_user_id, drank_at)',
+    );
+  }
+
+  /// v5 升级：历史记录统一归属到当前登录账号（未登录则保持游客）。
+  /// 只执行一次，避免把之后新增的游客数据误并入账号。
+  static Future<void> _claimLegacyEntries(
+    SharedPreferences prefs,
+    Database db,
+  ) async {
+    const flag = 'entries_owner_migrated_v5';
+    if (prefs.getBool(flag) == true) return;
+    // 升级时若已退出登录，用最近一次登录的账号兜底归属，
+    // 避免历史账号数据被当成游客数据显示出来
+    final uid = prefs.getString(_kSyncUserId) ??
+        prefs.getString(_kLastUserId);
+    try {
+      if (uid != null && uid.isNotEmpty) {
+        await db.update(
+          'drink_entries',
+          {'owner_user_id': uid},
+          where: "owner_user_id = ''",
+        );
+      }
+    } catch (_) {}
+    await prefs.setBool(flag, true);
   }
 
   /// v1 → v2：补上录入时快照的热量列（旧记录默认 -1 = 未记录）
@@ -109,6 +138,15 @@ class LocalStorage {
     // v3 → v4：云同步的修改时间（冲突按 updated_at 取新）
     if (oldVersion < 4) {
       await db.execute('ALTER TABLE drink_entries ADD COLUMN updated_at TEXT');
+    }
+    // v4 → v5：记录归属（登录账号 ID；空串 = 游客）
+    if (oldVersion < 5) {
+      await db.execute(
+        "ALTER TABLE drink_entries ADD COLUMN owner_user_id TEXT NOT NULL DEFAULT ''",
+      );
+      await db.execute(
+        'CREATE INDEX idx_owner_at ON drink_entries(owner_user_id, drank_at)',
+      );
     }
   }
 
@@ -181,11 +219,19 @@ class LocalStorage {
 
   // ---------- DrinkEntry（双路：sqflite + prefs 降级）----------
 
+  /// 当前记录归属：登录账号 ID；空串表示游客（未登录）。
+  /// 退出登录后 owner 变回空串，账号数据自然从界面上消失。
+  String get _owner => syncUserId ?? '';
+
+  /// prefs 降级存储：按归属分桶，切换账号互不影响
+  String get _entriesStoreKey =>
+      '$_kEntriesPrefix${_owner.isEmpty ? 'guest' : _owner}';
+
   Future<void> insertDrinkEntry(DrinkEntry entry) async {
     if (_hasDb) {
       await _db!.insert(
         'drink_entries',
-        entry.toMap(),
+        entry.toMap()..['owner_user_id'] = _owner,
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
     }
@@ -201,8 +247,8 @@ class LocalStorage {
           'synced': 0,
           'updated_at': DateTime.now().toIso8601String(),
         },
-        where: 'client_id = ?',
-        whereArgs: [clientId],
+        where: 'client_id = ? AND owner_user_id = ?',
+        whereArgs: [clientId, _owner],
       );
     }
     await _prefsMarkDeleted(clientId);
@@ -216,8 +262,9 @@ class LocalStorage {
       final end = LogicalDay.endOf(day);
       final rows = await _db!.query(
         'drink_entries',
-        where: 'drank_at >= ? AND drank_at < ? AND deleted = 0',
-        whereArgs: [start.toIso8601String(), end.toIso8601String()],
+        where: 'drank_at >= ? AND drank_at < ? AND deleted = 0'
+            ' AND owner_user_id = ?',
+        whereArgs: [start.toIso8601String(), end.toIso8601String(), _owner],
         orderBy: 'drank_at DESC',
       );
       return rows.map(DrinkEntry.fromMap).toList();
@@ -233,8 +280,9 @@ class LocalStorage {
     if (_hasDb) {
       final rows = await _db!.query(
         'drink_entries',
-        where: 'drank_at >= ? AND drank_at < ? AND deleted = 0',
-        whereArgs: [start.toIso8601String(), end.toIso8601String()],
+        where: 'drank_at >= ? AND drank_at < ? AND deleted = 0'
+            ' AND owner_user_id = ?',
+        whereArgs: [start.toIso8601String(), end.toIso8601String(), _owner],
         orderBy: 'drank_at ASC',
       );
       return rows.map(DrinkEntry.fromMap).toList();
@@ -253,7 +301,8 @@ class LocalStorage {
     if (_hasDb) {
       final rows = await _db!.query(
         'drink_entries',
-        where: 'synced = 0 AND deleted = 0',
+        where: "synced = 0 AND deleted = 0 AND owner_user_id = ?",
+        whereArgs: [_owner],
         orderBy: 'drank_at ASC',
       );
       return rows.map(DrinkEntry.fromMap).toList();
@@ -267,15 +316,15 @@ class LocalStorage {
       await _db!.update(
         'drink_entries',
         {'synced': 1, 'server_id': serverId},
-        where: 'client_id = ?',
-        whereArgs: [clientId],
+        where: 'client_id = ? AND owner_user_id = ?',
+        whereArgs: [clientId, _owner],
       );
     }
     final all = await _prefsLoadAllEntries();
     final idx = all.indexWhere((e) => e.clientId == clientId);
     if (idx >= 0) {
       all[idx] = all[idx].copyWith(synced: true, serverId: serverId);
-      await prefs.setString('$_kEntriesPrefix$_storeKey', jsonEncode(all.map((e) => e.toMap()).toList()));
+      await prefs.setString(_entriesStoreKey, jsonEncode(all.map((e) => e.toMap()).toList()));
     }
   }
 
@@ -304,6 +353,40 @@ class LocalStorage {
   static const String _kAccountAnonId = 'account_anon_id';
   static const String _kAccountNickname = 'account_nickname';
   static const String _kAccountLastBackup = 'account_last_backup_at';
+  static const String _kAccountAvatar = 'account_avatar_path';
+  static const String _kLastUserId = 'last_account_user_id';
+  static const String _kAutoSync = 'cloud_auto_sync';
+
+  /// 头像按账号存放：切换账号不会看到上一个账号的头像；
+  /// 未登录时读游客 key（实际不会设置，界面显示「未登录」图标）。
+  String get _avatarKey {
+    final uid = syncUserId;
+    return (uid == null || uid.isEmpty) ? _kAccountAvatar : '${_kAccountAvatar}_$uid';
+  }
+
+  /// 本机自定义头像路径（相册 / 拍照保存到应用目录后的绝对路径）。
+  /// 未设置时返回 null，由界面回退到默认头像；
+  /// 后续接入 QQ / 微信登录时，第三方头像也可以先落盘再写入这里。
+  String? get accountAvatarPath {
+    final v = prefs.getString(_avatarKey);
+    return (v == null || v.isEmpty) ? null : v;
+  }
+
+  Future<void> setAccountAvatarPath(String? path) async {
+    final key = _avatarKey;
+    if (path == null || path.isEmpty) {
+      await prefs.remove(key);
+    } else {
+      await prefs.setString(key, path);
+    }
+  }
+
+  /// 无感同步开关：开启后在数据变动 / 冷启动 / 回前台时自动同步
+  bool get autoSyncEnabled => prefs.getBool(_kAutoSync) ?? true;
+
+  Future<void> setAutoSyncEnabled(bool on) async {
+    await prefs.setBool(_kAutoSync, on);
+  }
 
   /// 本机匿名标识：首次读取时生成并复用。
   /// 仅用于服务端识别设备，卸载后随之丢失（匿名身份不保证跨重装恢复）。
@@ -345,9 +428,9 @@ class LocalStorage {
     if (_hasDb) {
       final rows = await _db!.query(
         'drink_entries',
-        where: 'health_state = 0 AND deleted = 0'
+        where: 'health_state = 0 AND deleted = 0 AND owner_user_id = ?'
             '${sinceIso == null ? '' : ' AND drank_at >= ?'}',
-        whereArgs: sinceIso == null ? null : [sinceIso],
+        whereArgs: sinceIso == null ? [_owner] : [_owner, sinceIso],
         orderBy: 'drank_at ASC',
         limit: limit,
       );
@@ -368,7 +451,8 @@ class LocalStorage {
     if (_hasDb) {
       final rows = await _db!.query(
         'drink_entries',
-        where: 'health_state = 1 AND deleted = 1',
+        where: 'health_state = 1 AND deleted = 1 AND owner_user_id = ?',
+        whereArgs: [_owner],
         orderBy: 'drank_at ASC',
         limit: limit,
       );
@@ -387,8 +471,8 @@ class LocalStorage {
       final rows = await _db!.query(
         'drink_entries',
         columns: ['client_id'],
-        where: 'health_sample_id = ?',
-        whereArgs: [sampleId],
+        where: 'health_sample_id = ? AND owner_user_id = ?',
+        whereArgs: [sampleId, _owner],
         limit: 1,
       );
       return rows.isNotEmpty;
@@ -410,8 +494,8 @@ class LocalStorage {
           'health_state': state,
           if (sampleId != null) 'health_sample_id': sampleId,
         },
-        where: 'client_id = ?',
-        whereArgs: [clientId],
+        where: 'client_id = ? AND owner_user_id = ?',
+        whereArgs: [clientId, _owner],
       );
     }
     final all = await _prefsLoadAllEntries();
@@ -419,21 +503,28 @@ class LocalStorage {
     if (idx >= 0) {
       all[idx] =
           all[idx].copyWith(healthState: state, healthSampleId: sampleId);
-      await prefs.setString('$_kEntriesPrefix$_storeKey',
+      await prefs.setString(_entriesStoreKey,
           jsonEncode(all.map((e) => e.toMap()).toList()));
     }
   }
 
-  // ---------- 云同步（账号匿名身份 + 增量同步） ----------
+  // ---------- 云同步（登录账号 + 增量同步） ----------
 
   static const String _kSyncUserId = 'sync_user_id';
   static const String _kSyncToken = 'sync_token';
   static const String _kSyncCursor = 'sync_cursor';
   static const String _kSyncLastAt = 'sync_last_at';
+  static const String _kAccountEmail = 'account_email';
 
   String? get syncUserId => prefs.getString(_kSyncUserId);
 
   String? get syncToken => prefs.getString(_kSyncToken);
+
+  /// 已登录账号的邮箱；为空表示本地模式（不同步）
+  String? get accountEmail {
+    final v = prefs.getString(_kAccountEmail);
+    return (v == null || v.isEmpty) ? null : v;
+  }
 
   int get syncCursor => prefs.getInt(_kSyncCursor) ?? 0;
 
@@ -445,9 +536,30 @@ class LocalStorage {
   bool get hasSyncSession =>
       (syncUserId ?? '').isNotEmpty && (syncToken ?? '').isNotEmpty;
 
-  Future<void> setSyncSession(String userId, String token) async {
+  /// 已登录正式账号（只有登录后才允许云同步）
+  bool get hasAccountSession => hasSyncSession && accountEmail != null;
+
+  Future<void> setSyncSession(
+    String userId,
+    String token, {
+    String? email,
+  }) async {
     await prefs.setString(_kSyncUserId, userId);
     await prefs.setString(_kSyncToken, token);
+    if (email != null) await prefs.setString(_kAccountEmail, email);
+  }
+
+  /// 退出登录：清掉账号与令牌。记录本身保留在本地，但带有所属账号，
+  /// 退出后不再属于当前（游客）视图，因此不会显示；重新登录该账号会恢复。
+  Future<void> clearSyncSession() async {
+    final last = syncUserId;
+    if (last != null && last.isNotEmpty) {
+      await prefs.setString(_kLastUserId, last);
+    }
+    await prefs.remove(_kSyncUserId);
+    await prefs.remove(_kSyncToken);
+    await prefs.remove(_kAccountEmail);
+    await prefs.remove(_kSyncCursor);
   }
 
   Future<void> setSyncCursor(int cursor) async {
@@ -463,7 +575,8 @@ class LocalStorage {
     if (_hasDb) {
       final rows = await _db!.query(
         'drink_entries',
-        where: 'synced = 0',
+        where: 'synced = 0 AND owner_user_id = ?',
+        whereArgs: [_owner],
         orderBy: 'drank_at ASC',
         limit: limit,
       );
@@ -476,12 +589,51 @@ class LocalStorage {
   Future<int> countPendingSyncEntries() async {
     if (_hasDb) {
       final rows = await _db!.rawQuery(
-        'SELECT COUNT(*) AS c FROM drink_entries WHERE synced = 0',
+        'SELECT COUNT(*) AS c FROM drink_entries'
+        ' WHERE synced = 0 AND owner_user_id = ?',
+        [_owner],
       );
       return (rows.first['c'] as int?) ?? 0;
     }
     final all = await _prefsLoadAllEntries();
     return all.where((e) => !e.synced).length;
+  }
+
+  /// 登录后把未登录期间产生的记录归属到该账号（本地数据与账号绑定）
+  Future<void> bindGuestEntriesToAccount(String userId) async {
+    if (userId.isEmpty) return;
+    if (_hasDb) {
+      await _db!.update(
+        'drink_entries',
+        {'owner_user_id': userId},
+        where: "owner_user_id = ''",
+      );
+    }
+    // prefs 降级：游客桶与旧版单桶数据合并进该账号桶
+    final guestRaw = prefs.getString('${_kEntriesPrefix}guest') ??
+        prefs.getString('$_kEntriesPrefix$_storeKey');
+    if (guestRaw == null || guestRaw.isEmpty) return;
+    final userKey = '$_kEntriesPrefix$userId';
+    final merged = <String, DrinkEntry>{};
+    for (final e in await _prefsLoadAllEntriesFromKey(userKey)) {
+      merged[e.clientId] = e;
+    }
+    for (final e in await _prefsLoadAllEntriesFromKey(
+      '${_kEntriesPrefix}guest',
+    )) {
+      merged.putIfAbsent(e.clientId, () => e);
+    }
+    for (final e in await _prefsLoadAllEntriesFromKey(
+      '$_kEntriesPrefix$_storeKey',
+    )) {
+      merged.putIfAbsent(e.clientId, () => e);
+    }
+    await prefs.setString(
+      userKey,
+      jsonEncode(merged.values.map((e) => e.toMap()).toList()),
+    );
+    await prefs.remove('${_kEntriesPrefix}guest');
+    await prefs.remove('$_kEntriesPrefix$_storeKey');
   }
 
   Future<void> markEntriesSynced(List<String> clientIds) async {
@@ -492,8 +644,8 @@ class LocalStorage {
         batch.update(
           'drink_entries',
           {'synced': 1},
-          where: 'client_id = ?',
-          whereArgs: [id],
+          where: 'client_id = ? AND owner_user_id = ?',
+          whereArgs: [id, _owner],
         );
       }
       await batch.commit(noResult: true);
@@ -505,7 +657,7 @@ class LocalStorage {
         all[i] = all[i].copyWith(synced: true);
       }
     }
-    await prefs.setString('$_kEntriesPrefix$_storeKey',
+    await prefs.setString(_entriesStoreKey,
         jsonEncode(all.map((e) => e.toMap()).toList()));
   }
 
@@ -516,10 +668,19 @@ class LocalStorage {
 
   // ---------- prefs 降级存储 ----------
 
+  /// 旧版单桶 key（升级前的数据都在这，仅游客读取时兜底）
   static const String _storeKey = 'all';
 
   Future<List<DrinkEntry>> _prefsLoadAllEntries() async {
-    final raw = prefs.getString('$_kEntriesPrefix$_storeKey');
+    final raw = prefs.getString(_entriesStoreKey) ??
+        (_owner.isEmpty ? prefs.getString('$_kEntriesPrefix$_storeKey') : null);
+    return _decodeEntries(raw);
+  }
+
+  Future<List<DrinkEntry>> _prefsLoadAllEntriesFromKey(String key) async =>
+      _decodeEntries(prefs.getString(key));
+
+  List<DrinkEntry> _decodeEntries(String? raw) {
     if (raw == null || raw.isEmpty) return [];
     try {
       final list = jsonDecode(raw) as List;
@@ -537,7 +698,7 @@ class LocalStorage {
     } else {
       all.add(entry);
     }
-    await prefs.setString('$_kEntriesPrefix$_storeKey',
+    await prefs.setString(_entriesStoreKey,
         jsonEncode(all.map((e) => e.toMap()).toList()));
   }
 
@@ -546,7 +707,7 @@ class LocalStorage {
     final idx = all.indexWhere((e) => e.clientId == clientId);
     if (idx >= 0) {
       all[idx] = all[idx].copyWith(deleted: true, synced: false);
-      await prefs.setString('$_kEntriesPrefix$_storeKey',
+      await prefs.setString(_entriesStoreKey,
           jsonEncode(all.map((e) => e.toMap()).toList()));
     }
   }
