@@ -15,6 +15,7 @@ import '../../core/storage/providers.dart';
 import '../../core/time/logical_day.dart';
 import '../../core/widget/home_widget_sync.dart';
 import '../characters/current_character_provider.dart';
+import '../membership/membership_provider.dart';
 import '../membership/membership_screen.dart';
 import '../drink/providers/beverage_catalog_provider.dart';
 import '../drink/providers/custom_beverage_provider.dart';
@@ -641,6 +642,7 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
   Future<void> _pickDrink(
       Beverage current, void Function(String, int) onPicked) async {
     final all = ref.read(beverageLibraryProvider);
+    final isMember = ref.read(membershipProvider).isMember;
     Beverage? picked;
     await showModalBottomSheet<void>(
       context: context,
@@ -680,9 +682,17 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
                                     color: _textDark,
                                     fontSize: 15,
                                     fontWeight: FontWeight.w600)),
-                            trailing: const Icon(Icons.chevron_right,
-                                color: Color(0xFFC7C7CC)),
-                            onTap: () {
+                            trailing: b.lockedFor(isMember)
+                                ? const Icon(Icons.lock,
+                                    size: 16, color: Color(0xFFB98A2E))
+                                : const Icon(Icons.chevron_right,
+                                    color: Color(0xFFC7C7CC)),
+                            onTap: () async {
+                              if (b.lockedFor(isMember)) {
+                                final unlocked = await ensureMember(context, ref,
+                                    feature: '会员专属饮品「${b.name}」');
+                                if (!unlocked || !ctx.mounted) return;
+                              }
                               if (b.category == BeverageCategory.water ||
                                   b.volumes.length == 1) {
                                 Navigator.pop(ctx);

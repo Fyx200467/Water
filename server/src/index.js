@@ -324,6 +324,20 @@ function authenticate(req) {
   return { id: row.id, nickname: row.nickname, token };
 }
 
+function isMemberUser(userId) {
+  if (!userId) return false;
+  const row = db
+    .prepare(
+      'SELECT membership_expire_at, membership_permanent FROM users WHERE id = ?',
+    )
+    .get(userId);
+  if (!row) return false;
+  return (
+    !!row.membership_permanent ||
+    (!!row.membership_expire_at && row.membership_expire_at > nowIso())
+  );
+}
+
 function nextRev(userId) {
   return db
     .prepare('UPDATE users SET rev_seq = rev_seq + 1 WHERE id = ? RETURNING rev_seq')
@@ -414,14 +428,23 @@ async function handle(req, res, url) {
     return createReadStream(file).pipe(res);
   }
 
-  // ==================== 饮品目录（App 拉取，公开） ====================
+  // ==================== 饮品目录（App 拉取，公开，按登录态标记会员锁） ====================
   if (method === 'GET' && pathname === '/v1/catalog/beverages') {
     const rows = db
       .prepare(
         'SELECT * FROM beverages WHERE is_published = 1 ORDER BY sort, created_at',
       )
       .all();
-    return send(res, 200, rows.map(mapBeverage));
+    const viewer = authenticate(req);
+    const member = isMemberUser(viewer?.id);
+    return send(
+      res,
+      200,
+      rows.map((r) => ({
+        ...mapBeverage(r),
+        locked: toBool(r.member_only) && !member,
+      })),
+    );
   }
 
   // ==================== 会员套餐（App 拉取，公开） ====================

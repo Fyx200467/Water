@@ -81,6 +81,7 @@ class BeverageCatalogNotifier extends StateNotifier<List<Beverage>> {
       liquidColor: _color(m['liquidColor']?.toString()),
       hydrationRatio: (m['hydrationRatio'] as num?)?.toDouble(),
       containerId: icon.isEmpty ? null : 'url:$icon',
+      memberOnly: m['memberOnly'] == true,
     );
   }
 
@@ -138,6 +139,7 @@ Beverage _mergePreset(Beverage preset, Beverage remote) {
     templateId: preset.templateId,
     animation: preset.animation,
     containerId: remote.containerId ?? preset.containerId,
+    memberOnly: remote.memberOnly,
     calories: preset.calories,
     caffeineMg: preset.caffeineMg,
     alcoholPercent: preset.alcoholPercent,

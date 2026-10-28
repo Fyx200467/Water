@@ -32,6 +32,7 @@ class Beverage {
     this.templateId,
     this.animation,
     this.containerId,
+    this.memberOnly = false,
     this.calories,
     this.caffeineMg,
     this.alcoholPercent,
@@ -57,6 +58,12 @@ class Beverage {
 
   /// 容器图标 id（'svg:<文件名>' 对应 assets/images/containers/ 下的 SVG 剪影），为空时沿用模板插画
   final String? containerId;
+
+  /// 会员专属：后台可配置，非会员不可记录
+  final bool memberOnly;
+
+  /// 当前身份是否无权使用（非会员 + 会员专属）
+  bool lockedFor(bool isMember) => memberOnly && !isMember;
 
   /// 附加营养信息（自定义饮品编辑页维护）
   final int? calories;

@@ -23,6 +23,8 @@ import '../drink/services/hydration_calculator.dart';
 import '../drink/widgets/svg_container.dart';
 import '../drink/screens/add_drink_screen.dart';
 import '../drink/screens/drink_manage_screen.dart';
+import '../membership/membership_provider.dart';
+import '../membership/membership_screen.dart';
 import '../onboarding/widgets/animal_silhouette.dart';
 import '../settings/settings_flags.dart';
 import '../stats/history_screen.dart';
@@ -167,6 +169,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         final beverage = carried ??
             all.firstWhere((x) => x.id == fallbackId,
                 orElse: () => all.first);
+        // 会员专属饮品：非会员的桌面小组件入账直接丢弃
+        if (beverage
+            .lockedFor(ref.read(membershipProvider).isMember)) {
+          final rest = items.sublist(i + 1);
+          await HomeWidget.saveWidgetData<String>(
+              'native_pending_adds', rest.isEmpty ? null : rest.join('|'));
+          continue;
+        }
         try {
           await ref.read(todayEntriesProvider.notifier).add(DrinkEntry.create(
                 beverage: beverage,
@@ -282,9 +292,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     return names[DateTime.now().weekday - 1];
   }
 
+  /// 打开饮品加量页：会员专属饮品先过付费墙，开通后继续
+  Future<void> _openBeverage(Beverage b) async {
+    final isMember = ref.read(membershipProvider).isMember;
+    if (b.lockedFor(isMember)) {
+      final unlocked =
+          await ensureMember(context, ref, feature: '会员专属饮品「${b.name}」');
+      if (!unlocked || !mounted) return;
+    }
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => AddDrinkScreen(beverageId: b.id)),
+    );
+  }
+
   /// 底部水平滚动饮品快捷栏：水 / +98物品胶囊 / 当前角色 / 已开启饮品（可排序）/ 添加或编辑
   Widget _buildDrinkBar(String currentChar, String? currentFilePath) {
     final homeDrinks = ref.watch(homeDrinksProvider);
+    final isMember = ref.watch(membershipProvider).isMember;
     // 全量池（非水预设 + 云端目录 + 自定义）→ 按持久化顺序取已开启饮品
     // （管理页从上到下 = 首页从左到右；水单独渲染在第一位）
     final pool = ref
@@ -376,11 +402,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     : null,
             label: b.name,
             color: b.color,
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                  builder: (_) => AddDrinkScreen(beverageId: b.id)),
-            ),
+            badgeIcon: b.lockedFor(isMember) ? Icons.lock : null,
+            onTap: () => _openBeverage(b),
           ),
         // 5. 添加或编辑（浅青圆底 + 青色加号，对标原版）
         _DrinkItem(

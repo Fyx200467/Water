@@ -9,9 +9,11 @@ import '../../../core/sound/sound_service.dart';
 import '../../../shared/models/beverage.dart';
 import '../../../shared/models/drink_entry.dart';
 import '../../../shared/models/preferred_unit.dart';
+import '../../drink/providers/beverage_catalog_provider.dart';
 import '../../drink/providers/custom_beverage_provider.dart';
 import '../../drink/screens/add_drink_screen.dart';
 import '../../drink/widgets/svg_container.dart';
+import '../../membership/membership_provider.dart';
 import '../providers/home_providers.dart';
 
 /// 首页「趣味玩法」弧形饮品轨道
@@ -118,7 +120,13 @@ class _SlingshotDrinkTrackState extends ConsumerState<SlingshotDrinkTrack>
     ref.listenManual(homeDrinksProvider, (_, __) {
       if (mounted) setState(_syncDrinks);
     });
-    ref.listenManual(customBeveragesProvider, (_, __) {
+    ref.listenManual(customBeveragesProvider, (_, _) {
+      if (mounted) setState(_syncDrinks);
+    });
+    ref.listenManual(beverageCatalogProvider, (_, _) {
+      if (mounted) setState(_syncDrinks);
+    });
+    ref.listenManual(membershipProvider, (_, _) {
       if (mounted) setState(_syncDrinks);
     });
     _snapAnim = AnimationController(
@@ -172,12 +180,13 @@ class _SlingshotDrinkTrackState extends ConsumerState<SlingshotDrinkTrack>
   }
 
   List<_TrackDrink> _buildDrinkList() {
-    final customs = ref.read(customBeveragesProvider);
     final homeDrinks = ref.read(homeDrinksProvider);
-    final pool = [
-      ...Beverage.presets.where((b) => b.id != 'water_pure'),
-      ...customs,
-    ];
+    final isMember = ref.read(membershipProvider).isMember;
+    // 完整饮品库（内置 + 云端目录 + 自定义），非会员剔除会员专属饮品
+    final pool = ref
+        .read(beverageLibraryProvider)
+        .where((b) => !b.lockedFor(isMember))
+        .toList();
     final byId = {for (final b in pool) b.id: b};
     final ordered = orderedVisibleIds(homeDrinks, pool);
     final water = Beverage.presets.firstWhere((e) => e.id == 'water_pure');

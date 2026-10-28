@@ -6,6 +6,7 @@ import '../../../shared/models/beverage.dart';
 import '../../../shared/models/preferred_unit.dart';
 import '../../../shared/widgets/drink_illustration.dart';
 import '../../home/providers/home_providers.dart';
+import '../../membership/membership_provider.dart';
 import '../../membership/membership_screen.dart';
 import '../providers/beverage_catalog_provider.dart';
 import '../providers/custom_beverage_provider.dart';
@@ -58,6 +59,7 @@ class _DrinkManageScreenState extends ConsumerState<DrinkManageScreen> {
   Widget build(BuildContext context) {
     ref.watch(preferredUnitProvider);
     final homeDrinks = ref.watch(homeDrinksProvider);
+    final isMember = ref.watch(membershipProvider).isMember;
     // 列表按持久化顺序渲染（拖拽/掉落结果即时反映；未登记的新饮品追加到末尾）
     final raw = ref.watch(beverageLibraryProvider);
     final byId = {for (final b in raw) b.id: b};
@@ -219,13 +221,14 @@ class _DrinkManageScreenState extends ConsumerState<DrinkManageScreen> {
                                     isCustom: isCustom,
                                     visible: visible,
                                     isWater: isWater,
+                                    locked: b.lockedFor(isMember),
                                     onToggle: isWater
                                         ? null
                                         : () => ref
                                             .read(homeDrinksProvider.notifier)
                                             .setVisible(b.id, !visible),
-                                    onTap: () =>
-                                        _showEditSheet(b, readOnly: !isCustom),
+                                    onTap: () => _openEdit(b,
+                                        readOnly: !isCustom),
                                   ),
                                 ),
                                 // 卡片外右侧整体箭头图形：长按浮起后上下拖动排序
@@ -420,6 +423,16 @@ class _DrinkManageScreenState extends ConsumerState<DrinkManageScreen> {
     );
   }
 
+  /// 点击卡片进入编辑页：会员专属饮品先过付费墙
+  Future<void> _openEdit(Beverage b, {required bool readOnly}) async {
+    if (b.lockedFor(ref.read(membershipProvider).isMember)) {
+      final unlocked =
+          await ensureMember(context, ref, feature: '会员专属饮品「${b.name}」');
+      if (!unlocked || !mounted) return;
+    }
+    await _showEditSheet(b, readOnly: readOnly);
+  }
+
   /// 点击卡片进入编辑页：自定义饮品可编辑保存；
   /// 内置预设饮品为只读浏览（无保存按钮，改动不生效）
   Future<void> _showEditSheet(Beverage b, {required bool readOnly}) =>
@@ -518,12 +531,16 @@ class _DrinkCard extends StatelessWidget {
     required this.visible,
     required this.isWater,
     required this.onTap,
+    this.locked = false,
     this.onToggle,
   });
   final Beverage beverage;
   final bool isCustom;
   final bool visible;
   final bool isWater;
+
+  /// 会员专属且当前未开通：名称旁显示锁标
+  final bool locked;
   final VoidCallback onTap;
   final VoidCallback? onToggle;
 
@@ -603,15 +620,29 @@ class _DrinkCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      b.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFF1C1C1E),
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                      ),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            b.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Color(0xFF1C1C1E),
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        if (locked) ...[
+                          const SizedBox(width: 4),
+                          const Icon(
+                            Icons.lock,
+                            size: 13,
+                            color: Color(0xFFB98A2E),
+                          ),
+                        ],
+                      ],
                     ),
                     if (subtitle != null) ...[
                       const SizedBox(height: 2),
