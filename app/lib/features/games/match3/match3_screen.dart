@@ -8,6 +8,7 @@ import '../../../shared/models/beverage.dart';
 import '../../drink/providers/beverage_catalog_provider.dart';
 import '../../drink/widgets/svg_container.dart';
 import '../../points/points_provider.dart';
+import '../../points/points_screen.dart';
 import 'match3_rules.dart';
 
 /// 棋盘格：带稳定 id 才能在交换/下落时保持 widget 身份并播放位移动画
@@ -469,8 +470,13 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
     );
   }
 
-  Widget _hudChip(String label, String value, {Color? color}) {
-    return Column(
+  Widget _hudChip(
+    String label,
+    String value, {
+    Color? color,
+    VoidCallback? onTap,
+  }) {
+    final chip = Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
@@ -489,6 +495,13 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
         ),
       ],
     );
+    return onTap == null
+        ? chip
+        : GestureDetector(
+            onTap: onTap,
+            behavior: HitTestBehavior.opaque,
+            child: chip,
+          );
   }
 
   @override
@@ -539,7 +552,12 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
                           ),
                           Expanded(
                             child: _hudChip('积分', '${points.balance}',
-                                color: const Color(0xFFF2A93B)),
+                                color: const Color(0xFFF2A93B),
+                                onTap: () => Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) => const PointsScreen(),
+                                      ),
+                                    )),
                           ),
                         ],
                       ),

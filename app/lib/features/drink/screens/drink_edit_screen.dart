@@ -203,6 +203,7 @@ class _DrinkEditScreenState extends ConsumerState<DrinkEditScreen> {
           : _template.hydrationRatio,
       templateId: _template.templateId ?? _template.id,
       animation: _animation,
+      volumePreset: _template.volumePreset,
       containerId: _containerId,
       calories: _calories,
       caffeineMg: _caffeineMg,

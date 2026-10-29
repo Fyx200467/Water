@@ -312,7 +312,7 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
   Widget _previewCard(WidgetSettingsState s) {
     final progress = ref.watch(dailyProgressProvider);
     final checkin = ref.watch(checkinDaysProvider).asData?.value ?? 0;
-    final currentChar = ref.watch(currentCharacterProvider);
+    final currentChar = ref.watch(effectiveCurrentCharacterProvider);
 
     // 左上大字：当日饮水总量（实时绑定，与桌面小组件 goal_label 同源）
     final volume = _goalLabel(progress.totalEffectiveMl);
@@ -1150,7 +1150,7 @@ Future<void> _renderFramesOnce(
   required Color liquidColor,
 }) async {
   final progress = read(dailyProgressProvider);
-  final characterId = read(currentCharacterProvider);
+  final characterId = read(effectiveCurrentCharacterProvider);
   // 帧签名：同角色 + 同液体色 + 同填充档位（0.5% 步进）+ 同达标态时
   // 16 帧画面完全一致，直接复用已有帧跳过渲染——设置页连续开关
   // （徽章/彩色按钮等不影响画面的项）只剩数据推送，桌面即时刷新

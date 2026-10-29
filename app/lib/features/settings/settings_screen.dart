@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/notification/notification_service.dart';
 import '../../core/storage/providers.dart';
+import '../../core/sync/session_watch.dart';
 import '../../core/sync/sync_api.dart';
 import '../../shared/models/preferred_unit.dart';
 import '../../shared/widgets/account_avatar.dart';
@@ -16,6 +17,7 @@ import '../characters/character_catalog.dart';
 import '../characters/character_screen.dart';
 import '../characters/current_character_provider.dart';
 import '../drink/providers/custom_beverage_provider.dart';
+import 'feedback_screen.dart';
 import '../home/challenge_sheet.dart' show challengeJoined;
 import '../home/providers/home_providers.dart';
 import '../membership/membership_provider.dart';
@@ -81,7 +83,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Widget build(BuildContext context) {
     final profile = ref.watch(profileProvider);
     final reminder = ref.watch(reminderProvider);
-    final currentChar = ref.watch(currentCharacterProvider);
+    final currentChar = ref.watch(effectiveCurrentCharacterProvider);
 
     if (profile == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
@@ -247,7 +249,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     title: '语言',
                     trailingText: '简体中文',
                   ),
-                  _settingRow(iconAsset: 'help.svg', title: '帮助与支持'),
+                  _settingRow(
+                    iconAsset: 'help.svg',
+                    title: '帮助与支持',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const FeedbackScreen(),
+                      ),
+                    ),
+                  ),
                 ]),
                 const SizedBox(height: 28),
 
@@ -363,9 +373,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         ),
                       ),
                       const SizedBox(height: 6),
-                      const Text(
-                        '吨吨账户、云同步等',
-                        style: TextStyle(color: _textSecondary, fontSize: 13),
+                      Text(
+                        _accountSubtitle(state),
+                        style: TextStyle(
+                          color: (state?.pendingCount ?? 0) > 0
+                              ? const Color(0xFFEF7A8B)
+                              : _textSecondary,
+                          fontSize: 13,
+                        ),
                       ),
                     ],
                   ),
@@ -420,6 +435,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ],
       ),
     );
+  }
+
+  /// 账号卡副标题：常驻同步状态提示（未登录时不展示同步信息）
+  String _accountSubtitle(CloudBackupState? state) {
+    if (state == null || !state.isLoggedIn) return '吨吨账户、云同步等';
+    final pending = state.pendingCount;
+    if (pending > 0) return '待同步 $pending 条记录，点此处理';
+    final last = state.lastBackupAt?.toLocal();
+    if (last != null) {
+      final hh = last.hour.toString().padLeft(2, '0');
+      final mm = last.minute.toString().padLeft(2, '0');
+      return '已同步至云端 · 上次 $hh:$mm';
+    }
+    return '吨吨账户、云同步等';
   }
 
   // ==================== 卡片1/2：提醒 · 饮水目标（左右并排） ====================
@@ -989,6 +1018,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     } catch (_) {}
     final storage = await ref.read(localStorageProvider.future);
     await storage.clearAllData();
+    // 已登录时清除数据会同时清掉会话：断开实时通道并复位账号权益
+    SessionWatch.stop();
+    await ref.read(membershipProvider.notifier).reset();
+    await ref.read(currentCharacterProvider.notifier).select('alpaca');
 
     // 重置内存态（保留主题偏好）
     ref.invalidate(profileProvider);

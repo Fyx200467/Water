@@ -104,6 +104,79 @@ class SyncApi {
     );
   }
 
+  /// 当前账号资料（头像地址、云端口径的饮水目标等）
+  static Future<Map<String, dynamic>> me(String token) {
+    return _request('GET', '/v1/me', token: token);
+  }
+
+  /// 上行完整账号档案：换设备登录后体重/身高/年龄/活动量/目标跟着账号走
+  static Future<Map<String, dynamic>> updateProfile(
+    String token,
+    Map<String, dynamic> profile,
+  ) {
+    return _request(
+      'PATCH',
+      '/v1/me',
+      token: token,
+      body: {'profile': profile},
+    );
+  }
+
+  /// 上传头像原图，返回服务端相对地址（/static/avatars/...）
+  static Future<Map<String, dynamic>> uploadAvatar(
+    String token,
+    List<int> bytes,
+    String contentType,
+  ) async {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+    try {
+      final request = await client.openUrl(
+        'POST',
+        Uri.parse('$baseUrl/v1/me/avatar'),
+      );
+      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+      request.headers.contentType = ContentType.parse(contentType);
+      request.add(bytes);
+      final response = await request.close().timeout(
+        const Duration(seconds: 30),
+      );
+      final text = await response.transform(utf8.decoder).join();
+      final decoded = text.isEmpty
+          ? <String, dynamic>{}
+          : (jsonDecode(text) as Map).cast<String, dynamic>();
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        final error = decoded['error'];
+        throw SyncApiException(
+          (error is Map ? error['message'] : null)?.toString() ??
+              'HTTP ${response.statusCode}',
+          code: (error is Map ? error['code'] : null)?.toString(),
+          status: response.statusCode,
+        );
+      }
+      return decoded;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  /// 清除服务端头像（恢复默认头像时调用）
+  static Future<void> deleteAvatar(String token) async {
+    await _request('DELETE', '/v1/me/avatar', token: token);
+  }
+
+  /// 最新一笔开通申请（含 pending / paid / rejected / cancelled）
+  static Future<Map<String, dynamic>?> latestMembershipOrder(
+    String token,
+  ) async {
+    final res = await _request(
+      'GET',
+      '/v1/membership/orders/latest',
+      token: token,
+    );
+    final order = res['order'];
+    return order is Map ? Map<String, dynamic>.from(order) : null;
+  }
+
   static Future<Map<String, dynamic>> push(
     String token, {
     required List<Map<String, dynamic>> entries,
@@ -181,6 +254,98 @@ class SyncApi {
   /// 服务端会员状态（恢复购买用）
   static Future<Map<String, dynamic>> membershipStatus(String token) {
     return _request('GET', '/v1/membership/status', token: token);
+  }
+
+  /// 当前账号最新的待确认开通申请；没有则返回 null
+  static Future<Map<String, dynamic>?> pendingMembershipOrder(
+    String token,
+  ) async {
+    final res = await _request('GET', '/v1/membership/pending', token: token);
+    return res.isEmpty ? null : res;
+  }
+
+  /// 撤回自己的待确认申请
+  static Future<Map<String, dynamic>> cancelMembershipOrder(
+    String token,
+    String orderId,
+  ) {
+    return _request(
+      'POST',
+      '/v1/membership/orders/$orderId/cancel',
+      token: token,
+    );
+  }
+
+  /// 提交问题反馈（内测收集用）
+  static Future<Map<String, dynamic>> submitFeedback(
+    String token, {
+    required String content,
+    String? contact,
+    String? appVersion,
+    String? platform,
+    String? device,
+  }) {
+    return _request(
+      'POST',
+      '/v1/feedback',
+      token: token,
+      body: {
+        'content': content,
+        if (contact != null && contact.isNotEmpty) 'contact': contact,
+        if (appVersion != null) 'appVersion': appVersion,
+        if (platform != null) 'platform': platform,
+        if (device != null) 'device': device,
+      },
+    );
+  }
+
+  /// 最新版本信息（免鉴权），versionCode 为 0 表示未发布
+  static Future<Map<String, dynamic>> appVersion(String platform) {
+    return _request('GET', '/v1/app/version?platform=$platform');
+  }
+
+  /// 上报客户端未捕获异常（内测自建收集，非第三方 SDK）
+  static Future<void> reportClientError(
+    String token, {
+    required String message,
+    required String stack,
+    String? appVersion,
+    String? platform,
+    String? device,
+  }) async {
+    await _request(
+      'POST',
+      '/v1/client-errors',
+      token: token,
+      body: {
+        'message': message,
+        'stack': stack,
+        if (appVersion != null) 'appVersion': appVersion,
+        if (platform != null) 'platform': platform,
+        if (device != null) 'device': device,
+      },
+    );
+  }
+
+  /// 批量上报行为埋点（免鉴权，登录后带 token 归因到账号）
+  static Future<void> trackEvents({
+    String? token,
+    required String anonId,
+    required List<Map<String, dynamic>> events,
+    String? appVersion,
+    String? platform,
+  }) async {
+    await _request(
+      'POST',
+      '/v1/events',
+      token: token,
+      body: {
+        'events': events,
+        if (anonId.isNotEmpty) 'anonId': anonId,
+        if (appVersion != null) 'appVersion': appVersion,
+        if (platform != null) 'platform': platform,
+      },
+    );
   }
 
   /// 后台发布的云端饮品目录（含容器图标地址，免鉴权）
@@ -285,7 +450,7 @@ class SyncApi {
           ? <String, dynamic>{}
           : (jsonDecode(text) as Map).cast<String, dynamic>();
 
-      if (response.statusCode != 200) {
+      if (response.statusCode < 200 || response.statusCode >= 300) {
         final error = decoded['error'];
         final message = (error is Map ? error['message'] : null)?.toString();
         final code = (error is Map ? error['code'] : null)?.toString();

@@ -29,10 +29,14 @@ class TipsAllScreen extends StatelessWidget {
         children: [
           // 分组纵列表
           Positioned.fill(
-            child: ListView.builder(
-              padding: EdgeInsets.only(top: topPad + 74, bottom: 40),
-              itemCount: TipGroup.all.length,
-              itemBuilder: (context, i) => _groupSection(TipGroup.all[i]),
+            child: ValueListenableBuilder<List<TipCardData>>(
+              valueListenable: TipStore.pool,
+              builder: (context, pool, _) => ListView.builder(
+                padding: EdgeInsets.only(top: topPad + 74, bottom: 40),
+                itemCount: TipGroup.all.length,
+                itemBuilder: (context, i) =>
+                    _groupSection(TipGroup.all[i], pool),
+              ),
             ),
           ),
           // 顶部圆钮（< 返回 / •••）
@@ -76,8 +80,8 @@ class TipsAllScreen extends StatelessWidget {
   }
 
   /// 分组区块：标题行 + 横向卡片行
-  Widget _groupSection(TipGroup group) {
-    final cards = kTipPool.where((c) => c.group == group).toList();
+  Widget _groupSection(TipGroup group, List<TipCardData> pool) {
+    final cards = pool.where((c) => c.group == group).toList();
     return Padding(
       padding: const EdgeInsets.only(bottom: 34),
       child: Column(

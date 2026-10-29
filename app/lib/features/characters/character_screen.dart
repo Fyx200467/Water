@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/sync/character_sync.dart';
 import 'character_art.dart';
 import 'character_catalog.dart';
 import 'character_data.dart';
@@ -15,12 +18,30 @@ import '../settings/widget_settings_screen.dart';
 /// 头部固定（随机按钮 + 关闭 + 当前角色卡片），
 /// 下方 12 个分类网格上下滚动，每个卡片用 CharacterArt 渲染：
 /// 已点亮显示彩色 SVG，未点亮显示灰色剪影（同张 SVG 用 ColorFilter 染灰）。
-class CharacterScreen extends ConsumerWidget {
+class CharacterScreen extends ConsumerStatefulWidget {
   const CharacterScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final currentChar = ref.watch(currentCharacterProvider);
+  ConsumerState<CharacterScreen> createState() => _CharacterScreenState();
+}
+
+class _CharacterScreenState extends ConsumerState<CharacterScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // 打开角色页即与后台同步一次：后台刚新增/删除的角色、改过的分类与会员
+    // 权益立刻体现在列表里，不用重启或切后台
+    unawaited(_refreshFromServer());
+  }
+
+  Future<void> _refreshFromServer() async {
+    final changed = await CharacterStore.sync();
+    if (changed && mounted) ref.invalidate(characterCatalogProvider);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final currentChar = ref.watch(effectiveCurrentCharacterProvider);
     final catalog = ref.watch(characterCatalogProvider);
     final catalogData = catalog.asData?.value;
     // 当前角色为后台上传/云端下载素材时的本地 SVG 路径（内置素材为 null）
@@ -28,7 +49,8 @@ class CharacterScreen extends ConsumerWidget {
     // 全解锁模式：所有角色均可直接选用（便于测试随意切换填充角色；
     // 正式版恢复为 characterCollectionProvider 的里程碑解锁集合）
     final collected = catalogData?.allIds ?? characters.keys.toSet();
-    // 会员权益：免费用户仅可使用「每日」分类，其余分类为会员专属
+    // 会员权益：由后台配置——整组会员专属看分类 memberOnly，
+    // 单个角色会员专属看 catalog.memberOnlyIds
     final isMember = ref.watch(membershipProvider).isMember;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
@@ -68,7 +90,9 @@ class CharacterScreen extends ConsumerWidget {
                           currentChar: currentChar,
                           collectedIds: collected,
                           uploadedFilePaths: state.uploadedFilePaths,
-                          locked: cat.id != 'daily' && !isMember,
+                          isMember: isMember,
+                          memberOnlyIds: state.memberOnlyIds,
+                          locked: cat.memberOnly && !isMember,
                           onLockedTap: () => Navigator.of(context).push(
                             MaterialPageRoute(
                               builder: (_) => const MembershipScreen(
@@ -289,6 +313,8 @@ class _CategorySection extends StatelessWidget {
     required this.currentChar,
     required this.collectedIds,
     required this.uploadedFilePaths,
+    required this.isMember,
+    required this.memberOnlyIds,
     required this.locked,
     required this.onLockedTap,
     required this.onTapCharacter,
@@ -299,10 +325,20 @@ class _CategorySection extends StatelessWidget {
   final Set<String> collectedIds;
   final Map<String, String> uploadedFilePaths;
 
+  /// 当前用户是否会员（单角色会员专属按此判断）
+  final bool isMember;
+
+  /// 后台标记为会员专属的角色 id
+  final Set<String> memberOnlyIds;
+
   /// 会员专属分类且当前非会员：整组显示锁标，点击进付费墙
   final bool locked;
   final VoidCallback onLockedTap;
   final ValueChanged<String> onTapCharacter;
+
+  /// 单个角色是否上锁：整组锁定，或该角色被后台标记为会员专属
+  bool _isLocked(String id) =>
+      locked || (!isMember && memberOnlyIds.contains(id));
 
   @override
   Widget build(BuildContext context) {
@@ -383,8 +419,9 @@ class _CategorySection extends StatelessWidget {
                   unlocked: collectedIds.contains(id),
                   selected: currentChar == id,
                   filePath: uploadedFilePaths[id],
-                  locked: locked,
-                  onTap: () => locked ? onLockedTap() : onTapCharacter(id),
+                  locked: _isLocked(id),
+                  onTap: () =>
+                      _isLocked(id) ? onLockedTap() : onTapCharacter(id),
                 ),
             ],
           ),

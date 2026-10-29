@@ -125,7 +125,11 @@ class DrinkEntry {
       ),
       beverageName: m['beverage_name']?.toString() ?? '',
       volumeMl: toInt(m['volume_ml'], 0),
-      effectiveMl: toInt(m['effective_ml'], 0),
+      // 云端 / 旧版数据可能没有 effective_ml：按容量兜底，避免出现
+      // 「记录有 1800ml 但有效饮水 / 角色填充为 0」的数据残缺
+      effectiveMl: m['effective_ml'] == null
+          ? toInt(m['volume_ml'], 0)
+          : toInt(m['effective_ml'], 0),
       drankAt: DateTime.parse(m['drank_at']?.toString() ?? DateTime.now().toIso8601String()),
       synced: toInt(m['synced'], 0) == 1,
       deleted: toInt(m['deleted'], 0) == 1,

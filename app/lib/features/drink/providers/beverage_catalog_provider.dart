@@ -22,6 +22,9 @@ class BeverageCatalogNotifier extends StateNotifier<List<Beverage>> {
 
   static const _kKey = 'remote_beverages';
 
+  /// 上次目录内容的签名：定时轮询时内容没变就不刷新 UI
+  String? _lastSig;
+
   /// 缓存读取完成信号
   late final Future<void> loaded;
 
@@ -35,6 +38,7 @@ class BeverageCatalogNotifier extends StateNotifier<List<Beverage>> {
       final storage = await ref.read(localStorageProvider.future);
       final raw = storage.prefs.getString(_kKey);
       if (raw == null || raw.isEmpty) return;
+      _lastSig = raw;
       final list = (jsonDecode(raw) as List)
           .whereType<Map>()
           .map((e) => _fromJson(Map<String, dynamic>.from(e)))
@@ -59,6 +63,10 @@ class BeverageCatalogNotifier extends StateNotifier<List<Beverage>> {
   Future<void> refresh() async {
     try {
       final rows = await SyncApi.beverageCatalog();
+      final sig = jsonEncode(rows);
+      // 内容没变：不重建 provider，前台定时轮询几乎零开销
+      if (sig == _lastSig) return;
+      _lastSig = sig;
       final list = rows.map(_fromJson).whereType<Beverage>().toList();
       if (!mounted) return;
       state = list;
@@ -74,11 +82,10 @@ class BeverageCatalogNotifier extends StateNotifier<List<Beverage>> {
     if (id.isEmpty || name.isEmpty) return null;
     final icon = (m['iconUrl'] ?? '').toString().trim();
     final code = (m['category'] ?? '').toString();
-    final base = (m['baseCategory'] ?? '').toString();
     final catName = (m['categoryName'] ?? '').toString().trim();
     return Beverage(
       id: id,
-      category: _category(code, base: base),
+      category: _category(code),
       categoryKey: code.isEmpty ? null : code,
       categoryName: catName.isEmpty ? null : catName,
       categoryAccent: _color(m['categoryColor']?.toString()),
@@ -86,18 +93,25 @@ class BeverageCatalogNotifier extends StateNotifier<List<Beverage>> {
       defaultMl: (m['defaultMl'] as num?)?.toInt() ?? 250,
       liquidColor: _color(m['liquidColor']?.toString()),
       hydrationRatio: (m['hydrationRatio'] as num?)?.toDouble(),
+      volumePreset: (m['volumePreset'] ?? '').toString().trim().isEmpty
+          ? null
+          : (m['volumePreset'] ?? '').toString().trim(),
+      animation: (m['animation'] ?? '').toString().trim().isEmpty
+          ? null
+          : (m['animation'] ?? '').toString().trim(),
       containerId: icon.isEmpty ? null : 'url:$icon',
       memberOnly: m['memberOnly'] == true,
+      calories: (m['calories'] as num?)?.toInt(),
+      caffeineMg: (m['caffeineMg'] as num?)?.toInt(),
+      alcoholPercent: (m['alcoholPercent'] as num?)?.toInt(),
     );
   }
 
-  /// 先按分类 code 匹配内置枚举，未命中再用后台配置的基础分类回退
-  static BeverageCategory _category(String? raw, {String? base}) {
+  /// 分类只用于内部枚举兜底（无专属图标时的占位插画），
+  /// 折算比例、容量档位、动画等行为均以单品字段为准。
+  static BeverageCategory _category(String? raw) {
     for (final c in BeverageCategory.values) {
       if (c.name == raw) return c;
-    }
-    for (final c in BeverageCategory.values) {
-      if (c.name == base) return c;
     }
     return BeverageCategory.water;
   }
@@ -122,21 +136,24 @@ final beverageCatalogProvider =
 });
 
 /// 完整饮品库 = 内置预设（可被后台同 id 覆盖）+ 后台新增饮品 + 自定义饮品
+///
+/// 顺序完全跟随后台 sort：后台用 ↑ ↓ 调整后的顺序即为客户端展示顺序，
+/// 未下发（未发布/离线无缓存）的内置款按安装包内置顺序补在末尾
 final beverageLibraryProvider = Provider<List<Beverage>>((ref) {
   final remote = ref.watch(beverageCatalogProvider);
   final customs = ref.watch(customBeveragesProvider);
-  final remoteById = {for (final b in remote) b.id: b};
-  final presetIds = {for (final p in Beverage.presets) p.id};
+  final presetById = {for (final p in Beverage.presets) p.id: p};
+  final remoteIds = {for (final b in remote) b.id};
   return [
-    for (final p in Beverage.presets)
-      if (remoteById[p.id] != null) _mergePreset(p, remoteById[p.id]!) else p,
     for (final b in remote)
-      if (!presetIds.contains(b.id)) b,
+      presetById[b.id] != null ? _mergePreset(presetById[b.id]!, b) : b,
+    for (final p in Beverage.presets)
+      if (!remoteIds.contains(p.id)) p,
     ...customs,
   ];
 });
 
-/// 后台覆盖内置款：只替换运营可配的展示字段，营养/动画等仍用内置值
+/// 后台覆盖内置款：展示字段与营养/动画以后台为准，未填时保留内置值
 Beverage _mergePreset(Beverage preset, Beverage remote) {
   return Beverage(
     id: preset.id,
@@ -147,14 +164,15 @@ Beverage _mergePreset(Beverage preset, Beverage remote) {
     liquidColor: remote.liquidColor ?? preset.liquidColor,
     hydrationRatio: remote.hydrationRatio ?? preset.hydrationRatio,
     templateId: preset.templateId,
-    animation: preset.animation,
+    animation: remote.animation ?? preset.animation,
+    volumePreset: remote.volumePreset ?? preset.volumePreset,
     containerId: remote.containerId ?? preset.containerId,
     memberOnly: remote.memberOnly,
     categoryKey: remote.categoryKey,
     categoryName: remote.categoryName,
     categoryAccent: remote.categoryAccent,
-    calories: preset.calories,
-    caffeineMg: preset.caffeineMg,
-    alcoholPercent: preset.alcoholPercent,
+    calories: remote.calories ?? preset.calories,
+    caffeineMg: remote.caffeineMg ?? preset.caffeineMg,
+    alcoholPercent: remote.alcoholPercent ?? preset.alcoholPercent,
   );
 }

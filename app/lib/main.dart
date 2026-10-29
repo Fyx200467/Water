@@ -7,9 +7,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
 import 'app/app.dart';
+import 'core/crash/crash_reporter.dart';
 import 'core/sync/container_icon_sync.dart';
 import 'core/sync/character_sync.dart';
 import 'core/sync/sync_api.dart';
+import 'features/home/tips_deck.dart';
 import 'features/settings/settings_flags.dart';
 import 'features/settings/widget_background.dart';
 
@@ -39,10 +41,14 @@ Future<void> main() async {
   }
   // 接口地址可由设置页运行时修改，启动前先读回已保存的值
   await SyncApi.loadFromPrefs();
+  // 未捕获异常上报：内测阶段收集崩溃/报错，release 包才上报
+  CrashReporter.init();
   // 云端容器图标缓存：准备本地目录并读回上次同步结果，
   // 首帧渲染图标时即可判断用本地缓存还是安装包内置资源
   await ContainerIconStore.init();
   // 云端角色目录缓存：分类/角色列表与 SVG 素材同样离线优先
   await CharacterStore.init();
+  // 首页贴士卡：读回上次后台下发的卡池（后台未配置时用内置卡池）
+  await TipStore.init();
   runApp(const ProviderScope(child: WaterLlamaApp()));
 }

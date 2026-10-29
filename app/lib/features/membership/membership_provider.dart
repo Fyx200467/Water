@@ -16,6 +16,29 @@ class NotLoggedInError implements Exception {
 /// 积分兑换会员：每天所需积分 + 一次只能兑换 1 天
 const int kMemberDayPoints = 60;
 
+/// 套餐内绑定的单条会员权益（后台配置，随套餐下发）
+class PlanBenefit {
+  const PlanBenefit({
+    required this.code,
+    required this.name,
+    this.description,
+    this.icon,
+  });
+
+  /// characters / beverages / widgets / export / adfree …
+  final String code;
+  final String name;
+  final String? description;
+  final String? icon;
+
+  static PlanBenefit fromJson(Map<String, dynamic> m) => PlanBenefit(
+    code: (m['code'] ?? '').toString(),
+    name: (m['name'] ?? '').toString(),
+    description: m['description'] as String?,
+    icon: m['icon'] as String?,
+  );
+}
+
 /// PRD §2.7 会员套餐（服务端 membershipPlan 的下发结构）
 class MembershipPlan {
   const MembershipPlan({
@@ -24,6 +47,7 @@ class MembershipPlan {
     required this.priceCents,
     required this.durationDays,
     this.badge,
+    this.benefits = const [],
   });
 
   /// monthly / yearly / lifetime
@@ -34,6 +58,9 @@ class MembershipPlan {
   /// 0 = 终身
   final int durationDays;
   final String? badge;
+
+  /// 后台给该套餐绑定的权益；为空时会员页回退内置文案
+  final List<PlanBenefit> benefits;
 
   String get priceLabel {
     final yuan = priceCents / 100;
@@ -57,6 +84,10 @@ class MembershipPlan {
     'priceCents': priceCents,
     'durationDays': durationDays,
     'badge': badge,
+    'benefits': [
+      for (final b in benefits)
+        {'code': b.code, 'name': b.name, 'description': b.description, 'icon': b.icon},
+    ],
   };
 
   static MembershipPlan fromJson(Map<String, dynamic> m) => MembershipPlan(
@@ -65,6 +96,10 @@ class MembershipPlan {
     priceCents: (m['priceCents'] as num?)?.toInt() ?? 0,
     durationDays: (m['durationDays'] as num?)?.toInt() ?? 0,
     badge: m['badge'] as String?,
+    benefits: [
+      for (final raw in (m['benefits'] as List<dynamic>? ?? const []))
+        if (raw is Map) PlanBenefit.fromJson(Map<String, dynamic>.from(raw)),
+    ],
   );
 
   /// 服务端不可达时的兜底套餐（价格与后台默认配置一致）
@@ -207,6 +242,32 @@ class MembershipNotifier extends StateNotifier<MembershipState> {
       redeemUntil: until,
     );
     await _persist();
+  }
+
+  /// 用 /v1/membership/status 的返回更新本机状态；无变化时不触发重建
+  Future<void> applyStatus(Map<String, dynamic> res) async {
+    await loaded;
+    if (res['isMember'] != true) return;
+    final planCode = (res['planCode'] as String?) ?? 'member';
+    final expireAt = DateTime.tryParse(res['expireAt']?.toString() ?? '');
+    final permanent = res['permanent'] == true;
+    final unchanged = state.hasPaidOrder &&
+        state.planCode == planCode &&
+        (permanent ? state.expireAt == null : state.expireAt == expireAt);
+    if (unchanged) return;
+    await applyServer(
+      planCode: planCode,
+      expireAt: expireAt,
+      permanent: permanent,
+    );
+  }
+
+  /// 退出登录 / 会话被顶掉：清空本机会员状态，会员权益随账号失效
+  Future<void> reset() async {
+    await loaded;
+    state = const MembershipState();
+    final storage = await ref.read(localStorageProvider.future);
+    await storage.prefs.remove(_kKey);
   }
 
   /// 恢复购买：以服务端购买记录为准（必须已登录且联网）

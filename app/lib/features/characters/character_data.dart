@@ -13,6 +13,7 @@ class CharacterCategory {
     required this.color,
     this.subtitle,
     required this.characterIds,
+    this.memberOnly = false,
   });
 
   final String id;
@@ -20,6 +21,9 @@ class CharacterCategory {
   final Color color;
   final String? subtitle;
   final List<String> characterIds;
+
+  /// 整组会员专属（后台可配置）：非会员整组加锁，点击进付费墙
+  final bool memberOnly;
 }
 
 class CharacterInfo {
@@ -162,6 +166,7 @@ final characterCategories = <CharacterCategory>[
     id: 'cute',
     name: '可爱',
     color: const Color(0xFF5AC8FA),
+    memberOnly: true,
     characterIds: const [
       'comfort', 'greeting', 'inspired',
       'delighted', 'pensive', 'content',
@@ -172,6 +177,7 @@ final characterCategories = <CharacterCategory>[
     id: 'people',
     name: '人',
     color: const Color(0xFFE0528C),
+    memberOnly: true,
     characterIds: const [
       'person_04', 'person_06', 'person_07',
       'zannet_01', 'zannet_02', 'zannet_04', 'zannet_07', 'zannet_11',
@@ -185,6 +191,7 @@ final characterCategories = <CharacterCategory>[
     id: 'home',
     name: '家',
     color: const Color(0xFF34C759),
+    memberOnly: true,
     characterIds: const [
       'orange_cat', 'silly_dog', 'pet', 'corgi', 'poodle',
       'homesick_rabbit', 'sleepy_cat',
@@ -195,6 +202,7 @@ final characterCategories = <CharacterCategory>[
     id: 'fruits',
     name: '蔬果',
     color: const Color(0xFFFF9500),
+    memberOnly: true,
     characterIds: const [
       'pineapple', 'strawberry', 'cherries', 'orange',
       'orange_smile', 'blueberry_kid', 'avocado', 'avocado_watermelon',
@@ -206,6 +214,7 @@ final characterCategories = <CharacterCategory>[
     id: 'plants',
     name: '植物',
     color: const Color(0xFF34C759),
+    memberOnly: true,
     characterIds: const [
       'flower_bunch', 'little_flower', 'big_leaf_plant', 'little_thing',
       'potted_big_leaf', 'green_cactus', 'mushroom_baby',

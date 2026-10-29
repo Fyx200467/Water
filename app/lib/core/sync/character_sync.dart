@@ -109,6 +109,8 @@ class CharacterStore {
       final oldJson = jsonEncode(_items);
       final nextJson = jsonEncode(items);
       if (oldJson != nextJson) changed = true;
+      // 分类改名 / 排序 / 会员权益变更也要触发刷新（角色本身没变时同样）
+      if (jsonEncode(_categories) != jsonEncode(categories)) changed = true;
 
       _categories = categories;
       _items = items;

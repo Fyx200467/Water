@@ -142,7 +142,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     ref.watch(preferredUnitProvider);
     final progress = ref.watch(dailyProgressProvider);
     final checkin = ref.watch(checkinDaysProvider);
-    final currentChar = ref.watch(currentCharacterProvider);
+    final currentChar = ref.watch(effectiveCurrentCharacterProvider);
     final profile = ref.watch(profileProvider);
     final todayKey = LogicalDay.today();
     final isToday = _selectedDate.year == todayKey.year &&

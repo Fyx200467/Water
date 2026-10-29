@@ -1,8 +1,11 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/analytics/analytics.dart';
 import '../../../core/health/health_sync_service.dart';
+import '../../../core/sync/profile_sync.dart';
 import '../../../core/sound/sound_service.dart';
 import '../../../core/storage/providers.dart';
 import '../../../core/sync/sync_service.dart';
@@ -56,6 +59,8 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
     final storage = await ref.read(localStorageProvider.future);
     await storage.saveProfile(p);
     state = p;
+    // 档案改了：立刻上行到服务端，后台用户列表 / 打卡明细与 App 保持一致
+    unawaited(ProfileSync.pushProfile(storage));
   }
 
   Future<void> updateGoal(int newGoal) async {
@@ -106,22 +111,40 @@ final dailyAnimalProvider = FutureProvider<AnimalCharacter>((ref) async {
 /// 避免「删除记录 / 重载数据」等进度回落再回升造成的误庆祝。
 final goalCrossedProvider = StateProvider<int>((ref) => 0);
 
+/// 会话纪元：登录 / 退出 / 被其他设备顶下线时 +1。
+///
+/// 所有按「当前归属账号」读取的数据 provider 都 watch 它：会话一变就
+/// 用新的 owner 立即重新查库，避免首页出现「记录还是账号的、进度却已
+/// 切回游客」这种混合状态（顶号后记录与总量对不上的根因）。
+final sessionEpochProvider = StateProvider<int>((ref) => 0);
+
 /// PRD §2.3 当日饮水记录
 final todayEntriesProvider = StateNotifierProvider<TodayEntriesNotifier, List<DrinkEntry>>((ref) {
+  // 会话切换（登录/退出/顶号）后自动按新归属重新加载
+  ref.watch(sessionEpochProvider);
   return TodayEntriesNotifier(ref);
 });
 
 class TodayEntriesNotifier extends StateNotifier<List<DrinkEntry>> {
   TodayEntriesNotifier(this.ref) : super(const []) {
-    _load();
+    loaded = _load();
   }
   final Ref ref;
 
+  /// 首轮磁盘加载完成信号
+  late final Future<void> loaded;
+
   Future<void> _load() async {
-    final storage = await ref.read(localStorageProvider.future);
-    // 「今天」= 逻辑日：重置时刻（默认 00:00）之前仍算昨天
-    final list = await storage.loadEntriesForDay(LogicalDay.today());
-    state = list;
+    try {
+      final storage = await ref.read(localStorageProvider.future);
+      // 「今天」= 逻辑日：重置时刻（默认 00:00）之前仍算昨天
+      final list = await storage.loadEntriesForDay(LogicalDay.today());
+      if (!mounted) return;
+      state = list;
+    } catch (e) {
+      // 查询失败时保留上一次成功的列表，避免首页数字瞬间归零
+      debugPrint('[home] load today entries failed: $e');
+    }
   }
 
   /// [celebrate] 为 false 时不发声/不庆祝（小组件后台 isolate 录入用）
@@ -136,6 +159,15 @@ class TodayEntriesNotifier extends StateNotifier<List<DrinkEntry>> {
     // 云同步：开启无感同步时把本地记录推到服务端（离线则留待下次启动/回前台）
     unawaited(SyncService.autoSync(storage));
     final afterMl = HydrationCalculator.sumEffective(state);
+    // 漏斗辅助指标：有真实打卡行为的用户数（含游客，服务端按 actor 去重）
+    Analytics.track(
+      'checkin',
+      props: {
+        'volumeMl': entry.volumeMl,
+        'effectiveMl': entry.effectiveMl,
+        'beverage': entry.beverageId,
+      },
+    );
     // 只有「真实加水后跨过目标」才庆祝：
     // 删除记录、回前台重载、数据抖动都不会触发（避免误播音效/误点亮）
     if (celebrate && beforeMl < goalMl && afterMl >= goalMl && afterMl > beforeMl) {

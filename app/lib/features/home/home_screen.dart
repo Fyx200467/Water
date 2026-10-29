@@ -300,7 +300,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   Widget build(BuildContext context) {
     final progress = ref.watch(dailyProgressProvider);
     final checkin = ref.watch(checkinDaysProvider);
-    final currentChar = ref.watch(currentCharacterProvider);
+    final currentChar = ref.watch(effectiveCurrentCharacterProvider);
     // 单位切换后首页数字需要立即按新单位重绘
     ref.watch(preferredUnitProvider);
 
@@ -958,7 +958,18 @@ class _DeferredTweenState extends State<_DeferredTween>
   }
 
   @override
-  Widget build(BuildContext context) => widget.builder(context, _value);
+  Widget build(BuildContext context) {
+    // 兜底补播：数据在被上层页面/弹窗遮盖期间发生变化，而遮盖是通过
+    // 非动画方式撤掉的（如顶号弹窗期间 Provider 整体刷新），这里在当前
+    // 路由重回前台时补一次过渡，避免数字/液面长期停留在旧值。
+    if (_pending && (ModalRoute.of(context)?.isCurrent ?? true)) {
+      _pending = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _start();
+      });
+    }
+    return widget.builder(context, _value);
+  }
 }
 
 /// 顶部总量数字的「液面高光」：柔和白色亮带每 2 秒自左向右扫过字体，

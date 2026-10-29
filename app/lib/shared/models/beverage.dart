@@ -31,6 +31,7 @@ class Beverage {
     this.hydrationRatio,
     this.templateId,
     this.animation,
+    this.volumePreset,
     this.containerId,
     this.memberOnly = false,
     this.categoryKey,
@@ -47,17 +48,22 @@ class Beverage {
   final int defaultMl;
   final IconData icon;
 
-  /// 液体颜色（对标原版每种饮品独立配色），为空时回退到分类色
+  /// 液体颜色，为空时：后台饮品用中性色，内置预设回退到分类色
   final Color? liquidColor;
 
-  /// 单品折算比例覆盖（负值为脱水，如啤酒 -40% 白酒 -318% 红酒 -95%），为空时用分类比例
+  /// 单品折算比例覆盖（负值为脱水，如啤酒 -40% 白酒 -318% 红酒 -95%），
+  /// 后台饮品未填时按 100% 处理；内置预设为空时回退到分类比例
   final double? hydrationRatio;
 
   /// 自定义饮品的模板插画 id（预览/图标沿用该模板的 SVG artwork）
   final String? templateId;
 
-  /// 液体动画：'bubbles' 气泡 / 'micro' 微气泡 / 'ice' 冰块 / 'rice' 悬浮米粒 / 'none' 无；为空时按模板推断（汤粥→米粒，其余→气泡）
+  /// 液体动画：'bubbles' 气泡 / 'micro' 微气泡 / 'ice' 冰块 / 'rice' 悬浮米粒 / 'none' 无；
+  /// 后台饮品未填时按气泡处理，内置预设为空时按分类推断（汤粥→米粒）
   final String? animation;
+
+  /// 快捷容量档位：'water' 5 档 / 'regular' 3 档；为空时按内置分类推断
+  final String? volumePreset;
 
   /// 容器图标 id（'svg:<文件名>' 对应 assets/images/containers/ 下的 SVG 剪影），为空时沿用模板插画
   final String? containerId;
@@ -74,6 +80,9 @@ class Beverage {
   /// 分类 code（后台新增分类可能不在枚举内）
   String get categoryCode => categoryKey ?? category.name;
 
+  /// 是否来自后台目录：行为字段以单品为准，不再用分类做兜底
+  bool get isRemote => categoryKey != null;
+
   /// 分类显示名（App 饮品页胶囊与卡片副标题使用）
   String get categoryLabel => categoryName ?? category.label;
 
@@ -88,10 +97,12 @@ class Beverage {
   final int? caffeineMg;
   final int? alcoholPercent;
 
-  /// 动画生效值：单品设置优先，否则按分类推断
+  /// 动画生效值：单品设置优先；后台饮品默认气泡，内置预设按分类推断
   String get effectiveAnimation =>
       animation ??
-      (category == BeverageCategory.soup ? 'rice' : 'bubbles');
+      (isRemote
+          ? 'bubbles'
+          : (category == BeverageCategory.soup ? 'rice' : 'bubbles'));
 
   /// 分类 → 默认插画 id（无专属 artwork 时回退）
   static String fallbackIllustration(BeverageCategory c) => switch (c) {
@@ -106,16 +117,22 @@ class Beverage {
         BeverageCategory.alcohol => 'alcohol_beer',
       };
 
-  /// 显示用颜色：优先使用液体色，否则分类色
-  Color get color => liquidColor ?? category.color;
+  /// 显示用颜色：优先使用单品液体色；未配置时回退分类色
+  /// （与后台一致，避免茶等无液体色的饮品被渲染成蓝色）
+  Color get color => liquidColor ?? categoryColor;
 
-  /// 容量档位：水 5 档；其他饮品统一 3 档（自定义量会永久覆盖其中一档）
-  List<int> get volumes => category == BeverageCategory.water
-      ? const [100, 200, 300, 500, 1000]
-      : const [250, 330, 500];
+  /// 容量档位：按单品配置；未配置时内置预设按纯水 5 档、其余 3 档
+  List<int> get volumes {
+    if (volumePreset == 'water') return const [100, 200, 300, 500, 1000];
+    if (volumePreset == 'regular') return const [250, 330, 500];
+    return category == BeverageCategory.water
+        ? const [100, 200, 300, 500, 1000]
+        : const [250, 330, 500];
+  }
 
-  /// 实际生效的折算比例：单品覆盖优先，否则用分类比例
-  double get effectiveRatio => hydrationRatio ?? category.hydrationRatio;
+  /// 实际生效的折算比例：单品覆盖优先；后台饮品未填按 100%，内置预设用分类比例
+  double get effectiveRatio =>
+      hydrationRatio ?? (isRemote ? 1.0 : category.hydrationRatio);
 
   /// 实际有效水分 = 容量 × 折算比例（负值为脱水，从当日总量中扣减）
   int effectiveMl(int volumeMl) => (volumeMl * effectiveRatio).round();

@@ -241,6 +241,7 @@ class CharacterCatalogState {
     required this.categories,
     required this.uploadedFilePaths,
     required this.displayNames,
+    this.memberOnlyIds = const {},
   });
 
   /// 当前可见分类（每个分类的 characterIds 已过滤下架、追加可见的上传素材）
@@ -252,6 +253,9 @@ class CharacterCatalogState {
   /// 角色 id → 显示名称（含后台新增/改名的角色）
   final Map<String, String> displayNames;
 
+  /// 后台标记为「会员专属」的单个角色 id（分类整组会员由 category.memberOnly 表达）
+  final Set<String> memberOnlyIds;
+
   /// 全部可见角色 id
   Set<String> get allIds => {
         for (final c in categories) ...c.characterIds,
@@ -260,6 +264,15 @@ class CharacterCatalogState {
   /// 全部可见角色总数
   int get totalCount =>
       categories.fold(0, (sum, c) => sum + c.characterIds.length);
+
+  /// 角色是否属于会员专属（单角色标记或整组会员）
+  bool isMemberOnly(String id) {
+    if (memberOnlyIds.contains(id)) return true;
+    for (final c in categories) {
+      if (c.memberOnly && c.characterIds.contains(id)) return true;
+    }
+    return false;
+  }
 }
 
 /// 分类色：内置分类沿用客户端配色，后台新增分类按 code 稳定取色
@@ -326,12 +339,19 @@ class CharacterCatalogNotifier
 
       String text(Map<String, dynamic> m, String key) =>
           (m[key] ?? '').toString();
+      bool flag(Map<String, dynamic> m, String key) {
+        final v = m[key];
+        return v == true || v == 1 || v == '1' || v == 'true';
+      }
+
       String idOf(Map<String, dynamic> m) {
         final id = text(m, 'id');
         return id.isEmpty ? text(m, 'code') : id;
       }
 
       final visibleCategories = <CharacterCategory>[];
+      // 后台按角色单独标记的会员专属（整组权益看分类上的 memberOnly）
+      final memberOnlyIds = <String>{};
 
       if (useServer) {
         // 服务端列表为准：分类、名称、排序、素材全部来自后台
@@ -340,6 +360,7 @@ class CharacterCatalogNotifier
           if (id.isEmpty) continue;
           final name = text(item, 'name');
           if (name.isNotEmpty) names[id] = name;
+          if (flag(item, 'memberOnly')) memberOnlyIds.add(id);
           final cached = CharacterStore.filePathSync(id);
           if (cached != null) paths[id] = cached;
         }
@@ -353,7 +374,8 @@ class CharacterCatalogNotifier
                       ? 'daily'
                       : text(item, 'categoryCode')) ==
                   code)
-                idOf(item),
+                // 每日随机池：后台标记 inDailyPool=false 的角色不进「每日」分类
+                if (code != 'daily' || item['inDailyPool'] != false) idOf(item),
           ].where((id) => id.isNotEmpty).toList();
           // 本地后台上传的素材仍可追加进同名分类
           for (final a in localUploaded) {
@@ -369,6 +391,7 @@ class CharacterCatalogNotifier
             name: name.isEmpty ? code : name,
             color: _categoryColor(code),
             characterIds: ids,
+            memberOnly: flag(raw, 'memberOnly'),
           ));
         }
       } else {
@@ -389,6 +412,7 @@ class CharacterCatalogNotifier
             color: cat.color,
             subtitle: cat.subtitle,
             characterIds: ids,
+            memberOnly: cat.memberOnly,
           ));
         }
       }
@@ -397,6 +421,7 @@ class CharacterCatalogNotifier
         categories: visibleCategories,
         uploadedFilePaths: paths,
         displayNames: names,
+        memberOnlyIds: memberOnlyIds,
       ));
     } catch (e, st) {
       state = AsyncValue.error(e, st);

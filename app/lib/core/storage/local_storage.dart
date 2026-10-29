@@ -381,6 +381,70 @@ class LocalStorage {
     }
   }
 
+  static const String _kAccountAvatarRemote = 'account_avatar_remote_url';
+  static const String _kPushedProfile = 'account_pushed_profile';
+  static const String _kGuestProfile = 'guest_profile_snapshot';
+  static const String _kRejectedOrderNotice = 'account_rejected_order_notice';
+
+  String get _accountUid {
+    final uid = syncUserId;
+    return (uid == null || uid.isEmpty) ? 'guest' : uid;
+  }
+
+  /// 服务端头像地址（/static/avatars/...），用于判断本机是否需要重新下载
+  String? get accountAvatarRemoteUrl {
+    final v = prefs.getString('${_kAccountAvatarRemote}_$_accountUid');
+    return (v == null || v.isEmpty) ? null : v;
+  }
+
+  Future<void> setAccountAvatarRemoteUrl(String? url) async {
+    final key = '${_kAccountAvatarRemote}_$_accountUid';
+    if (url == null || url.isEmpty) {
+      await prefs.remove(key);
+    } else {
+      await prefs.setString(key, url);
+    }
+  }
+
+  /// 上次与服务端对齐的档案签名（性别/体重/身高/年龄/活动量/目标），
+  /// 避免每轮同步重复 PATCH；为空表示该账号尚未与服务端对齐
+  String? get lastPushedProfileSignature {
+    final v = prefs.getString('${_kPushedProfile}_$_accountUid');
+    return (v == null || v.isEmpty) ? null : v;
+  }
+
+  Future<void> setLastPushedProfileSignature(String signature) async {
+    await prefs.setString('${_kPushedProfile}_$_accountUid', signature);
+  }
+
+  Future<void> clearLastPushedProfileSignature() async {
+    await prefs.remove('${_kPushedProfile}_$_accountUid');
+  }
+
+  /// 登录前游客档案快照：退出账号后恢复，避免账号资料留在游客视图里
+  UserProfile? get guestProfileSnapshot {
+    final raw = prefs.getString(_kGuestProfile);
+    return raw == null ? null : UserProfile.fromMap(_decodeMap(raw));
+  }
+
+  Future<void> saveGuestProfileSnapshot(UserProfile profile) async {
+    await prefs.setString(_kGuestProfile, _encodeMap(profile.toMap()));
+  }
+
+  Future<void> clearGuestProfileSnapshot() async {
+    await prefs.remove(_kGuestProfile);
+  }
+
+  /// 已经弹过「申请未通过」提示的订单 ID，避免重复打扰
+  String? get lastRejectedNoticeOrderId {
+    final v = prefs.getString('${_kRejectedOrderNotice}_$_accountUid');
+    return (v == null || v.isEmpty) ? null : v;
+  }
+
+  Future<void> setLastRejectedNoticeOrderId(String orderId) async {
+    await prefs.setString('${_kRejectedOrderNotice}_$_accountUid', orderId);
+  }
+
   /// 无感同步开关：开启后在数据变动 / 冷启动 / 回前台时自动同步
   bool get autoSyncEnabled => prefs.getBool(_kAutoSync) ?? true;
 

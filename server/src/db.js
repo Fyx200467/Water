@@ -70,6 +70,17 @@ db.exec(`
     updated_at   TEXT NOT NULL
   );
 
+  -- 会员权益目录：后台勾选绑定到套餐，客户端会员中心按套餐展示
+  CREATE TABLE IF NOT EXISTS membership_benefits (
+    code         TEXT PRIMARY KEY,
+    name         TEXT NOT NULL,
+    description  TEXT,
+    icon         TEXT,
+    sort         INTEGER NOT NULL DEFAULT 0,
+    is_published INTEGER NOT NULL DEFAULT 1,
+    created_at   TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS admins (
     id            TEXT PRIMARY KEY,
     email         TEXT NOT NULL UNIQUE,
@@ -146,6 +157,89 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_orders_status
     ON membership_orders(status, created_at);
+
+  -- 内测版本发布：客户端启动时据此提示更新（最新启用的一条生效）
+  CREATE TABLE IF NOT EXISTS app_releases (
+    id           TEXT PRIMARY KEY,
+    platform     TEXT NOT NULL,
+    version_name TEXT NOT NULL,
+    version_code INTEGER NOT NULL,
+    download_url TEXT,
+    notes        TEXT,
+    force_update INTEGER NOT NULL DEFAULT 0,
+    is_published INTEGER NOT NULL DEFAULT 1,
+    created_at   TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_releases_platform
+    ON app_releases(platform, version_code DESC);
+
+  -- 用户反馈（内测收集问题用）
+  CREATE TABLE IF NOT EXISTS feedback (
+    id          TEXT PRIMARY KEY,
+    user_id     TEXT,
+    content     TEXT NOT NULL,
+    contact     TEXT,
+    app_version TEXT,
+    platform    TEXT,
+    device      TEXT,
+    status      TEXT NOT NULL DEFAULT 'open',
+    created_at  TEXT NOT NULL,
+    resolved_at TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_feedback_status
+    ON feedback(status, created_at);
+
+  -- 首页贴士卡：后台可增删改，客户端目录下发；表为空时用安装包内置卡池兜底
+  CREATE TABLE IF NOT EXISTS tips (
+    id          TEXT PRIMARY KEY,
+    group_code  TEXT NOT NULL,
+    title       TEXT NOT NULL,
+    bg_color    TEXT,
+    fg_color    TEXT,
+    image_url   TEXT,
+    sort        INTEGER NOT NULL DEFAULT 0,
+    is_published INTEGER NOT NULL DEFAULT 1,
+    created_at  TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_tips_published
+    ON tips(is_published, sort);
+
+  -- 客户端异常上报：内测阶段收集 Dart 未捕获异常（自建，不引入第三方 SDK）
+  CREATE TABLE IF NOT EXISTS client_errors (
+    id          TEXT PRIMARY KEY,
+    user_id     TEXT,
+    message     TEXT NOT NULL,
+    stack       TEXT,
+    app_version TEXT,
+    platform    TEXT,
+    device      TEXT,
+    created_at  TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_client_errors_time
+    ON client_errors(created_at DESC);
+
+  -- 客户端行为埋点：只记录关键漏斗事件，按 actor 去重统计转化
+  -- actor_id = 登录用户 ID；游客为 anon:<本机匿名 ID>
+  CREATE TABLE IF NOT EXISTS analytics_events (
+    id          TEXT PRIMARY KEY,
+    actor_id    TEXT NOT NULL,
+    user_id     TEXT,
+    event       TEXT NOT NULL,
+    props       TEXT,
+    platform    TEXT,
+    app_version TEXT,
+    created_at  TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_analytics_event
+    ON analytics_events(event, created_at DESC);
+
+  CREATE INDEX IF NOT EXISTS idx_analytics_actor
+    ON analytics_events(actor_id, event);
 `);
 
 // 轻量迁移：历史库补列（users 个人资料 + 会员字段、订单套餐快照）
@@ -168,7 +262,11 @@ addMissingColumns('users', {
   gender: 'TEXT',
   weight_kg: 'REAL',
   height_cm: 'REAL',
+  age: 'INTEGER',
+  activity_level: 'TEXT',
   daily_goal_ml: 'INTEGER',
+  // 头像相对地址（/static/avatars/xxx.jpg），跨设备登录时下发
+  avatar_url: 'TEXT',
   membership_expire_at: 'TEXT',
   membership_permanent: 'INTEGER NOT NULL DEFAULT 0',
 });
@@ -187,6 +285,14 @@ db.exec(`
 addMissingColumns('beverages', {
   icon_url: 'TEXT',
   liquid_color: 'TEXT',
+  // 营养值按每 250ml 计（与 App 内置预设的展示口径一致），酒精为 %vol
+  calories: 'INTEGER',
+  caffeine_mg: 'INTEGER',
+  alcohol_percent: 'INTEGER',
+  // 快捷容量档位：water = 5 档（100/200/300/500/1000），regular = 3 档（250/330/500）
+  volume_preset: "TEXT NOT NULL DEFAULT 'regular'",
+  // 液体动画：bubbles / micro / ice / rice / none；为空时客户端按 bubbles 兜底
+  animation: 'TEXT',
 });
 
 addMissingColumns('membership_orders', {
@@ -197,7 +303,22 @@ addMissingColumns('membership_orders', {
 // 角色分类：与客户端「每日 / 可爱 / 人 / 家 / 蔬果 / 植物」一一对应
 addMissingColumns('characters', {
   category_code: "TEXT NOT NULL DEFAULT 'daily'",
+  // 每日随机池：仅「每日」分类下的角色参与随机；=0 的角色不进池（后台可配）
+  in_daily_pool: 'INTEGER NOT NULL DEFAULT 1',
 });
+
+// 角色分类会员权益：后台可配置整组免费 / 会员专属（客户端据此加锁）
+// 首次迁移按原客户端硬编码回填：daily 免费、其余内置分类会员专属
+const hadCategoryMemberFlag = db
+  .prepare(`SELECT name FROM pragma_table_info('character_categories')`)
+  .all()
+  .some((r) => r.name === 'member_only');
+addMissingColumns('character_categories', {
+  member_only: 'INTEGER NOT NULL DEFAULT 0',
+});
+if (!hadCategoryMemberFlag) {
+  db.prepare(`UPDATE character_categories SET member_only = 1 WHERE code <> 'daily'`).run();
+}
 
 // 套餐默认值与 App 内置兜底保持一致
 const seedPlan = db.prepare(
@@ -209,6 +330,32 @@ const seededAt = new Date().toISOString();
 seedPlan.run('monthly', '月卡', 1800, 30, null, 1, seededAt);
 seedPlan.run('yearly', '年卡', 9800, 365, '推荐', 2, seededAt);
 seedPlan.run('lifetime', '永久会员', 19800, 0, '一次买断', 3, seededAt);
+
+// 会员权益目录：与客户端会员中心内置文案一致；套餐里存逗号分隔的 code
+const seedBenefit = db.prepare(
+  `INSERT INTO membership_benefits (code, name, description, icon, sort, created_at)
+   VALUES (?, ?, ?, ?, ?, ?)
+   ON CONFLICT(code) DO NOTHING`,
+);
+const builtinBenefits = [
+  ['characters', '全部动物角色', '免费版每日限量，会员解锁全部角色', 'pets', 0],
+  ['beverages', '全部饮品库', '解锁奶茶、酒类与自定义饮品', 'local_drink', 1],
+  ['widgets', '专属小组件', '自定义主题色与彩色字符层', 'widgets', 2],
+  ['export', '数据导出', '一键导出全部饮水记录 CSV', 'ios_share', 3],
+  ['adfree', '无广告', '纯净的饮水体验', 'block', 4],
+];
+for (const [code, name, desc, icon, sort] of builtinBenefits) {
+  seedBenefit.run(code, name, desc, icon, sort, seededAt);
+}
+
+// 老库补列后把所有套餐默认为「全量权益」，与改造前的客户端表现一致；
+// 只补 NULL，运营把某套餐权益清空（写入空串）后重启不会被回填
+addMissingColumns('membership_plans', {
+  benefits: 'TEXT',
+});
+db.prepare('UPDATE membership_plans SET benefits = ? WHERE benefits IS NULL').run(
+  builtinBenefits.map(([code]) => code).join(','),
+);
 
 // 内置 12 款饮品：与 App 端 Beverage.presets 同 id，后台可直接改图标/颜色/容量。
 // ON CONFLICT(id) DO NOTHING：重启不覆盖运营已改过的数据。icon_url 为空时
@@ -236,7 +383,38 @@ for (const [id, name, category, ml, ratio, color, sort] of builtinBeverages) {
   seedBeverage.run(id, name, category, ml, ratio, color, sort, seededAt, seededAt);
 }
 
+// 内置饮品营养值回填：口径与 App 预设一致（卡路里/咖啡因按每 250ml，酒精为 %vol）。
+// 只补空值，不覆盖运营已经改过的数据。
+const builtinNutrition = [
+  ['water_pure', 0, 0, null, 'bubbles'],
+  ['tea', 0, 47, null, 'bubbles'],
+  ['coffee', 5, 95, null, 'bubbles'],
+  ['milk_milk', 155, 0, null, 'bubbles'],
+  ['milk_tea', 170, 45, null, 'bubbles'],
+  ['milk_juice', 110, 0, null, 'bubbles'],
+  ['soda', 100, 25, null, 'bubbles'],
+  ['soup_porridge', 80, 0, null, 'rice'],
+  ['soup_chicken', 35, 0, null, 'rice'],
+  ['alcohol_beer', 110, 0, 3, 'bubbles'],
+  ['alcohol_wine', 200, 0, 10, 'bubbles'],
+  ['alcohol_spirits', 550, 0, 20, 'bubbles'],
+];
+const fillBuiltinNutrition = db.prepare(
+  `UPDATE beverages
+      SET calories = COALESCE(calories, ?),
+          caffeine_mg = COALESCE(caffeine_mg, ?),
+          alcohol_percent = COALESCE(alcohol_percent, ?),
+          animation = COALESCE(animation, ?)
+    WHERE id = ?`,
+);
+for (const [id, calories, caffeine, alcohol, animation] of builtinNutrition) {
+  fillBuiltinNutrition.run(calories, caffeine, alcohol, animation, id);
+}
+// 纯水使用 5 档快捷容量，其余饮品默认 3 档
+db.prepare("UPDATE beverages SET volume_preset = 'water' WHERE id = 'water_pure'").run();
+
 // 内置九个分类：code 与 App 的 BeverageCategory 枚举名一致。
+// base_category 为历史字段，客户端已不再读取，仅保留兼容旧数据。
 // ON CONFLICT DO NOTHING：后台改过的名称/颜色/排序重启后不被覆盖。
 const seedCategory = db.prepare(
   `INSERT INTO beverage_categories (code, name, color, base_category, sort, created_at)
@@ -258,22 +436,22 @@ for (const [code, name, color, base, sort] of builtinCategories) {
   seedCategory.run(code, name, color, base, sort, seededAt);
 }
 
-// 角色分类：与客户端分类一一对应
+// 角色分类：与客户端分类一一对应；member_only = 1 表示整组会员专属
 const seedCharacterCategory = db.prepare(
-  `INSERT INTO character_categories (code, name, sort, created_at)
-   VALUES (?, ?, ?, ?)
+  `INSERT INTO character_categories (code, name, sort, member_only, created_at)
+   VALUES (?, ?, ?, ?, ?)
    ON CONFLICT(code) DO NOTHING`,
 );
 const builtinCharacterCategories = [
-  ['daily', '每日', 0],
-  ['cute', '可爱', 1],
-  ['people', '人', 2],
-  ['home', '家', 3],
-  ['fruits', '蔬果', 4],
-  ['plants', '植物', 5],
+  ['daily', '每日', 0, 0],
+  ['cute', '可爱', 1, 1],
+  ['people', '人', 2, 1],
+  ['home', '家', 3, 1],
+  ['fruits', '蔬果', 4, 1],
+  ['plants', '植物', 5, 1],
 ];
-for (const [code, name, sort] of builtinCharacterCategories) {
-  seedCharacterCategory.run(code, name, sort, seededAt);
+for (const [code, name, sort, memberOnly] of builtinCharacterCategories) {
+  seedCharacterCategory.run(code, name, sort, memberOnly, seededAt);
 }
 
 // 内置 90 个角色：与客户端 assets/images/characters 同名素材，

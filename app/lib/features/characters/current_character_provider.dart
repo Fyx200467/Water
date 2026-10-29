@@ -1,6 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/storage/providers.dart';
+import '../membership/membership_provider.dart';
+import 'character_catalog.dart';
 
 /// 当前选中角色（首页液体填充用）
 ///
@@ -34,4 +36,16 @@ class CurrentCharacterNotifier extends StateNotifier<String> {
 final currentCharacterProvider =
     StateNotifierProvider<CurrentCharacterNotifier, String>((ref) {
   return CurrentCharacterNotifier(ref);
+});
+
+/// 实际生效的填充角色：非会员时若选中的是会员专属角色，回退到默认羊驼。
+///
+/// 退出登录 / 账号被挤下线后会员权益立即失效，首页不会继续展示
+/// 上一个会员账号使用的专属角色。
+final effectiveCurrentCharacterProvider = Provider<String>((ref) {
+  final selected = ref.watch(currentCharacterProvider);
+  if (ref.watch(membershipProvider).isMember) return selected;
+  final catalog = ref.watch(characterCatalogProvider).asData?.value;
+  if (catalog != null && catalog.isMemberOnly(selected)) return 'alpaca';
+  return selected;
 });

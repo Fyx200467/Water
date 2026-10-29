@@ -1,9 +1,12 @@
+import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/sync/sync_api.dart';
 import 'tips_all_screen.dart';
 
 /// 已读（完成）贴士集合——全局共享：首页牌堆「✓ N/3」与查看全部页
@@ -49,13 +52,25 @@ class TipsDeckModule extends StatefulWidget {
 }
 
 class _TipsDeckModuleState extends State<TipsDeckModule> {
-  /// 三张堆叠卡 = 从全量主题卡池随机抽 3（对标原版随机渲染）
-  late final List<TipCardData> _deck = pickRandomTips(3);
+  /// 三张堆叠卡 = 从后台下发的卡池（未配置时用内置卡池）随机抽 3
+  late List<TipCardData> _deck = pickRandomTips(3, pool: TipStore.pool.value);
 
   @override
   void initState() {
     super.initState();
     ensureTipsReadLoaded();
+    TipStore.pool.addListener(_onPoolChanged);
+  }
+
+  void _onPoolChanged() {
+    if (!mounted) return;
+    setState(() => _deck = pickRandomTips(3, pool: TipStore.pool.value));
+  }
+
+  @override
+  void dispose() {
+    TipStore.pool.removeListener(_onPoolChanged);
+    super.dispose();
   }
 
   @override
@@ -99,7 +114,7 @@ class TipGroup {
   ];
 }
 
-/// 单张贴士卡数据（插画 imageId 后续从管理端上传，先占位纯色）
+/// 单张贴士卡数据：后台可配置文案、配色与插画，未配置插画时显示纯色底
 class TipCardData {
   const TipCardData({
     required this.group,
@@ -107,6 +122,7 @@ class TipCardData {
     required this.fg,
     required this.title,
     this.image,
+    this.imageUrl,
   });
 
   final TipGroup group;
@@ -114,8 +130,101 @@ class TipCardData {
   final Color fg;
   final String title;
 
-  /// 卡面插画资产路径（null 时显示纯色底占位）
+  /// 安装包内置插画资产路径（null 时显示纯色底）
   final String? image;
+
+  /// 后台下发的云端插画地址（优先于内置资产）
+  final String? imageUrl;
+
+  /// 后台下发的卡片 → 本地模型
+  factory TipCardData.fromJson(Map<String, dynamic> j) {
+    final group = tipGroupByCode(j['groupCode'] as String?);
+    final bg = _parseHexColor(j['bgColor'] as String?) ??
+        group.color.withValues(alpha: 0.16);
+    final fg = _parseHexColor(j['fgColor'] as String?) ?? group.color;
+    final url = (j['imageUrl'] as String?)?.trim();
+    return TipCardData(
+      group: group,
+      bg: bg,
+      fg: fg,
+      title: (j['title'] as String?) ?? '',
+      imageUrl: (url == null || url.isEmpty) ? null : url,
+    );
+  }
+}
+
+/// 分组 code ↔ 客户端分组（与后台 tips.group_code 一致）
+TipGroup tipGroupByCode(String? code) {
+  switch (code) {
+    case 'hydration':
+      return gHydration;
+    case 'lifehacks':
+      return gLifehacks;
+    case 'drinks':
+      return gDrinks;
+    case 'health':
+      return gHealth;
+    default:
+      return gGeneral;
+  }
+}
+
+Color? _parseHexColor(String? hex) {
+  final v = (hex ?? '').trim().replaceFirst('#', '');
+  if (v.length != 6) return null;
+  final n = int.tryParse(v, radix: 16);
+  return n == null ? null : Color(0xFF000000 | n);
+}
+
+/// 贴士卡池：启动时读缓存，联网后与后台对齐；后台没配置时保留内置卡池
+class TipStore {
+  static const _kCache = 'tips_cache_v1';
+
+  static final ValueNotifier<List<TipCardData>> pool =
+      ValueNotifier<List<TipCardData>>(kTipPool);
+
+  /// 读回上次同步结果（离线优先）
+  static Future<void> init() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_kCache);
+      if (raw == null || raw.isEmpty) return;
+      final list = (jsonDecode(raw) as List)
+          .map((e) => TipCardData.fromJson(e as Map<String, dynamic>))
+          .where((t) => t.title.isNotEmpty)
+          .toList();
+      if (list.isNotEmpty) pool.value = list;
+    } catch (_) {
+      // 缓存损坏时继续用内置卡池
+    }
+  }
+
+  /// 拉取后台贴士目录；空数组视为「未配置」，继续用内置卡池
+  static Future<bool> sync() async {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
+    try {
+      final req = await client.getUrl(
+        Uri.parse('${SyncApi.baseUrl}/v1/catalog/tips'),
+      );
+      final res = await req.close();
+      if (res.statusCode != 200) return false;
+      final text = await res.transform(utf8.decoder).join();
+      final data = jsonDecode(text) as List;
+      final list = data
+          .map((e) => TipCardData.fromJson(e as Map<String, dynamic>))
+          .where((t) => t.title.isNotEmpty)
+          .toList();
+      if (list.isEmpty) return false;
+      pool.value = list;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_kCache, text);
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      client.close();
+    }
+  }
 }
 
 /// 全量主题卡池（文案先写死对标原版，后续接管理端上传）
@@ -282,10 +391,10 @@ const List<TipCardData> kTipPool = [
       title: '喝水也要讲究时机！'),
 ];
 
-/// 从卡池随机抽 n 张不重复卡（首页牌堆用）
-List<TipCardData> pickRandomTips(int n) {
-  final pool = List.of(kTipPool)..shuffle(Random());
-  return pool.take(n).toList();
+/// 从卡池随机抽 n 张不重复卡（首页牌堆用；默认内置池，可传后台目录）
+List<TipCardData> pickRandomTips(int n, {List<TipCardData>? pool}) {
+  final src = List.of(pool ?? kTipPool)..shuffle(Random());
+  return src.take(n).toList();
 }
 
 /// 贴士卡面（堆叠卡与查看全部页共用）：
@@ -327,14 +436,22 @@ class TipCardFace extends StatelessWidget {
         children: [
           // 插画层：铺满整卡（BoxFit.cover 等比铺满+居中裁剪，尺寸不匹配自动裁边）
           Positioned.fill(
-            child: data.image != null
-                ? Image.asset(
-                    data.image!,
+            child: data.imageUrl != null
+                ? Image.network(
+                    data.imageUrl!,
                     fit: BoxFit.cover,
                     width: double.infinity,
                     height: double.infinity,
+                    errorBuilder: (_, __, ___) => const SizedBox.expand(),
                   )
-                : const SizedBox.expand(),
+                : data.image != null
+                    ? Image.asset(
+                        data.image!,
+                        fit: BoxFit.cover,
+                        width: double.infinity,
+                        height: double.infinity,
+                      )
+                    : const SizedBox.expand(),
           ),
           // 文案层：左下角，最多 3 行防长文案溢出
           Positioned(

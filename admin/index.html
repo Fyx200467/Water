@@ -152,21 +152,32 @@
   .tag.paid { background: #e8f7ee; color: #1f9254; }
   .tag.pending { background: #fff4dd; color: #b07d19; }
   .tag.cancelled, .tag.refunded { background: #f1f2f5; color: #8e8e93; }
+  .tag.rejected { background: #fdecec; color: var(--danger); }
   .row-actions { display: flex; gap: 6px; }
   .empty { padding: 40px; text-align: center; color: var(--gray); font-size: 13px; }
   .pager { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; font-size: 12px; color: var(--gray); align-items: center; }
-  /* 图标库网格 */
-  .icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 12px; padding: 16px; }
-  .icon-cell { background: #f7f8fa; border-radius: 14px; padding: 10px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
-  .icon-cell img { width: 92px; height: 92px; object-fit: contain; border-radius: 12px; background: rgba(0,0,0,.20); padding: 8px; }
-  .icon-cell .fname { font-size: 11px; color: var(--gray); font-family: ui-monospace, Consolas, monospace; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 容器图标库：表格里的图标缩略图（点击放大） */
+  .icon-thumb {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 48px; height: 48px; border-radius: 10px; background: #f5f6f8;
+  }
+  .icon-thumb img {
+    width: 40px; height: 40px; object-fit: contain;
+    filter: drop-shadow(0 0 1px rgba(0,0,0,.45));
+  }
+  .icon-fname {
+    font-size: 12px; color: #4b5563;
+    font-family: ui-monospace, Consolas, monospace;
+  }
   .swatch { display: inline-block; width: 14px; height: 14px; border-radius: 4px; vertical-align: -2px; margin-right: 6px; border: 1px solid rgba(0,0,0,.08); }
   /* 饮品图标：容器剪影 + 液体色填充，与 App 饮品页一致 */
   .icon-tile {
     display: inline-flex; align-items: center; justify-content: center;
-    border-radius: 9px; background: #eef4f8; overflow: hidden; vertical-align: middle;
+    border-radius: 9px; overflow: hidden; vertical-align: middle;
   }
   .icon-tile img { object-fit: contain; }
+  /* 饮品图标：去掉承载背景，点击放大查看 */
+  .icon-btn { border: 0; background: transparent; padding: 0; display: inline-flex; cursor: zoom-in; }
 
   /* ---------------- 弹窗 ---------------- */
   #modalMask {
@@ -174,16 +185,200 @@
     display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 40;
   }
   .modal {
-    width: 520px; max-height: 88vh; overflow: auto; background: #fff;
+    width: 520px; max-width: 100%; max-height: 88vh; overflow: auto; background: #fff;
     border-radius: 20px; padding: 22px 24px;
   }
   .modal h3 { margin: 0 0 16px; font-size: 18px; }
   .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .form-grid .full { grid-column: 1 / -1; }
+  .form-grid > div > label,
+  .bev-hero-meta > div > label {
+    display: block; font-size: 12px; color: var(--gray); margin-bottom: 6px;
+  }
   .check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink); padding-top: 22px; }
   .check input { width: 16px; height: 16px; }
   .modal-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
   .modal-err { color: var(--danger); font-size: 12px; margin-top: 10px; }
+  /* 饮品编辑：参考客户端添加饮品页的分区 + 色板 */
+  .modal.wide { width: 880px; }
+  /* 只读信息弹窗（如用户打卡明细） */
+  .modal.mid { width: 720px; max-width: 100%; }
+  /* 打卡数据：按天卡片（总计 KPI + 日期切换 + 当日指标/明细） */
+  .day-card {
+    border: 1px solid var(--line); border-radius: 16px;
+    padding: 14px 16px; background: #fff; margin-bottom: 12px;
+  }
+  .day-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap;
+  }
+  .day-title { font-size: 14px; font-weight: 600; }
+  .day-sub { font-size: 12px; color: var(--gray); margin-top: 4px; }
+  .day-nav { display: flex; align-items: center; gap: 8px; }
+  .day-nav button {
+    width: 30px; height: 30px; flex: none; padding: 0;
+    border: 1px solid var(--line); border-radius: 9px;
+    background: #fff; color: var(--ink); font-size: 15px; line-height: 1;
+  }
+  .day-nav button:disabled { opacity: .38; cursor: default; }
+  .day-nav select { width: auto; min-width: 138px; }
+  .metric-grid {
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px; margin-top: 14px;
+  }
+  .metric { background: #f7f9fb; border-radius: 12px; padding: 10px 12px; min-width: 0; }
+  .metric-label {
+    font-size: 12px; color: var(--gray);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .metric-value {
+    font-size: 18px; font-weight: 700; margin-top: 6px; line-height: 1.15;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .metric-value em { font-style: normal; font-size: 12px; font-weight: 600; color: var(--gray); margin-left: 2px; }
+  .day-detail { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
+  .day-detail .card { box-shadow: none; border: 1px solid var(--line); }
+  .day-detail th { padding: 8px 10px; }
+  .day-detail td { padding: 8px 10px; font-size: 12px; }
+  .bev-hero {
+    display: flex; gap: 18px; align-items: center;
+    background: #f7f9fb; border-radius: 16px; padding: 14px 16px; margin-bottom: 14px;
+  }
+  .bev-hero-preview {
+    width: 108px; height: 108px; flex: none;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .bev-hero-meta { flex: 1; min-width: 0; display: grid; gap: 10px; }
+  .bev-section {
+    border-top: 1px solid var(--line); padding: 12px 0 0; margin-top: 4px;
+  }
+  .bev-section h4 { margin: 0 0 8px; font-size: 13px; color: var(--gray); font-weight: 600; }
+  /* 两列排布：把弹窗高度压到一屏内，不用上下滚动 */
+  .bev-cols {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 0 22px;
+    border-top: 1px solid var(--line); padding-top: 12px; margin-top: 4px;
+  }
+  .bev-cols .bev-section { border-top: 0; padding-top: 0; }
+  .bev-cols > div { min-width: 0; }
+  .palette-grid { display: grid; grid-template-columns: repeat(5, 40px); gap: 10px 14px; align-items: center; }
+  .pdot {
+    width: 38px; height: 38px; border-radius: 50%; padding: 3px; cursor: pointer;
+    border: 2.5px solid transparent; box-sizing: border-box;
+  }
+  .pdot.selected { border-color: #1c1c1e; }
+  .pdot > span {
+    display: flex; align-items: center; justify-content: center;
+    width: 100%; height: 100%; border-radius: 50%; color: #fff; font-size: 16px;
+  }
+  .palette-custom { display: flex; gap: 10px; align-items: center; }
+  .palette-custom input[type="color"] { width: 44px; height: 32px; padding: 2px; flex: none; }
+  .palette-custom #f_color { width: 120px; flex: none; font-family: ui-monospace, Consolas, monospace; }
+  .color-label { font-size: 12px; color: var(--gray); white-space: nowrap; }
+
+  .char-thumb { cursor: zoom-in; transition: box-shadow .15s; }
+  .char-thumb:hover { box-shadow: 0 0 0 2px var(--accent), 0 4px 12px rgba(31,36,48,.18); }
+  .char-preview {
+    display: flex; align-items: center; justify-content: center;
+    background: #f7f9fb; border-radius: 16px; padding: 18px; min-height: 260px;
+  }
+  .char-preview img { max-width: 100%; max-height: 52vh; object-fit: contain; }
+  .nutri-line { font-size: 11px; color: var(--gray); line-height: 1.55; white-space: nowrap; }
+  .nutri-line strong { color: #4b5563; font-weight: 600; }
+
+  .benefit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .bcheck {
+    display: flex; align-items: center; gap: 8px; font-size: 12px;
+    padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px;
+    background: #fafbfc; cursor: pointer;
+  }
+  .bcheck input { width: 14px; height: 14px; padding: 0; flex: none; accent-color: var(--accent); }
+  .bcheck span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bcheck:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+
+  /* ---------------- 数据看板 ---------------- */
+  .kpi-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(176px, 1fr));
+    gap: 14px; margin-bottom: 16px;
+  }
+  .kpi {
+    background: var(--card); border-radius: 16px; padding: 15px 16px 14px;
+    box-shadow: 0 6px 22px rgba(31,36,48,.05); min-width: 0;
+  }
+  .kpi-label { font-size: 12px; color: var(--gray); white-space: nowrap; }
+  .kpi-value {
+    font-size: 25px; font-weight: 700; letter-spacing: -.6px;
+    margin-top: 8px; line-height: 1.1;
+  }
+  .kpi-value em { font-style: normal; font-size: 13px; font-weight: 600; color: var(--gray); margin-left: 3px; }
+  .kpi-sub { font-size: 12px; color: var(--gray); margin-top: 8px; }
+  .kpi-sub b { color: #1d8dad; font-weight: 600; }
+  .chart-grid { display: grid; grid-template-columns: 1.45fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .chart-card {
+    background: var(--card); border-radius: 16px; padding: 16px 18px 8px;
+    box-shadow: 0 6px 22px rgba(31,36,48,.05); min-width: 0;
+  }
+  .chart-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 10px; flex-wrap: wrap; margin-bottom: 4px;
+  }
+  .chart-head h3 { margin: 0; font-size: 14px; }
+  .chart-head .legend { display: flex; gap: 14px; font-size: 12px; color: var(--gray); }
+  .legend i {
+    display: inline-block; width: 8px; height: 8px; border-radius: 3px;
+    margin-right: 5px; vertical-align: 1px;
+  }
+  .chart-svg { display: block; width: 100%; height: auto; }
+  .stat-list { display: grid; gap: 14px; margin: 18px 0 10px; }
+  .stat-row {
+    display: grid; grid-template-columns: 58px 1fr auto;
+    gap: 12px; align-items: center; font-size: 12px;
+  }
+  .stat-row .stat-name { color: #4b5563; }
+  .stat-row .stat-num { text-align: right; color: var(--gray); white-space: nowrap; }
+  .stat-bar { height: 8px; border-radius: 5px; background: #f1f2f5; overflow: hidden; }
+  .stat-bar > span { display: block; height: 100%; border-radius: 5px; }
+  .dash-note { font-size: 12px; color: var(--gray); line-height: 1.7; }
+  /* 会员转化漏斗 */
+  .funnel { display: grid; gap: 10px; }
+  .funnel-step {
+    display: grid; grid-template-columns: 88px 1fr 90px 58px;
+    align-items: center; gap: 12px; font-size: 13px;
+  }
+  .funnel-step .funnel-label { color: #4b5563; white-space: nowrap; }
+  .funnel-track { height: 22px; border-radius: 7px; background: #f1f2f5; overflow: hidden; }
+  .funnel-track > span {
+    display: block; height: 100%; border-radius: 7px;
+    background: linear-gradient(90deg, #3bb3db, #6ccbe6);
+    min-width: 2px; transition: width .2s;
+  }
+  .funnel-step .funnel-num { text-align: right; color: var(--ink); font-weight: 600; }
+  .funnel-step .funnel-rate { text-align: right; color: var(--gray); font-size: 12px; }
+  .funnel-extra { margin-top: 12px; font-size: 12px; color: var(--gray); }
+  .funnel-extra b { color: #1d8dad; font-weight: 600; }
+  @media (max-width: 1080px) { .chart-grid { grid-template-columns: 1fr; } }
+
+  /* 卡片内滚动时隐藏滚动条（内容超出仍可滚动） */
+  .modal, .icon-pick-grid { scrollbar-width: none; -ms-overflow-style: none; }
+  .modal::-webkit-scrollbar,
+  .icon-pick-grid::-webkit-scrollbar { width: 0; height: 0; display: none; }
+
+  /* 容器图标选择：独立小卡片浮在编辑弹窗之上，不撑大主弹窗 */
+  #pickerMask {
+    position: fixed; inset: 0; background: rgba(20,24,32,.30);
+    display: flex; align-items: center; justify-content: center; padding: 24px; z-index: 50;
+  }
+  .modal.picker { width: 560px; max-height: 74vh; padding: 20px 22px; }
+  .icon-pick-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
+    gap: 10px; max-height: 46vh; overflow: auto;
+    padding: 12px; background: #f7f8fa; border-radius: 12px;
+  }
+  .icon-pick {
+    height: 56px; padding: 5px; border: 2px solid transparent; border-radius: 10px;
+    background: #fff; display: flex; align-items: center; justify-content: center;
+  }
+  .icon-pick.selected { border-color: var(--accent); }
+  .icon-pick img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 0 1px rgba(0,0,0,.45)); }
 
   #toast {
     position: fixed; left: 50%; bottom: 30px; transform: translateX(-50%) translateY(20px);
@@ -225,13 +420,19 @@
 <div id="app" class="hidden">
   <aside>
     <div class="brand">吨吨<span>.</span><small>WaterLlama Admin</small></div>
+    <button class="nav-btn" data-tab="dashboard">数据看板</button>
     <button class="nav-btn" data-tab="beverages">饮品库</button>
     <button class="nav-btn" data-tab="categories">饮品分类</button>
     <button class="nav-btn" data-tab="icons">容器图标库</button>
-    <button class="nav-btn" data-tab="characters">角色素材</button>
+    <button class="nav-btn" data-tab="characters">角色库</button>
+    <button class="nav-btn" data-tab="charcats">角色分类</button>
     <button class="nav-btn" data-tab="users">用户列表</button>
     <button class="nav-btn" data-tab="plans">会员套餐</button>
     <button class="nav-btn" data-tab="orders">订单查询</button>
+    <button class="nav-btn" data-tab="tips">贴士卡</button>
+    <button class="nav-btn" data-tab="releases">版本发布</button>
+    <button class="nav-btn" data-tab="feedback">用户反馈</button>
+    <button class="nav-btn" data-tab="errors">异常上报</button>
     <div class="nav-foot">
       <div id="whoami" style="margin-bottom:8px;word-break:break-all;"></div>
       <button id="accountBtn" style="margin-bottom:6px;">账号安全</button>
@@ -248,6 +449,7 @@
 </div>
 
 <div id="modalMask" class="hidden"><div class="modal" id="modalBox"></div></div>
+<div id="pickerMask" class="hidden"><div class="modal picker" id="pickerBox"></div></div>
 <div id="toast"></div>
 
 <script>
@@ -265,14 +467,18 @@
       (location.protocol.indexOf("http") === 0
         ? location.origin + "/api/v1"
         : "http://localhost:3000/api/v1"),
-    tab: "beverages",
+    tab: "dashboard",
     page: 1,
     pageSize: 20,
+    statDays: 30,
     orderStatus: "",
     orderUser: "",
     userQuery: "",
     charCategory: "",
     charCategories: [],
+    benefitDict: [],
+    beverageCategory: "",
+    beverageAll: [],
     rows: [],
   };
 
@@ -474,13 +680,19 @@
 
   /* ---------------- 导航 ---------------- */
   var TITLES = {
+    dashboard: "数据看板",
     beverages: "饮品库",
     categories: "饮品分类",
     icons: "容器图标库",
-    characters: "角色素材",
+    characters: "角色库",
+    charcats: "角色分类",
     users: "用户列表",
     plans: "会员套餐",
     orders: "订单查询",
+    tips: "贴士卡",
+    releases: "版本发布",
+    feedback: "用户反馈",
+    errors: "异常上报",
   };
 
   function switchTab(tab) {
@@ -493,16 +705,23 @@
     render();
   }
 
-  async function render() {
+  async function render(opts) {
+    var silent = !!(opts && opts.silent);
     var view = $("view");
-    view.innerHTML = '<div class="card"><div class="empty">加载中…</div></div>';
+    if (!silent) view.innerHTML = '<div class="card"><div class="empty">加载中…</div></div>';
     try {
-      if (state.tab === "beverages") await renderBeverages();
+      if (state.tab === "dashboard") await renderDashboard();
+      else if (state.tab === "beverages") await renderBeverages();
       else if (state.tab === "categories") await renderCategories();
       else if (state.tab === "icons") await renderIcons();
       else if (state.tab === "characters") await renderCharacters();
+      else if (state.tab === "charcats") await renderCharCats();
       else if (state.tab === "users") await renderUsers();
       else if (state.tab === "plans") await renderPlans();
+      else if (state.tab === "tips") await renderTips();
+      else if (state.tab === "releases") await renderReleases();
+      else if (state.tab === "feedback") await renderFeedback();
+      else if (state.tab === "errors") await renderErrors();
       else await renderOrders();
     } catch (err) {
       view.innerHTML = '<div class="card"><div class="empty">' + esc(err.message) + "</div></div>";
@@ -536,6 +755,236 @@
     if (next) next.onclick = function () { state.page++; render(); };
   }
 
+  /* ---------------- 数据看板 ---------------- */
+  var fmtInt = function (v) { return Number(v || 0).toLocaleString("zh-CN"); };
+  var fmtMoney = function (cents) { return "¥" + (Number(cents || 0) / 100).toFixed(2); };
+  var fmtPct = function (v) { return Number(v || 0).toFixed(1) + "%"; };
+  var fmtTickMoney = function (cents) {
+    var yuan = Number(cents || 0) / 100;
+    if (yuan >= 10000) return "¥" + (yuan / 10000).toFixed(1) + "万";
+    return "¥" + (yuan >= 10 ? Math.round(yuan) : yuan.toFixed(0));
+  };
+
+  /// 让纵轴最大值落在整齐刻度上（4 条网格线）
+  function niceCeil(v) {
+    if (!v || v <= 4) return 4;
+    var mag = Math.pow(10, Math.floor(Math.log10(v)));
+    var steps = [1, 2, 2.5, 5, 10];
+    for (var i = 0; i < steps.length; i++) {
+      var step = steps[i] * mag / 4;
+      if (step * 4 >= v) return step * 4;
+    }
+    return v;
+  }
+
+  /// 通用趋势图：多序列折线，或单序列柱状；纯内联 SVG，自适应容器宽度
+  function trendChart(labels, series, opt) {
+    opt = opt || {};
+    var W = 780;
+    var H = opt.height || 200;
+    var L = 44, R = 10, T = 14, B = 24;
+    var iw = W - L - R, ih = H - T - B;
+    var max = 1;
+    series.forEach(function (s) {
+      s.values.forEach(function (v) { if (Number(v) > max) max = Number(v); });
+    });
+    max = niceCeil(max);
+    var n = Math.max(2, labels.length);
+    var band = iw / n;
+    var lineStep = iw / Math.max(1, n - 1);
+    var xAt = function (i) {
+      return opt.bar ? L + band * (i + 0.5) : L + lineStep * i;
+    };
+    var yAt = function (v) { return T + ih - (Math.max(0, Number(v) || 0) / max) * ih; };
+
+    var out = '<svg class="chart-svg" viewBox="0 0 ' + W + " " + H + '" role="img">';
+    for (var g = 0; g <= 4; g++) {
+      var val = max * g / 4;
+      var y = yAt(val);
+      out += '<line x1="' + L + '" y1="' + y + '" x2="' + (W - R) + '" y2="' + y +
+        '" stroke="#eef0f3" stroke-width="1" />';
+      out += '<text x="' + (L - 8) + '" y="' + (y + 3.5) +
+        '" text-anchor="end" font-size="10" fill="#9aa0aa">' +
+        esc(opt.tick ? opt.tick(val) : fmtInt(Math.round(val))) + "</text>";
+    }
+    var every = Math.ceil(labels.length / 6);
+    labels.forEach(function (lb, i) {
+      if (i % every !== 0 && i !== labels.length - 1) return;
+      out += '<text x="' + xAt(i) + '" y="' + (H - 6) +
+        '" text-anchor="middle" font-size="10" fill="#9aa0aa">' + esc(lb) + "</text>";
+    });
+
+    if (opt.bar) {
+      var bw = Math.min(26, band * 0.6);
+      series[0].values.forEach(function (v, i) {
+        var h = T + ih - yAt(v);
+        if (h <= 0) return;
+        out += '<rect x="' + (xAt(i) - bw / 2) + '" y="' + yAt(v) +
+          '" width="' + bw + '" height="' + Math.max(2, h) + '" rx="4" fill="' +
+          series[0].color + '" />';
+      });
+    } else {
+      series.forEach(function (s) {
+        var pts = s.values.map(function (v, i) { return xAt(i) + "," + yAt(v); });
+        if (s.fill && pts.length) {
+          out += '<polygon points="' + xAt(0) + "," + (T + ih) + " " + pts.join(" ") +
+            " " + xAt(pts.length - 1) + "," + (T + ih) + '" fill="' + s.color +
+            '" opacity=".07" />';
+        }
+        out += '<polyline fill="none" stroke="' + s.color + '" stroke-width="2.4"' +
+          ' stroke-linejoin="round" stroke-linecap="round" points="' + pts.join(" ") + '" />';
+        var last = pts[pts.length - 1] || "";
+        var xy = last.split(",");
+        if (xy.length === 2) {
+          out += '<circle cx="' + xy[0] + '" cy="' + xy[1] + '" r="3.4" fill="#fff"' +
+            ' stroke="' + s.color + '" stroke-width="2.2" />';
+        }
+      });
+    }
+    return out + "</svg>";
+  }
+
+  async function renderDashboard() {
+    var days = state.statDays || 30;
+    var data = await api("/admin/stats/overview?days=" + days);
+    var funnel = null;
+    try {
+      funnel = await api("/admin/stats/funnel?days=" + days);
+    } catch (e) {
+      funnel = null;
+    }
+    var s = data.summary || {};
+    var trend = data.trend || [];
+    var labels = trend.map(function (t) { return String(t.date).slice(5); });
+
+    var kpi = function (label, value, unit, sub) {
+      return '<div class="kpi"><div class="kpi-label">' + esc(label) + "</div>" +
+        '<div class="kpi-value">' + value + (unit ? "<em>" + esc(unit) + "</em>" : "") +
+        "</div>" + '<div class="kpi-sub">' + sub + "</div></div>";
+    };
+
+    var kpis =
+      kpi("总用户数", fmtInt(s.totalUsers), "人",
+        "今日新增 <b>" + fmtInt(s.newUsersToday) + "</b> · 近 7 天 <b>" + fmtInt(s.newUsers7d) + "</b>") +
+      kpi("活跃用户", fmtInt(s.activeToday), "人",
+        "近 7 天 <b>" + fmtInt(s.active7d) + "</b> · 近 " + days + " 天 <b>" + fmtInt(s.activeRange) + "</b>") +
+      kpi("次日留存", fmtPct(s.retentionD1), "",
+        "样本 <b>" + fmtInt(s.retentionCohortD1) + "</b> 位新用户") +
+      kpi("7 日留存", fmtPct(s.retentionD7), "",
+        "样本 <b>" + fmtInt(s.retentionCohortD7) + "</b> 位新用户") +
+      kpi("日均打卡次数", Number(s.avgCheckinsPerUserDay || 0).toFixed(2), "次/人",
+        "近 " + days + " 天，按活跃用户日计") +
+      kpi("目标完成率", fmtPct(s.targetRate), "",
+        "达标用户日 <b>" + fmtInt(s.targetUserDays) + "</b>") +
+      kpi("付费转化率", fmtPct(s.conversionRate), "",
+        "付费用户 <b>" + fmtInt(s.paidUsers) + "</b> 人") +
+      kpi("累计营收", fmtMoney(s.revenueTotalCents), "",
+        "今日 <b>" + fmtMoney(s.revenueTodayCents) + "</b> · 近 " + days + " 天 <b>" +
+        fmtMoney(s.revenueRangeCents) + "</b>");
+
+    var userChart = trendChart(labels, [
+      { name: "新增用户", color: "#3bb3db", fill: true,
+        values: trend.map(function (t) { return t.newUsers; }) },
+      { name: "活跃用户", color: "#d9a13b",
+        values: trend.map(function (t) { return t.activeUsers; }) },
+    ], { height: 200 });
+
+    var checkinChart = trendChart(labels, [
+      { name: "打卡次数", color: "#3bb3db",
+        values: trend.map(function (t) { return t.entries; }) },
+    ], { height: 180, bar: true });
+
+    var revenueChart = trendChart(labels, [
+      { name: "营收", color: "#2eb872",
+        values: trend.map(function (t) { return t.revenueCents; }) },
+    ], { height: 180, bar: true, tick: fmtTickMoney });
+
+    var STATUS = { pending: "待确认", paid: "已确认", rejected: "已拒绝", cancelled: "已取消", refunded: "已退款" };
+    var COLORS = { pending: "#d9a13b", paid: "#2eb872", rejected: "#e5484d", cancelled: "#9aa0aa", refunded: "#8e8e93" };
+    var ORDER_STATUSES = ["pending", "paid", "rejected", "cancelled", "refunded"];
+    var statusRows = ORDER_STATUSES.map(function (st) {
+      var cell = (data.orderStatus || []).filter(function (o) { return o.status === st; })[0] ||
+        { count: 0, amountCents: 0 };
+      return cell;
+    });
+    var orderTotal = statusRows.reduce(function (sum, c) { return sum + c.count; }, 0);
+    var maxCount = statusRows.reduce(function (m, c) { return Math.max(m, c.count); }, 1);
+    var statusHtml = ORDER_STATUSES.map(function (st, i) {
+      var cell = statusRows[i];
+      return '<div class="stat-row">' +
+        '<span class="stat-name">' + STATUS[st] + "</span>" +
+        '<span class="stat-bar"><span style="width:' +
+        Math.round((cell.count / maxCount) * 100) + "%;background:" + COLORS[st] + '"></span></span>' +
+        '<span class="stat-num">' + fmtInt(cell.count) + " 单 · " + fmtMoney(cell.amountCents) + "</span>" +
+        "</div>";
+    }).join("");
+
+    // 会员转化漏斗：按 actor 去重，环环比 = 相对上一环节
+    var steps = (funnel && funnel.steps) || [];
+    var funnelMax = steps.reduce(function (m, x) { return Math.max(m, x.users || 0); }, 1);
+    var funnelHtml = steps.length
+      ? steps.map(function (x, i) {
+          var w = Math.round(((x.users || 0) / funnelMax) * 100);
+          return '<div class="funnel-step">' +
+            '<span class="funnel-label">' + esc(x.label) + "</span>" +
+            '<span class="funnel-track"><span style="width:' + w + '%"></span></span>' +
+            '<span class="funnel-num">' + fmtInt(x.users) + " 人</span>" +
+            '<span class="funnel-rate">' + (i === 0 ? "—" : fmtPct(x.stepRate)) + "</span>" +
+            "</div>";
+        }).join("")
+      : '<div class="empty" style="padding:20px">暂无埋点数据</div>';
+    var extras = (funnel && funnel.extra) || [];
+    var extraOf = function (ev) {
+      var hit = extras.filter(function (x) { return x.event === ev; })[0];
+      return hit ? hit.users : 0;
+    };
+    var funnelExtra = '<div class="funnel-extra">' +
+      "付费墙触发 <b>" + fmtInt(extraOf("paywall_view")) + "</b> 人 · " +
+      "有打卡行为 <b>" + fmtInt(extraOf("checkin")) + "</b> 人" +
+      "</div>";
+
+    $("view").innerHTML =
+      '<div class="toolbar">' +
+        '<select id="statDays">' +
+          [7, 30, 90].map(function (d) {
+            return '<option value="' + d + '"' + (d === days ? " selected" : "") + ">近 " + d + " 天</option>";
+          }).join("") +
+        "</select>" +
+        '<button class="btn ghost" id="statRefresh">刷新</button>' +
+        '<div class="grow"></div>' +
+        '<span class="api-hint">统计时间 ' +
+        esc(String(data.generatedAt || "").replace("T", " ").slice(0, 16)) + "</span>" +
+      "</div>" +
+      '<div class="kpi-grid">' + kpis + "</div>" +
+      '<div class="chart-card" style="margin-bottom:16px"><div class="chart-head"><h3>会员转化漏斗</h3>' +
+        '<div class="legend"><span>近 ' + days + ' 天 · 按人去重</span></div></div>' +
+        '<div class="funnel">' + funnelHtml + "</div>" + funnelExtra + "</div>" +
+      '<div class="chart-grid">' +
+        '<div class="chart-card"><div class="chart-head"><h3>用户趋势</h3>' +
+          '<div class="legend"><span><i style="background:#3bb3db"></i>新增用户</span>' +
+          '<span><i style="background:#d9a13b"></i>活跃用户</span></div></div>' +
+          userChart + "</div>" +
+        '<div class="chart-card"><div class="chart-head"><h3>订单状态</h3>' +
+          '<div class="legend"><span>共 ' + fmtInt(orderTotal) + " 单</span></div></div>" +
+          '<div class="stat-list">' + statusHtml + "</div></div>" +
+      "</div>" +
+      '<div class="chart-grid">' +
+        '<div class="chart-card"><div class="chart-head"><h3>每日打卡次数</h3></div>' +
+          checkinChart + "</div>" +
+        '<div class="chart-card"><div class="chart-head"><h3>每日营收</h3></div>' +
+          revenueChart + "</div>" +
+      "</div>" +
+      '<div class="dash-note">口径：打卡按设备本地日期归集；新增用户、活跃、营收按北京时间归集；' +
+      "目标完成率 = 达成每日目标的用户日 / 有打卡的用户日；留存按注册日分群，看次日与第 7 日是否再次打卡；" +
+      "漏斗按设备/账号去重，环环比 = 本环节人数 / 上一环节人数。</div>";
+
+    $("statDays").onchange = function () {
+      state.statDays = Number($("statDays").value) || 30;
+      render();
+    };
+    $("statRefresh").onclick = function () { render(); };
+  }
+
   /* ---------------- 饮品库 ---------------- */
   // 内置饮品图标：与 App 饮品页同款容器剪影（containers/<id>_user.svg），
   // 渲染时按液体色填充；后台新增分类按基础分类回退
@@ -556,17 +1005,23 @@
     milkTea: "#A8723C", juice: "#FFB300", soda: "#C9364F", soup: "#E9D8B4",
     alcohol: "#F0B429",
   };
+  // 与客户端 drink_color_screen.dart 的预设色板保持一致
+  var DRINK_COLOR_PRESETS = [
+    "#E4E4E9", "#F7CE46", "#F2994A", "#F178B6", "#D7264D",
+    "#6FCF97", "#56CCF2", "#9B51E0", "#8D6E63", "#2F3A4F",
+    "#4A90F4", "#C6E837", "#B05C33",
+  ];
 
   function containerName(b, categoryCode) {
     var id = String(b.id || "");
     if (PRESET_CONTAINERS[id]) return PRESET_CONTAINERS[id];
     var code = categoryCode || b.category || "";
-    return BASE_CONTAINERS[code] || BASE_CONTAINERS[b.baseCategory] || BASE_CONTAINERS.water;
+    return BASE_CONTAINERS[code] || BASE_CONTAINERS.water;
   }
 
   function liquidColor(b, categoryCode) {
     return b.liquidColor || b.categoryColor ||
-      BASE_COLORS[categoryCode || b.category] || BASE_COLORS[b.baseCategory] || "#4FC3F7";
+      BASE_COLORS[categoryCode || b.category] || "#4FC3F7";
   }
 
   /// 容器剪影着色渲染（mask + 液体色）
@@ -581,26 +1036,99 @@
       "mask:url('" + esc(url) + "') center/contain no-repeat;\"></i></span>";
   }
 
-  function uploadedIconHtml(url, px) {
-    var inner = Math.round(px * 0.8);
-    return '<span class="icon-tile" style="width:' + px + "px;height:" + px + 'px;background:rgba(0,0,0,.28);" title="已上传图标">' +
+  /// 云端图标：SVG 剪影按液体色着色（与客户端一致），位图原样显示
+  function uploadedIconHtml(url, px, fill) {
+    var inner = Math.round(px * 0.86);
+    var box = "width:" + px + "px;height:" + px + "px;";
+    if (fill && /\.svg(\?|#|$)/i.test(url || "")) {
+      return '<span class="icon-tile" style="' + box + '" title="云端图标（按液体色着色）">' +
+        '<i style="display:block;width:' + inner + "px;height:" + inner + "px;background:" + esc(fill) + ";" +
+        "filter:drop-shadow(0 0 1px rgba(0,0,0,.28));" +
+        "-webkit-mask:url('" + esc(assetUrl(url)) + "') center/contain no-repeat;" +
+        "mask:url('" + esc(assetUrl(url)) + "') center/contain no-repeat;\"></i></span>";
+    }
+    return '<span class="icon-tile" style="' + box + '" title="云端图标">' +
       '<img src="' + esc(assetUrl(url)) + '" alt="" style="width:' + inner + "px;height:" + inner + 'px;" /></span>';
   }
 
-  function beverageIconCell(b) {
-    return b.iconUrl ? uploadedIconHtml(b.iconUrl, 34) : containerIconHtml(b, 34);
+  function beverageIconCell(b, px) {
+    var size = px || 46;
+    return b.iconUrl ? uploadedIconHtml(b.iconUrl, size, liquidColor(b)) : containerIconHtml(b, size);
+  }
+
+  /// 图标放大查看：点列表里的图标弹出大图
+  function previewBeverageIcon(b) {
+    openModal(
+      "图标预览 · " + b.name,
+      '<div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:12px 0 6px;">' +
+        beverageIconCell(b, 220) +
+        '<div class="api-hint">' + esc(b.categoryName || b.category) + " · " +
+          (b.iconUrl ? "云端图标（SVG 按液体色着色）" : "内置容器剪影（按液体色着色）") + "</div>" +
+      "</div>",
+      async function () {}
+    );
+    var save = $("modalSave");
+    if (save) save.classList.add("hidden");
+    $("modalCancel").textContent = "关闭";
   }
 
   async function renderBeverages() {
-    var rows = await api("/beverages?page=" + state.page + "&pageSize=" + state.pageSize);
-    state.rows = Array.isArray(rows) ? rows : [];
+    // 分类胶囊：分类由「饮品分类」页维护
+    var cats = state.categories || [];
+    try {
+      cats = await api("/admin/categories");
+      state.categories = Array.isArray(cats) ? cats : [];
+    } catch (_) { cats = state.categories || []; }
+    if (!Array.isArray(cats)) cats = [];
+    if (state.beverageCategory &&
+        !cats.some(function (c) { return c.code === state.beverageCategory; })) {
+      state.beverageCategory = "";
+    }
+
+    // 饮品数量不大，分页循环拉全量：排序靠列表里的 ↑ ↓ 精确控制
+    var all = [];
+    for (var p = 1; p <= 20; p++) {
+      var chunk = await api("/beverages?page=" + p + "&pageSize=100");
+      if (!Array.isArray(chunk) || !chunk.length) break;
+      all = all.concat(chunk);
+      if (chunk.length < 100) break;
+    }
+    state.beverageAll = all;
+    state.rows = state.beverageCategory
+      ? all.filter(function (b) { return b.category === state.beverageCategory; })
+      : all;
+
+    var catName = {};
+    var counts = {};
+    all.forEach(function (b) {
+      catName[b.category] = b.categoryName || b.category;
+      counts[b.category] = (counts[b.category] || 0) + 1;
+    });
+    cats.forEach(function (c) {
+      catName[c.code] = c.name;
+      if (!counts[c.code]) counts[c.code] = 0;
+    });
+
+    var chips = [{ code: "", name: "全部", count: all.length }]
+      .concat(cats.map(function (c) {
+        return { code: c.code, name: c.name, count: counts[c.code] || 0 };
+      }))
+      .map(function (c) {
+        var active = (c.code || "") === (state.beverageCategory || "");
+        return '<button class="btn sm' + (active ? "" : " ghost") + '" style="margin:0;" data-bcat="' +
+          esc(c.code) + '">' + esc(c.name) +
+          ' <span style="opacity:.55;">' + esc(c.count) + "</span></button>";
+      }).join("");
+
     var body = state.rows.map(function (b) {
       return [
         "<b>" + esc(b.name) + "</b>",
-        beverageIconCell(b),
-        '<span class="tag">' + esc(b.categoryName || b.category) + "</span>",
+        '<button type="button" class="icon-btn" data-preview="' + esc(b.id) + '" title="点击放大查看">' +
+          beverageIconCell(b, 46) + "</button>",
+        '<span class="tag">' + esc(catName[b.category] || b.category) + "</span>",
         esc(b.defaultMl) + " ml",
         esc(b.hydrationRatio),
+        b.calories == null ? "-" : esc(b.calories) + " 千卡",
         b.memberOnly ? '<span class="tag gold">会员</span>' : '<span class="tag off">免费</span>',
         esc(b.sort),
         b.isPublished ? '<span class="tag on">已发布</span>' : '<span class="tag off">草稿</span>',
@@ -610,13 +1138,33 @@
         "</div>",
       ];
     });
+
     $("view").innerHTML =
-      '<div class="toolbar"><div class="grow"></div>' +
-      '<button class="btn" id="addBeverage">+ 新增饮品</button></div>' +
-      tableWrap(["名称", "图标", "分类", "默认容量", "折算比例", "权益", "排序", "状态", "操作"], body) +
-      pager();
-    bindPager();
+      '<div class="toolbar"><span class="api-hint">共 ' + all.length + " 个饮品" +
+        (state.beverageCategory ? "，当前筛选：" + esc(catName[state.beverageCategory] || state.beverageCategory) : "") +
+        "</span>" +
+        '<div class="grow"></div>' +
+        '<button class="btn" id="addBeverage">+ 新增饮品</button></div>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">' + chips + "</div>" +
+      (body.length
+        ? tableWrap(["名称", "图标", "分类", "默认容量", "折算比例", "卡路里", "权益", "排序", "状态", "操作"], body)
+        : '<div class="card"><div class="empty">该分类下还没有饮品</div></div>') +
+      '<div class="api-hint" style="margin-top:10px;">点图标可放大查看；排序值越小的饮品在客户端越靠前</div>';
+
     $("addBeverage").onclick = function () { beverageModal(null); };
+    document.querySelectorAll("[data-bcat]").forEach(function (el) {
+      el.onclick = function () {
+        state.beverageCategory = el.dataset.bcat;
+        state.page = 1;
+        render();
+      };
+    });
+    document.querySelectorAll("[data-preview]").forEach(function (el) {
+      el.onclick = function () {
+        var b = state.rows.find(function (x) { return x.id === el.dataset.preview; });
+        if (b) previewBeverageIcon(b);
+      };
+    });
     document.querySelectorAll("[data-edit]").forEach(function (el) {
       el.onclick = function () {
         var item = state.rows.find(function (x) { return x.id === el.dataset.edit; });
@@ -628,9 +1176,18 @@
     });
   }
 
+  /// 新增饮品排序：全库最大 sort + 1，自动排到末尾
+  function nextDrinkSort() {
+    var max = 0;
+    (state.beverageAll || []).forEach(function (b) {
+      if (Number(b.sort) > max) max = Number(b.sort);
+    });
+    return max + 1;
+  }
+
   async function beverageModal(item) {
     var isEdit = !!item;
-    item = item || { category: "water", name: "", defaultMl: 250, hydrationRatio: 1.0, memberOnly: false, sort: 0, isPublished: true, iconUrl: "", liquidColor: "" };
+    item = item || { category: "water", name: "", defaultMl: 250, hydrationRatio: 1.0, calories: null, caffeineMg: null, alcoholPercent: null, volumePreset: "regular", animation: "bubbles", memberOnly: false, sort: 0, isPublished: true, iconUrl: "", liquidColor: DRINK_COLOR_PRESETS[6] };
     // 分类下拉由「饮品分类」页维护，新增分类后这里立即可选
     var cats = state.categories || [];
     try {
@@ -648,97 +1205,228 @@
     }).join("");
     openModal(
       (isEdit ? "编辑饮品" : "新增饮品"),
-      '<div class="form-grid">' +
-        '<div class="full"><label>名称</label><input id="f_name" value="' + esc(item.name) + '" /></div>' +
-        '<div class="full"><label>容器图标（SVG / PNG / JPG / WEBP）</label>' +
-          '<div style="display:flex;gap:8px;align-items:center;">' +
-            '<input id="f_icon" placeholder="/static/xxx.svg 或 https://..." value="' + esc(item.iconUrl || "") + '" style="flex:1;" />' +
-            '<label class="btn ghost sm" style="margin:0;cursor:pointer;white-space:nowrap;">上传文件' +
-              '<input id="f_file" type="file" accept=".svg,.png,.jpg,.jpeg,.webp" style="display:none;" />' +
-            "</label>" +
-          "</div>" +
-          '<div style="margin-top:8px;display:flex;gap:10px;align-items:center;">' +
-            '<span id="f_preview" style="display:inline-flex;"></span>' +
-            '<span id="f_icon_hint" style="font-size:12px;opacity:.7;">未设置图标时，客户端使用内置插画</span>' +
+      '<div class="bev-hero">' +
+        '<div class="bev-hero-preview" id="f_preview"></div>' +
+        '<div class="bev-hero-meta">' +
+          '<div><label>名称</label><input id="f_name" placeholder="例如：冰美式" value="' + esc(item.name) + '" /></div>' +
+          '<div class="form-grid" style="gap:10px;">' +
+            "<div><label>分类</label><select id=\"f_category\">" + opts + "</select></div>" +
+            '<div><label>排序</label>' +
+              (isEdit
+                ? '<input id="f_sort" type="number" value="' + esc(item.sort) + '" />'
+                : '<input value="自动排在末尾（第 ' + nextDrinkSort() + ' 位）" readonly style="opacity:.6;" />') +
+            "</div>" +
           "</div>" +
         "</div>" +
-        "<div><label>分类</label><select id=\"f_category\">" + opts + "</select></div>" +
-        '<div><label>液体颜色</label><input id="f_color" placeholder="#4FC3F7" value="' + esc(item.liquidColor || "") + '" /></div>' +
-        '<div><label>默认容量 (ml)</label><input id="f_ml" type="number" value="' + esc(item.defaultMl) + '" /></div>' +
-        '<div><label>有效水折算比例</label><input id="f_ratio" type="number" step="0.01" value="' + esc(item.hydrationRatio) + '" /></div>' +
-        '<div><label>排序</label><input id="f_sort" type="number" value="' + esc(item.sort) + '" /></div>' +
-        '<div class="check"><input id="f_member" type="checkbox"' + (item.memberOnly ? " checked" : "") + " /><label style=\"margin:0\">会员专属</label></div>" +
-        '<div class="check"><input id="f_pub" type="checkbox"' + (item.isPublished ? " checked" : "") + " /><label style=\"margin:0\">发布到客户端</label></div>" +
-      "</div>",
+      "</div>" +
+
+      '<div class="bev-cols">' +
+        '<div class="bev-section"><h4>常用颜色</h4>' +
+          '<div class="palette-grid" id="f_palette"></div>' +
+          '<div class="palette-custom" style="margin-top:10px;">' +
+            '<span class="color-label">自定义颜色</span>' +
+            '<input id="f_color" placeholder="#4FC3F7" value="' + esc(item.liquidColor || "") + '" />' +
+            '<input type="color" id="f_color_pick" value="' + esc(item.liquidColor || "#4FC3F7") + '" />' +
+            '<span style="font-size:12px;opacity:.6;">支持 16 进制</span>' +
+          "</div>" +
+        "</div>" +
+
+        '<div class="bev-section"><h4>容器图标</h4>' +
+          '<div style="display:flex;gap:8px;align-items:center;">' +
+            '<input id="f_icon" placeholder="从图标库选择" readonly value="' + esc(item.iconUrl || "") +
+              '" style="flex:1;background:#f7f8fa;color:#4b5563;" />' +
+            '<button type="button" class="btn ghost sm" id="f_icon_lib_btn" style="white-space:nowrap;margin:0;">从图标库选择</button>' +
+          "</div>" +
+          '<div id="f_icon_hint" style="font-size:12px;opacity:.7;margin-top:8px;">图标统一在「容器图标库」维护，这里只能从库中挑选</div>' +
+        "</div>" +
+      "</div>" +
+
+      '<div class="bev-cols">' +
+        '<div class="bev-section"><h4>容量与折算</h4><div class="form-grid">' +
+          '<div><label>默认容量 (ml)</label><input id="f_ml" type="number" value="' + esc(item.defaultMl) + '" /></div>' +
+          '<div><label>快捷容量档位</label><select id="f_volume">' +
+            '<option value="regular"' + (item.volumePreset === "regular" ? " selected" : "") + '>常规 3 档（250/330/500）</option>' +
+            '<option value="water"' + (item.volumePreset === "water" ? " selected" : "") + '>水 5 档（100/200/300/500/1000）</option>' +
+          "</select></div>" +
+          '<div><label>有效水折算比例</label><input id="f_ratio" type="number" step="0.01" value="' + esc(item.hydrationRatio) + '" /></div>' +
+          '<div><label>液体动画</label><select id="f_anim">' +
+            ["micro:微气泡", "bubbles:气泡", "ice:冰块", "rice:米粒", "leaves:茶叶", "none:无"].map(function (a) {
+              var kv = a.split(":");
+              return '<option value="' + kv[0] + '"' + ((item.animation || "bubbles") === kv[0] ? " selected" : "") + ">" + kv[1] + "</option>";
+            }).join("") +
+          "</select></div>" +
+        "</div></div>" +
+
+        '<div class="bev-section"><h4>营养信息（每 250ml，可留空）</h4><div class="form-grid">' +
+          '<div><label>卡路里（千卡）</label><input id="f_cal" type="number" placeholder="留空表示未配置" value="' + esc(item.calories == null ? "" : item.calories) + '" /></div>' +
+          '<div><label>咖啡因（mg）</label><input id="f_caffeine" type="number" placeholder="留空表示未配置" value="' + esc(item.caffeineMg == null ? "" : item.caffeineMg) + '" /></div>' +
+          '<div><label>酒精（%vol）</label><input id="f_alcohol" type="number" placeholder="留空表示不含酒精" value="' + esc(item.alcoholPercent == null ? "" : item.alcoholPercent) + '" /></div>' +
+        "</div></div>" +
+      "</div>" +
+
+      '<div class="bev-section"><h4>其他</h4><div class="form-grid">' +
+        '<div class="check" style="padding-top:0;"><input id="f_member" type="checkbox"' + (item.memberOnly ? " checked" : "") + " /><label style=\"margin:0\">会员专属</label></div>" +
+        '<div class="check" style="padding-top:0;"><input id="f_pub" type="checkbox"' + (item.isPublished ? " checked" : "") + " /><label style=\"margin:0\">发布到客户端</label></div>" +
+      "</div></div>",
       async function () {
         var dto = {
           name: $("f_name").value.trim(),
           category: $("f_category").value,
           defaultMl: Number($("f_ml").value),
           hydrationRatio: Number($("f_ratio").value),
-          sort: Number($("f_sort").value),
+          calories: $("f_cal").value.trim() === "" ? null : Number($("f_cal").value),
+          caffeineMg: $("f_caffeine").value.trim() === "" ? null : Number($("f_caffeine").value),
+          alcoholPercent: $("f_alcohol").value.trim() === "" ? null : Number($("f_alcohol").value),
+          volumePreset: $("f_volume").value,
+          animation: $("f_anim").value,
+          sort: isEdit ? Number($("f_sort").value) : nextDrinkSort(),
           memberOnly: $("f_member").checked,
           isPublished: $("f_pub").checked,
           iconUrl: $("f_icon").value.trim(),
           liquidColor: $("f_color").value.trim(),
         };
+        if (!modalReady()) throw new Error("请先填写完整的配置信息");
         if (!dto.name) throw new Error("名称不能为空");
         if (isEdit) await api("/beverages/" + item.id, { method: "PATCH", body: JSON.stringify(dto) });
         else await api("/beverages", { method: "POST", body: JSON.stringify(dto) });
         closeModal();
         toast(isEdit ? "已保存" : "已新增");
         render();
-      }
+      },
+      function () { return modalReady(); }
     );
 
-    // 图标预览与上传（openModal 已同步渲染 DOM，可直接绑定）
+    // 弹窗加宽：参考客户端添加饮品页的「预览 + 分区」布局
+    $("modalBox").classList.add("wide");
+
     var iconInput = $("f_icon");
     var preview = $("f_preview");
     var hint = $("f_icon_hint");
     var catSelect = $("f_category");
     var colorInput = $("f_color");
+    var colorPick = $("f_color_pick");
+    var palette = $("f_palette");
+
+    // 颜色统一为 16 进制 #RRGGBB（兼容 #RGB 与不带 # 的简写）
+    function normalizeHex(raw) {
+      var v = String(raw || "").trim().replace(/^#/, "");
+      if (/^[0-9a-fA-F]{3}$/.test(v)) {
+        v = v[0] + v[0] + v[1] + v[1] + v[2] + v[2];
+      }
+      if (!/^[0-9a-fA-F]{6}$/.test(v)) return null;
+      return "#" + v.toUpperCase();
+    }
+
+    var currentColor = normalizeHex(item.liquidColor) || DRINK_COLOR_PRESETS[6];
+
+    // 常用色板：只放两行常用色（10 个），当前颜色高亮
+    function renderPalette() {
+      palette.innerHTML = DRINK_COLOR_PRESETS.slice(0, 10).map(function (c) {
+        var on = c.toUpperCase() === currentColor.toUpperCase();
+        return '<div class="pdot' + (on ? " selected" : "") + '" data-color="' + c + '" title="' + c + '">' +
+          '<span style="background:' + c + ';color:' + (on ? "#fff" : "transparent") + ';">' +
+            (on ? "✓" : "") +
+          "</span></div>";
+      }).join("");
+    }
+
     // 未上传图标时预览内置容器剪影（按分类 + 液体色着色），与客户端展示一致
     function syncPreview() {
       var u = iconInput.value.trim();
       if (!u) {
         var code = catSelect.value;
-        var cat = null;
-        cats.forEach(function (c) { if (c.code === code) cat = c; });
         preview.innerHTML = containerIconHtml(
           {
             id: isEdit ? item.id : "",
             category: code,
-            baseCategory: cat ? cat.baseCategory : "",
-            liquidColor: colorInput.value.trim(),
-            categoryColor: cat ? cat.color : "",
+            liquidColor: currentColor,
           },
-          56,
+          96,
           code
         );
         hint.style.display = "";
-        hint.textContent = "当前为内置图标（与客户端一致），可上传或填写地址替换";
+        hint.textContent = "未选图标时使用客户端内置插画；图标请从「容器图标库」挑选";
         return;
       }
-      preview.innerHTML = uploadedIconHtml(u, 56);
+      preview.innerHTML = uploadedIconHtml(u, 96, currentColor);
       hint.style.display = "none";
     }
-    iconInput.oninput = syncPreview;
-    catSelect.onchange = syncPreview;
-    colorInput.oninput = syncPreview;
-    syncPreview();
-    $("f_file").onchange = async function () {
-      var file = this.files && this.files[0];
-      this.value = "";
-      if (!file) return;
-      try {
-        toast("上传中…");
-        iconInput.value = await uploadAsset(file);
+
+    // 色板 / 文本框 / 取色器统一入口：同步色值、选中态与预览
+    function applyColor(hex) {
+      currentColor = hex;
+      if (colorInput.value.toUpperCase() !== hex.toUpperCase()) colorInput.value = hex;
+      if (colorPick.value.toUpperCase() !== hex.toUpperCase()) colorPick.value = hex;
+      renderPalette();
+      syncPreview();
+    }
+
+    colorInput.value = currentColor;
+    colorPick.value = currentColor;
+    renderPalette();
+    palette.onclick = function (e) {
+      var dot = e.target.closest("[data-color]");
+      if (dot) applyColor(dot.dataset.color);
+    };
+    // 输入过程中只在完整 6 位时实时预览，失焦时再纠正/补全写法
+    colorInput.oninput = function () {
+      var v = this.value.trim().replace(/^#/, "");
+      if (/^[0-9a-fA-F]{6}$/.test(v)) {
+        currentColor = "#" + v.toUpperCase();
+        renderPalette();
         syncPreview();
-        toast("已上传，保存后生效");
-      } catch (err) {
-        toast(err.message || "上传失败");
       }
     };
+    colorInput.onchange = function () {
+      var hex = normalizeHex(this.value);
+      if (!hex) {
+        this.value = currentColor;
+        toast("颜色格式应为 16 进制，例如 #56CCF2");
+        return;
+      }
+      applyColor(hex);
+    };
+    colorPick.oninput = function () {
+      var hex = normalizeHex(this.value);
+      if (hex) applyColor(hex);
+    };
+    iconInput.oninput = syncPreview;
+    catSelect.onchange = syncPreview;
+    syncPreview();
+
+    // 从「容器图标库」挑现成图标：单独的小卡片，不改变主弹窗尺寸
+    $("f_icon_lib_btn").onclick = function () {
+      openIconPicker(iconInput.value.trim(), function (url) {
+        iconInput.value = url;
+        syncPreview();
+        modalReady();
+      });
+    };
+
+    // 必填项没录完：「保存」保持禁用
+    function modalReady() {
+      if (!$("f_name")) return false;
+      var ready = $("f_name").value.trim().length > 0 &&
+        !!$("f_category").value &&
+        $("f_icon").value.trim().length > 0 &&
+        Number($("f_ml").value) > 0 &&
+        Number($("f_ratio").value) > 0 &&
+        !!normalizeHex($("f_color").value) &&
+        !!$("f_anim").value;
+      var save = $("modalSave");
+      if (save) {
+        save.disabled = !ready;
+        save.title = ready ? "" : "请先填写完整的配置信息";
+      }
+      return ready;
+    }
+    ["f_name", "f_category", "f_icon", "f_ml", "f_ratio", "f_color", "f_anim"].forEach(function (id) {
+      var el = $(id);
+      if (!el) return;
+      el.addEventListener("input", modalReady);
+      el.addEventListener("change", modalReady);
+    });
+    modalReady();
   }
 
   async function removeBeverage(id) {
@@ -751,13 +1439,7 @@
   }
 
   /* ---------------- 饮品分类 ---------------- */
-  // 基础分类固定为 App 内置九类，用于新分类的折算/插画回退
-  var BASE_CATEGORIES = [
-    ["water", "纯水"], ["tea", "茶水类"], ["coffee", "咖啡类"],
-    ["milk", "牛奶"], ["milkTea", "奶茶"], ["juice", "果汁"],
-    ["soda", "碳酸饮料"], ["soup", "汤粥类"], ["alcohol", "酒类"],
-  ];
-
+  // 分类只做归类：名称/颜色/排序可维护，代码创建后不可修改
   async function renderCategories() {
     var rows = await api("/admin/categories");
     state.categories = rows;
@@ -769,51 +1451,70 @@
         '<span class="mono">' + esc(c.code) + "</span>",
         "<b>" + sw + esc(c.name) + "</b>",
         esc(c.color || "-"),
-        esc(c.baseCategory),
         esc(c.sort),
-        '<button class="btn danger sm" data-del-cat="' + esc(c.code) + '">删除</button>',
+        esc(c.beverageCount || 0) + " 款",
+        '<div class="row-actions">' +
+          '<button class="btn ghost sm" data-edit-cat="' + esc(c.code) + '">编辑</button>' +
+          '<button class="btn danger sm" data-del-cat="' + esc(c.code) + '">删除</button>' +
+        "</div>",
       ];
     });
     $("view").innerHTML =
-      '<div class="toolbar"><span class="api-hint">分类会同步到 App 饮品页的筛选胶囊</span>' +
+      '<div class="toolbar"><span class="api-hint">分类会同步到 App 饮品页的筛选胶囊；分类只做归类，折算比例和营养在饮品上配置</span>' +
       '<div class="grow"></div>' +
       '<button class="btn" id="addCategory">+ 新增分类</button></div>' +
-      tableWrap(["代码", "名称", "颜色", "基础分类", "排序", "操作"], body);
-    $("addCategory").onclick = beverageCategoryModal;
+      tableWrap(["代码", "名称", "颜色", "排序", "饮品数", "操作"], body);
+    $("addCategory").onclick = function () { beverageCategoryModal(null); };
+    document.querySelectorAll("[data-edit-cat]").forEach(function (el) {
+      el.onclick = function () { beverageCategoryModal(el.dataset.editCat); };
+    });
     document.querySelectorAll("[data-del-cat]").forEach(function (el) {
       el.onclick = function () { removeCategory(el.dataset.delCat); };
     });
   }
 
-  function beverageCategoryModal() {
-    var baseOpts = BASE_CATEGORIES.map(function (c) {
-      return '<option value="' + c[0] + '">' + c[1] + "</option>";
-    }).join("");
+  function beverageCategoryModal(code) {
+    var isEdit = !!code;
+    var cat = isEdit
+      ? (state.categories || []).find(function (c) { return c.code === code; })
+      : null;
+    if (isEdit && !cat) return;
     openModal(
-      "新增饮品分类",
+      isEdit ? "编辑饮品分类" : "新增饮品分类",
       '<div class="form-grid">' +
-        '<div><label>分类代码（英文）</label><input id="ct_code" placeholder="sports" /></div>' +
-        '<div><label>显示名称</label><input id="ct_name" placeholder="运动饮料" /></div>' +
-        '<div><label>分类颜色</label><input id="ct_color" placeholder="#4FC3F7" value="#4FC3F7" /></div>' +
-        '<div><label>基础分类</label><select id="ct_base">' + baseOpts + "</select></div>" +
-        '<div><label>排序</label><input id="ct_sort" type="number" value="0" /></div>' +
-        '<div class="full" style="font-size:12px;opacity:.7;">代码用于 App 归类（字母开头，可用英文/数字/下划线）；基础分类决定默认折算比例与插画风格。</div>' +
+        '<div><label>分类代码（英文）</label><input id="ct_code" placeholder="sports" value="' +
+          esc(isEdit ? cat.code : "") + '"' + (isEdit ? " readonly" : "") + " /></div>" +
+        '<div><label>显示名称</label><input id="ct_name" placeholder="运动饮料" value="' +
+          esc(isEdit ? cat.name : "") + '" /></div>' +
+        '<div><label>分类颜色</label><input id="ct_color" placeholder="#4FC3F7" value="' +
+          esc(isEdit ? (cat.color || "") : "#4FC3F7") + '" /></div>' +
+        '<div><label>排序</label><input id="ct_sort" type="number" value="' +
+          esc(isEdit ? cat.sort : 0) + '" /></div>' +
+        '<div class="full" style="font-size:12px;opacity:.7;">代码用于 App 归类，创建后不可修改；分类本身不配置折算比例，具体数值在饮品上维护。</div>' +
       "</div>",
       async function () {
         var dto = {
-          code: $("ct_code").value.trim(),
           name: $("ct_name").value.trim(),
           color: $("ct_color").value.trim(),
-          baseCategory: $("ct_base").value,
-          sort: Number($("ct_sort").value),
+          sort: Number($("ct_sort").value) || 0,
         };
-        if (!/^[a-zA-Z][a-zA-Z0-9_]{0,31}$/.test(dto.code)) {
-          throw new Error("分类代码需为字母开头的英文/数字/下划线");
+        if (!isEdit) {
+          dto.code = $("ct_code").value.trim();
+          if (!/^[a-zA-Z][a-zA-Z0-9_]{0,31}$/.test(dto.code)) {
+            throw new Error("分类代码需为字母开头的英文/数字/下划线");
+          }
         }
         if (!dto.name) throw new Error("请填写显示名称");
-        await api("/admin/categories", { method: "POST", body: JSON.stringify(dto) });
+        if (isEdit) {
+          await api("/admin/categories/" + encodeURIComponent(code), {
+            method: "PATCH",
+            body: JSON.stringify(dto),
+          });
+        } else {
+          await api("/admin/categories", { method: "POST", body: JSON.stringify(dto) });
+        }
         closeModal();
-        toast("已新增分类");
+        toast(isEdit ? "分类已更新" : "已新增分类");
         render();
       }
     );
@@ -834,16 +1535,18 @@
     var list = rows.filter(function (a) {
       return a.name.indexOf("preset/containers/") === 0;
     });
-    var cells = list.map(function (a) {
+    var body = list.map(function (a) {
       var base = String(a.name).split("/").pop();
-      return '<div class="icon-cell">' +
-        '<img src="' + esc(assetUrl(a.url)) + '" alt="" />' +
-        '<div class="fname" title="' + esc(a.url) + '">' + esc(base) + "</div>" +
-        '<div style="display:flex;gap:6px;">' +
+      return [
+        '<button type="button" class="icon-btn" data-preview-icon="' + esc(a.name) + '" title="点击放大查看">' +
+          '<span class="icon-thumb"><img src="' + esc(assetUrl(a.url)) + '" alt="" /></span></button>',
+        '<span class="icon-fname" title="' + esc(a.url) + '">' + esc(base) + "</span>",
+        '<div class="row-actions">' +
           '<button class="btn ghost sm" data-copy="' + esc(a.url) + '">复制地址</button>' +
           '<button class="btn danger sm" data-del-asset="' + esc(a.name) + '">删除</button>' +
-        "</div></div>";
-    }).join("");
+        "</div>",
+      ];
+    });
     $("view").innerHTML =
       '<div class="toolbar"><span class="api-hint">共 ' + list.length +
         " 个容器图标，App 联网后会自动与本地图标库对齐（文件名即容器 id）</span>" +
@@ -851,8 +1554,9 @@
       '<label class="btn" style="margin:0;cursor:pointer;">上传容器图标' +
         '<input id="containerUpload" type="file" multiple accept=".svg" style="display:none;" />' +
       "</label></div>" +
-      (list.length
-        ? '<div class="card"><div class="icon-grid">' + cells + "</div></div>"
+      (body.length
+        ? tableWrap(["图标", "文件名", "操作"], body) +
+          '<div class="api-hint" style="margin-top:10px;">点图标可放大查看</div>'
         : '<div class="card"><div class="empty">容器图标库为空，点击右上「上传容器图标」</div></div>');
     $("containerUpload").onchange = async function () {
       var files = Array.prototype.slice.call(this.files || []);
@@ -868,12 +1572,35 @@
       }
       if (ok) { toast("已上传 " + ok + " 个容器图标"); render(); }
     };
+    document.querySelectorAll("[data-preview-icon]").forEach(function (el) {
+      el.onclick = function () {
+        var asset = list.find(function (a) { return a.name === el.dataset.previewIcon; });
+        if (asset) previewContainerIcon(asset);
+      };
+    });
     document.querySelectorAll("[data-copy]").forEach(function (el) {
       el.onclick = function () { copyText(el.dataset.copy); };
     });
     document.querySelectorAll("[data-del-asset]").forEach(function (el) {
       el.onclick = function () { removeAsset(el.dataset.delAsset); };
     });
+  }
+
+  /// 容器图标放大查看
+  function previewContainerIcon(a) {
+    var base = String(a.name).split("/").pop();
+    openModal(
+      "图标预览 · " + base,
+      '<div style="display:flex;flex-direction:column;align-items:center;gap:14px;padding:12px 0 6px;">' +
+        '<img src="' + esc(assetUrl(a.url)) + '" alt="" ' +
+          'style="width:240px;height:240px;object-fit:contain;filter:drop-shadow(0 0 1px rgba(0,0,0,.45));" />' +
+        '<div class="api-hint">' + esc(a.url) + "</div>" +
+      "</div>",
+      async function () {}
+    );
+    var save = $("modalSave");
+    if (save) save.classList.add("hidden");
+    $("modalCancel").textContent = "关闭";
   }
 
   function copyText(text) {
@@ -896,8 +1623,7 @@
     } catch (err) { toast(err.message); }
   }
 
-  /* ---------------- 角色素材 ---------------- */
-  /* ---------------- 角色素材（按客户端分类管理） ---------------- */
+  /* ---------------- 角色库 ---------------- */
   async function renderCharacters() {
     var cats = await api("/character-categories");
     state.charCategories = Array.isArray(cats) ? cats : [];
@@ -905,10 +1631,17 @@
         !state.charCategories.some(function (c) { return c.code === state.charCategory; })) {
       state.charCategory = "";
     }
-    var qs = "/characters?page=" + state.page + "&pageSize=" + state.pageSize;
+    // 角色数量不大，分页循环拉全量，避免「全部」看起来漏角色
+    var qs = "/characters?pageSize=100";
     if (state.charCategory) qs += "&category=" + encodeURIComponent(state.charCategory);
-    var rows = await api(qs);
-    state.rows = Array.isArray(rows) ? rows : [];
+    var all = [];
+    for (var p = 1; p <= 20; p++) {
+      var chunk = await api(qs + "&page=" + p);
+      if (!Array.isArray(chunk) || !chunk.length) break;
+      all = all.concat(chunk);
+      if (chunk.length < 100) break;
+    }
+    state.rows = all;
 
     var total = state.charCategories.reduce(function (s, c) { return s + c.count; }, 0);
     var chips = [{ code: "", name: "全部", count: total }]
@@ -921,19 +1654,34 @@
       }).join("");
 
     var catName = {};
-    state.charCategories.forEach(function (c) { catName[c.code] = c.name; });
+    var catMember = {};
+    state.charCategories.forEach(function (c) {
+      catName[c.code] = c.name;
+      catMember[c.code] = !!c.memberOnly;
+    });
 
-    var body = state.rows.map(function (c) {
+    var body = state.rows.map(function (c, idx) {
       var thumb = c.thumbnailUrl || c.assetUrl || "";
+      // 角色权益跟随所属分类（在「角色分类」页统一配置）
+      var member = !!catMember[c.categoryCode];
       return [
-        (thumb ? '<img src="' + esc(thumb) + '" alt="" style="width:34px;height:34px;object-fit:cover;border-radius:9px;margin-right:8px;vertical-align:middle;" />' : "") +
+        (thumb ? '<img class="char-thumb" data-preview="' + esc(c.id) + '" src="' + esc(thumb) + '" alt="" title="点击放大" style="width:34px;height:34px;object-fit:cover;border-radius:9px;margin-right:8px;vertical-align:middle;" />' : "") +
           "<b>" + esc(c.name) + "</b>",
         '<span class="tag">' + esc(catName[c.categoryCode] || c.categoryCode || "未分类") + "</span>",
         '<span class="tag">' + esc(c.code) + "</span>",
-        c.memberOnly ? '<span class="tag gold">会员</span>' : '<span class="tag off">免费</span>',
-        esc(c.sort),
+        member ? '<span class="tag gold">会员</span>' : '<span class="tag off">免费</span>',
+        (c.categoryCode || "daily") === "daily"
+          ? '<button class="btn sm ' + (c.inDailyPool !== false ? "" : "ghost") + '" data-pool="' + esc(c.id) + '">' +
+            (c.inDailyPool !== false ? "在池中" : "未入池") + "</button>"
+          : '<span class="tag off">-</span>',
+        esc(idx + 1),
         c.isPublished ? '<span class="tag on">已发布</span>' : '<span class="tag off">草稿</span>',
         '<div class="row-actions">' +
+          // 「全部」是跨分类混合列表，移动没有意义，只在筛选单一分类时提供排序
+          (state.charCategory
+            ? '<button class="btn ghost sm" data-up="' + esc(c.id) + '" title="上移">↑</button>' +
+              '<button class="btn ghost sm" data-down="' + esc(c.id) + '" title="下移">↓</button>'
+            : "") +
           '<button class="btn ghost sm" data-edit="' + esc(c.id) + '">编辑</button>' +
           '<button class="btn danger sm" data-del="' + esc(c.id) + '">删除</button>' +
         "</div>",
@@ -941,19 +1689,32 @@
     });
 
     $("view").innerHTML =
-      '<div class="toolbar"><span class="api-hint">共 ' + total + " 个角色</span>" +
-      '<div class="grow"></div>' +
-      '<label class="btn ghost" style="margin:0;cursor:pointer;">上传角色素材' +
-        '<input id="charUpload" type="file" multiple accept=".svg" style="display:none;" />' +
-      "</label>" +
-      '<button class="btn ghost" id="manageCats">管理分类</button>' +
-      '<button class="btn" id="addCharacter">+ 新增角色</button></div>' +
+      '<div class="toolbar"><span class="api-hint">共 ' + total + " 个角色" +
+        (state.charCategory ? "，当前筛选：" + esc(catName[state.charCategory] || state.charCategory) : "") +
+        "</span>" +
+        '<div class="grow"></div>' +
+        '<button class="btn" id="addCharacter">+ 新增角色</button></div>' +
       '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">' + chips + "</div>" +
-      tableWrap(["名称", "分类", "code", "权益", "排序", "状态", "操作"], body) +
-      pager();
-    bindPager();
+      (body.length
+        ? tableWrap(["名称", "分类", "code", "权益", "每日池", "序号", "状态", "操作"], body)
+        : '<div class="card"><div class="empty">该分类下还没有角色</div></div>') +
+      '<div class="api-hint" style="margin-top:10px;">角色权益跟随所属分类，去「角色分类」页设置免费 / 会员专属</div>';
+
     $("addCharacter").onclick = function () { characterModal(null); };
-    $("manageCats").onclick = categoryModal;
+    document.querySelectorAll("[data-pool]").forEach(function (el) {
+      el.onclick = async function () {
+        var row = state.rows.find(function (x) { return x.id === el.dataset.pool; });
+        var next = row.inDailyPool === false;
+        try {
+          await api("/characters/" + row.id, {
+            method: "PATCH",
+            body: JSON.stringify({ inDailyPool: next }),
+          });
+          toast(next ? "已加入每日随机池" : "已移出每日随机池");
+          render();
+        } catch (err) { toast(err.message); }
+      };
+    });
     document.querySelectorAll("[data-cat]").forEach(function (el) {
       el.onclick = function () {
         state.charCategory = el.dataset.cat;
@@ -961,31 +1722,12 @@
         render();
       };
     });
-    $("charUpload").onchange = async function () {
-      var files = Array.prototype.slice.call(this.files || []);
-      this.value = "";
-      var ok = 0;
-      for (var i = 0; i < files.length; i++) {
-        try {
-          var url = await uploadAsset(files[i], "preset/characters", true);
-          var code = String(files[i].name || "").replace(/\.[^.]+$/, "")
-            .replace(/[^a-zA-Z0-9_-]/g, "_");
-          await api("/characters", {
-            method: "POST",
-            body: JSON.stringify({
-              code: code,
-              name: code,
-              categoryCode: state.charCategory || "daily",
-              assetUrl: url,
-            }),
-          });
-          ok += 1;
-        } catch (err) {
-          toast(files[i].name + "：" + (err.message || "上传失败"));
-        }
-      }
-      if (ok) { toast("已上传并新增 " + ok + " 个角色"); render(); }
-    };
+    document.querySelectorAll("[data-up]").forEach(function (el) {
+      el.onclick = function () { moveCharacter(el.dataset.up, -1); };
+    });
+    document.querySelectorAll("[data-down]").forEach(function (el) {
+      el.onclick = function () { moveCharacter(el.dataset.down, 1); };
+    });
     document.querySelectorAll("[data-edit]").forEach(function (el) {
       el.onclick = function () {
         characterModal(state.rows.find(function (x) { return x.id === el.dataset.edit; }));
@@ -994,41 +1736,67 @@
     document.querySelectorAll("[data-del]").forEach(function (el) {
       el.onclick = function () { removeCharacter(el.dataset.del); };
     });
+    document.querySelectorAll("[data-preview]").forEach(function (el) {
+      el.onclick = function () {
+        previewCharacter(state.rows.find(function (x) { return x.id === el.dataset.preview; }));
+      };
+    });
   }
 
-  /* ---------------- 角色分类管理 ---------------- */
-  function categoryModal() {
-    var cats = state.charCategories || [];
-    var rowsHtml = cats.map(function (c) {
-      return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #F0F2F5;">' +
-        '<b style="flex:1;">' + esc(c.name) + "</b>" +
-        '<span class="tag">' + esc(c.code) + "</span>" +
-        '<span class="tag off">' + esc(c.count) + " 个</span>" +
-        '<button class="btn danger sm" data-del-cat="' + esc(c.code) + '">删除</button></div>';
-    }).join("");
-    openModal(
-      "角色分类",
-      '<div style="max-height:240px;overflow:auto;margin-bottom:12px;">' +
-        (rowsHtml || '<div class="empty">暂无分类</div>') + "</div>" +
-        '<div class="form-grid">' +
-          '<div><label>分类 code</label><input id="cc_code" placeholder="daily" /></div>' +
-          '<div><label>显示名称</label><input id="cc_name" placeholder="每日" /></div>' +
-        "</div>" +
-        '<div class="api-hint">分类与客户端一一对应；删除分类前需先清空该分类下的角色</div>',
-      async function () {
-        var code = $("cc_code").value.trim().toLowerCase();
-        var name = $("cc_name").value.trim();
-        if (!code || !name) throw new Error("code 和名称必填");
-        await api("/character-categories", {
-          method: "POST",
-          body: JSON.stringify({ code: code, name: name }),
-        });
-        closeModal();
-        toast("已新增分类");
-        render();
-      }
+  /// 角色放大预览：只读小卡片，素材按原始比例缩放
+  function previewCharacter(c) {
+    if (!c) return;
+    var src = c.assetUrl || c.thumbnailUrl || "";
+    if (!src) return;
+    openInfoModal(
+      "角色预览 · " + c.name,
+      '<div class="char-preview"><img src="' + esc(src) + '" alt="" /></div>' +
+        '<div class="dash-note" style="margin-top:10px">code：' + esc(c.code) +
+        " · 分类：" + esc(c.categoryCode || "-") + "</div>",
     );
-    $("modalSave").textContent = "添加分类";
+  }
+
+  /* ---------------- 角色分类 ---------------- */
+  async function renderCharCats() {
+    var cats = await api("/character-categories");
+    state.charCategories = Array.isArray(cats) ? cats : [];
+    var body = state.charCategories.map(function (c, idx) {
+      return [
+        "<b>" + esc(c.name) + "</b>",
+        '<span class="tag">' + esc(c.code) + "</span>",
+        esc(c.count) + " 个",
+        c.memberOnly ? '<span class="tag gold">会员专属</span>' : '<span class="tag on">免费</span>',
+        esc(idx + 1),
+        '<div class="row-actions">' +
+          '<button class="btn ghost sm" data-up-cat="' + esc(c.code) + '" title="上移">↑</button>' +
+          '<button class="btn ghost sm" data-down-cat="' + esc(c.code) + '" title="下移">↓</button>' +
+          '<button class="btn ghost sm" data-edit-cat="' + esc(c.code) + '">编辑</button>' +
+          '<button class="btn danger sm" data-del-cat="' + esc(c.code) + '">删除</button>' +
+        "</div>",
+      ];
+    });
+    $("view").innerHTML =
+      '<div class="toolbar"><span class="api-hint">分类只做归类，角色的免费 / 会员权益在分类里设置</span>' +
+        '<div class="grow"></div>' +
+        '<button class="btn" id="addCat">+ 新增分类</button></div>' +
+      (body.length
+        ? tableWrap(["名称", "code", "角色数", "权益", "序号", "操作"], body)
+        : '<div class="card"><div class="empty">暂无分类</div></div>') +
+      '<div class="api-hint" style="margin-top:10px;">分类顺序即客户端标签顺序，用 ↑ ↓ 调整</div>';
+
+    $("addCat").onclick = function () { categoryFormModal(null); };
+    document.querySelectorAll("[data-up-cat]").forEach(function (el) {
+      el.onclick = function () { moveCharCategory(el.dataset.upCat, -1); };
+    });
+    document.querySelectorAll("[data-down-cat]").forEach(function (el) {
+      el.onclick = function () { moveCharCategory(el.dataset.downCat, 1); };
+    });
+    document.querySelectorAll("[data-edit-cat]").forEach(function (el) {
+      el.onclick = function () {
+        var cat = state.charCategories.find(function (x) { return x.code === el.dataset.editCat; });
+        if (cat) categoryFormModal(cat);
+      };
+    });
     document.querySelectorAll("[data-del-cat]").forEach(function (el) {
       el.onclick = async function () {
         if (!confirm("确认删除该分类？")) return;
@@ -1037,7 +1805,6 @@
             method: "DELETE",
           });
           toast("已删除分类");
-          closeModal();
           render();
         } catch (err) {
           toast(err.message);
@@ -1046,9 +1813,98 @@
     });
   }
 
+  /// 新增分类的排序：取现有最大 sort + 1，自动排到末尾
+  function nextCatSort() {
+    var max = 0;
+    (state.charCategories || []).forEach(function (c) {
+      if (Number(c.sort) > max) max = Number(c.sort);
+    });
+    return max + 1;
+  }
+
+  /// 分类上移 / 下移一位（客户端标签顺序随之变化）
+  async function moveCharCategory(code, dir) {
+    var cats = state.charCategories || [];
+    var i = cats.findIndex(function (c) { return c.code === code; });
+    if (i < 0) return;
+    var other = cats[i + dir];
+    if (!other) return;
+    var curSort = Number(cats[i].sort);
+    var newSort = dir < 0
+      ? Math.min(Number(other.sort), curSort) - 1
+      : Math.max(Number(other.sort), curSort) + 1;
+    try {
+      await api("/character-categories/" + encodeURIComponent(code), {
+        method: "PATCH",
+        body: JSON.stringify({ sort: newSort }),
+      });
+      render();
+    } catch (err) { toast(err.message || "移动失败"); }
+  }
+
+  /// 新增 / 编辑角色分类：code 创建后不可改，排序自动（用列表 ↑ ↓ 调整）
+  function categoryFormModal(cat) {
+    var isEdit = !!cat;
+    var pos = isEdit
+      ? (state.charCategories.findIndex(function (c) { return c.code === cat.code; }) + 1)
+      : state.charCategories.length + 1;
+    openModal(
+      isEdit ? "编辑分类 · " + cat.name : "新增角色分类",
+      '<div class="form-grid">' +
+        '<div><label>分类 code</label><input id="cf_code" value="' + esc(isEdit ? cat.code : "") +
+          '" placeholder="daily"' + (isEdit ? ' readonly style="opacity:.6;"' : "") + " /></div>" +
+        '<div><label>显示名称</label><input id="cf_name" value="' + esc(isEdit ? cat.name : "") + '" placeholder="每日" /></div>' +
+        '<div><label>序号</label><input value="' + (isEdit ? "当前第 " + pos + " 位（用列表 ↑ ↓ 调整）" : "新增后排在末尾") +
+          '" readonly style="opacity:.6;" /></div>' +
+        '<div class="check" style="padding-top:22px;"><input id="cf_member" type="checkbox"' +
+          (isEdit && cat.memberOnly ? " checked" : "") + ' /><label style="margin:0">会员专属</label></div>' +
+      "</div>" +
+      '<div class="api-hint">会员专属 = 非会员浏览该分类时整组加锁，点击进付费墙；关闭则对所有用户免费</div>',
+      async function () {
+        var name = $("cf_name").value.trim();
+        if (!name) throw new Error("显示名称必填");
+        var payload = {
+          name: name,
+          memberOnly: $("cf_member").checked,
+        };
+        if (isEdit) {
+          await api("/character-categories/" + encodeURIComponent(cat.code), {
+            method: "PATCH",
+            body: JSON.stringify(payload),
+          });
+        } else {
+          var code = $("cf_code").value.trim().toLowerCase();
+          if (!/^[a-z0-9_]+$/.test(code)) throw new Error("code 只能是小写字母 / 数字 / 下划线");
+          payload.code = code;
+          payload.sort = nextCatSort();
+          await api("/character-categories", {
+            method: "POST",
+            body: JSON.stringify(payload),
+          });
+        }
+        closeModal();
+        toast(isEdit ? "已保存" : "已新增分类");
+        render();
+      }
+    );
+  }
+  /// 新增角色的排序：取该分类内最大 sort + 1，自动排到末尾
+  function nextSortFor(code) {
+    var max = 0;
+    (state.rows || []).forEach(function (r) {
+      if (r.categoryCode === code && Number(r.sort) > max) max = Number(r.sort);
+    });
+    return max + 1;
+  }
+
   function characterModal(item) {
     var isEdit = !!item;
     item = item || { code: "", name: "", categoryCode: state.charCategory || "daily", assetUrl: "", thumbnailUrl: "", memberOnly: false, sort: 0, isPublished: true };
+    var sibs = state.rows.filter(function (x) {
+      return x.categoryCode === (item.categoryCode || "daily");
+    });
+    var posIdx = isEdit ? sibs.findIndex(function (x) { return x.id === item.id; }) : -1;
+    var editPos = posIdx >= 0 ? posIdx + 1 : sibs.length + 1;
     var catOpts = (state.charCategories || []).map(function (c) {
       return '<option value="' + esc(c.code) + '"' +
         (c.code === (item.categoryCode || "daily") ? " selected" : "") + ">" +
@@ -1059,22 +1915,33 @@
       '<div class="form-grid">' +
         '<div><label>code</label><input id="c_code" value="' + esc(item.code) + '" placeholder="llama" /></div>' +
         '<div><label>名称</label><input id="c_name" value="' + esc(item.name) + '" /></div>' +
-        '<div class="full"><label>分类</label><select id="c_category">' + catOpts + "</select></div>" +
-        '<div class="full"><label>素材地址 (assetUrl)</label><input id="c_asset" value="' + esc(item.assetUrl) + '" placeholder="https://…/llama.png" /></div>' +
+        '<div class="full"><label>分类</label><select id="c_category">' + catOpts + "</select>" +
+          '<div class="api-hint" id="c_member_hint" style="margin-top:6px;"></div></div>' +
+        '<div class="full"><label>素材地址 (assetUrl)</label>' +
+          '<input id="c_asset" value="' + esc(item.assetUrl) + '" placeholder="https://…/llama.png" />' +
+          '<div style="display:flex;gap:8px;align-items:center;margin-top:8px;">' +
+            '<button class="btn ghost sm" type="button" id="c_pick">选择本地文件上传</button>' +
+            '<span class="api-hint" id="c_pick_hint">支持 SVG / PNG / JPG / WEBP，上传后自动填入地址</span>' +
+          "</div>" +
+          '<input id="c_pick_file" type="file" accept=".svg,.png,.jpg,.jpeg,.webp" style="display:none;" />' +
+        "</div>" +
         '<div class="full"><label>缩略图地址 (thumbnailUrl)</label><input id="c_thumb" value="' + esc(item.thumbnailUrl || "") + '" /></div>' +
-        '<div><label>排序</label><input id="c_sort" type="number" value="' + esc(item.sort) + '" /></div>' +
-        '<div class="check"><input id="c_member" type="checkbox"' + (item.memberOnly ? " checked" : "") + ' /><label style="margin:0">会员专属</label></div>' +
+        '<div><label>排序</label><input id="c_sort" value="' + (isEdit ? "当前第 " + editPos + " 位（用列表里的 ↑ ↓ 调整）" : "新增后排在分类末尾") +
+          '" readonly style="opacity:.6;" /></div>' +
         '<div class="check"><input id="c_pub" type="checkbox"' + (item.isPublished ? " checked" : "") + ' /><label style="margin:0">发布到客户端</label></div>' +
       "</div>",
       async function () {
+        var categoryCode = $("c_category").value || "daily";
         var dto = {
           code: $("c_code").value.trim(),
           name: $("c_name").value.trim(),
-          categoryCode: $("c_category").value || "daily",
+          categoryCode: categoryCode,
           assetUrl: $("c_asset").value.trim(),
           thumbnailUrl: $("c_thumb").value.trim() || null,
-          sort: Number($("c_sort").value),
-          memberOnly: $("c_member").checked,
+          // 排序不接受手填：编辑且分类不变时保持原位，其余情况排到该分类末尾
+          sort: isEdit && categoryCode === (item.categoryCode || "daily")
+            ? Number(item.sort)
+            : nextSortFor(categoryCode),
           isPublished: $("c_pub").checked,
         };
         if (!dto.code || !dto.name || !dto.assetUrl) throw new Error("code / 名称 / 素材地址 必填");
@@ -1085,6 +1952,58 @@
         render();
       }
     );
+    // 角色权益跟随分类：在弹窗里直接提示所选分类的权益
+    var catMeta = {};
+    (state.charCategories || []).forEach(function (c) { catMeta[c.code] = c; });
+    function syncCatHint() {
+      var c = catMeta[$("c_category").value];
+      var el = $("c_member_hint");
+      if (!el) return;
+      el.textContent = c
+        ? (c.memberOnly
+            ? "该分类为会员专属：非会员在客户端整组加锁"
+            : "该分类免费：所有用户可用（权益在「角色分类」页统一设置）")
+        : "";
+    }
+    $("c_category").onchange = syncCatHint;
+    syncCatHint();
+
+    // 弹窗内上传：自动填入素材地址，code / 名称留空时用文件名回填
+    $("c_pick").onclick = function () { $("c_pick_file").click(); };
+    $("c_pick_file").onchange = async function () {
+      var f = this.files && this.files[0];
+      if (!f) return;
+      try {
+        var url = await uploadAsset(f, "preset/characters", true);
+        $("c_asset").value = url;
+        var base = String(f.name || "").replace(/\.[^.]+$/, "");
+        if (!$("c_code").value.trim()) {
+          $("c_code").value = base.replace(/[^a-zA-Z0-9_-]/g, "_");
+        }
+        if (!$("c_name").value.trim()) $("c_name").value = base;
+        $("c_pick_hint").textContent = "已上传：" + url;
+      } catch (err) {
+        toast(err.message || "上传失败");
+      }
+      this.value = "";
+    };
+  }
+
+  /// 在所属分类内上移 / 下移一位：把当前项的排序值挪到相邻项之前 / 之后
+  async function moveCharacter(id, dir) {
+    var cur = state.rows.find(function (x) { return x.id === id; });
+    if (!cur) return;
+    var sibs = state.rows.filter(function (x) { return x.categoryCode === cur.categoryCode; });
+    var i = sibs.findIndex(function (x) { return x.id === id; });
+    var other = sibs[i + dir];
+    if (!other) return;
+    var newSort = dir < 0
+      ? Math.min(Number(other.sort), Number(cur.sort)) - 1
+      : Math.max(Number(other.sort), Number(cur.sort)) + 1;
+    try {
+      await api("/characters/" + id, { method: "PATCH", body: JSON.stringify({ sort: newSort }) });
+      render();
+    } catch (err) { toast(err.message || "移动失败"); }
   }
 
   async function removeCharacter(id) {
@@ -1106,6 +2025,16 @@
     return '<span class="tag off">非会员</span>';
   }
 
+  var GENDER_LABEL = { male: "男", female: "女", other: "其他" };
+
+  /// 吨吨ID = 服务端用户 ID（App 设置页展示的那串），列表只露前 8 位
+  function shortTonId(id) {
+    var s = String(id || "");
+    if (!s) return "-";
+    return '<span class="mono" title="' + esc(s) + '">' +
+      esc(s.slice(0, 8)) + "…</span>";
+  }
+
   async function renderUsers() {
     var qs = "/user?page=" + state.page + "&pageSize=" + state.pageSize;
     if (state.userQuery) qs += "&q=" + encodeURIComponent(state.userQuery);
@@ -1113,16 +2042,17 @@
     state.rows = Array.isArray(rows) ? rows : [];
     var body = state.rows.map(function (u) {
       return [
+        shortTonId(u.id),
         "<b>" + esc(u.nickname || "未命名") + "</b>",
+        esc(GENDER_LABEL[u.gender] || u.gender || "-"),
         esc(u.email || "-"),
         esc(u.phone || "-"),
-        esc(u.gender || "-"),
-        u.weightKg != null ? esc(u.weightKg) + " kg" : "-",
-        u.heightCm != null ? esc(u.heightCm) + " cm" : "-",
-        esc(u.dailyGoalMl) + " ml",
         memberCell(u),
         esc((u.createdAt || "").slice(0, 10)),
-        '<button class="btn ghost sm" data-member="' + esc(u.id) + '">设置会员</button>',
+        '<div class="row-actions">' +
+          '<button class="btn ghost sm" data-entries="' + esc(u.id) + '">打卡</button>' +
+          '<button class="btn ghost sm" data-member="' + esc(u.id) + '">设置会员</button>' +
+        "</div>",
       ];
     });
     $("view").innerHTML =
@@ -1131,9 +2061,9 @@
         '<button class="btn ghost" id="queryUsers">搜索</button>' +
         '<button class="btn ghost" id="resetUsers">重置</button>' +
         '<div class="grow"></div>' +
-        '<span class="api-hint">会员到期后客户端自动回退为免费版</span>' +
+        '<span class="api-hint">会员到期后客户端自动回退为免费版 · 体重/身高等身体数据不在后台展示</span>' +
       "</div>" +
-      tableWrap(["昵称", "邮箱", "手机", "性别", "体重", "身高", "目标", "会员", "注册日", "操作"], body) +
+      tableWrap(["吨吨ID", "昵称", "性别", "邮箱", "手机", "会员", "注册日", "操作"], body) +
       pager();
     bindPager();
     $("queryUsers").onclick = function () {
@@ -1155,6 +2085,159 @@
         memberModal(user);
       };
     });
+    document.querySelectorAll("[data-entries]").forEach(function (el) {
+      el.onclick = function () {
+        var user = state.rows.find(function (x) { return x.id === el.dataset.entries; });
+        userEntriesModal(user);
+      };
+    });
+  }
+
+  /// 只读信息弹窗：只有一个关闭按钮，不提交表单
+  function openInfoModal(title, bodyHtml) {
+    var box = $("modalBox");
+    box.classList.add("mid");
+    box.innerHTML =
+      "<h3>" + esc(title) + "</h3>" + bodyHtml +
+      '<div class="modal-foot"><button class="btn ghost" id="modalClose">关闭</button></div>';
+    $("modalMask").classList.remove("hidden");
+    $("modalClose").onclick = closeModal;
+    $("modalMask").onclick = function (e) {
+      if (e.target === $("modalMask")) closeModal();
+    };
+  }
+
+  /// 用户近 30 天打卡数据：总计 KPI + 卡片内按日期切换的当日数据
+  async function userEntriesModal(user) {
+    if (!user) return;
+    openInfoModal(
+      "打卡数据 · " + (user.nickname || user.id),
+      '<div class="empty">加载中…</div>',
+    );
+    try {
+      var res = await api(
+        "/admin/users/" + encodeURIComponent(user.id) + "/entries?days=30",
+      );
+      if ($("modalMask").classList.contains("hidden")) return;
+      var s = res.summary || {};
+      var goal = Number((res.user ? res.user.dailyGoalMl : user.dailyGoalMl) || 0);
+      var days = res.daily || [];
+      // 明细按日期分组：接口只返回最近 200 条，超出部分在界面上给出提示
+      var byDate = Object.create(null);
+      (res.entries || []).forEach(function (e) {
+        var key = String(e.drankAt || "").slice(0, 10);
+        (byDate[key] || (byDate[key] = [])).push(e);
+      });
+
+      var mini = function (label, value, unit, sub) {
+        return '<div class="kpi"><div class="kpi-label">' + esc(label) + "</div>" +
+          '<div class="kpi-value" style="font-size:20px">' + value +
+          (unit ? "<em>" + esc(unit) + "</em>" : "") + "</div>" +
+          '<div class="kpi-sub">' + sub + "</div></div>";
+      };
+      var metric = function (label, value, unit) {
+        return '<div class="metric"><div class="metric-label">' + esc(label) + "</div>" +
+          '<div class="metric-value">' + value + "<em>" + esc(unit) + "</em></div></div>";
+      };
+
+      // 日期下拉：index 0 是今天，越往后越早
+      var options = days.map(function (d, i) {
+        return '<option value="' + i + '">' +
+          esc(d.date === res.to ? d.date.slice(5) + "（今天）" : d.date.slice(5)) +
+          "</option>";
+      }).join("");
+
+      var body =
+        '<div class="kpi-grid" style="grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:12px">' +
+          mini("总打卡次数", fmtInt(s.entries) + " 次", "", esc(res.from) + " ~ " + esc(res.to)) +
+          mini("总有效饮水", fmtInt(s.effectiveMl), "ml", "实际饮水 " + fmtInt(s.volumeMl) + " ml") +
+          mini("达标天数", fmtInt(s.reachedDays) + " / " + fmtInt(s.activeDays), "天", "每天目标 " + fmtInt(goal) + " ml") +
+          mini("日均次数", Number(s.avgPerActiveDay || 0).toFixed(2), "次", "按有打卡的天数计") +
+        "</div>" +
+        '<div class="day-card">' +
+          '<div class="day-head">' +
+            '<div><div class="day-title">按天数据</div>' +
+            '<div class="day-sub">切换日期查看当天的打卡次数与有效饮水</div></div>' +
+            '<div class="day-nav">' +
+              '<button type="button" id="dayPrev" aria-label="前一天">‹</button>' +
+              '<select id="dayPick">' + options + "</select>" +
+              '<button type="button" id="dayNext" aria-label="后一天">›</button>' +
+            "</div>" +
+          "</div>" +
+          '<div class="metric-grid" id="dayMetrics"></div>' +
+          '<div class="day-detail" id="dayDetail"></div>' +
+        "</div>" +
+        '<div class="dash-note">吨吨ID：' + esc(user.id) +
+        " · 最近打卡：" + esc(String(s.lastDrankAt || "-").replace("T", " ").slice(0, 16)) +
+        " · 明细最多展示最近 200 条</div>";
+
+      var box = $("modalBox");
+      box.innerHTML =
+        "<h3>打卡数据 · " + esc(user.nickname || user.id) + "</h3>" + body +
+        '<div class="modal-foot"><button class="btn ghost" id="modalClose">关闭</button></div>';
+      $("modalClose").onclick = closeModal;
+
+      var pick = $("dayPick");
+      var prevBtn = $("dayPrev");
+      var nextBtn = $("dayNext");
+
+      var renderDay = function (index) {
+        var d = days[index];
+        if (!d) return;
+        pick.value = String(index);
+        // 下拉列表是「今天 → 更早」，所以 index 越大日期越早
+        prevBtn.disabled = index >= days.length - 1;
+        nextBtn.disabled = index <= 0;
+
+        var pct = goal > 0 ? Math.round((Number(d.effectiveMl) / goal) * 100) : 0;
+        $("dayMetrics").innerHTML =
+          metric("打卡次数", esc(fmtInt(d.entries)), "次") +
+          metric("有效饮水", esc(fmtInt(d.effectiveMl)), "ml") +
+          metric("实际饮水", esc(fmtInt(d.volumeMl)), "ml") +
+          metric("完成度", esc(pct), "%");
+
+        var list = byDate[d.date] || [];
+        var header = '<div class="dash-note" style="margin:0 0 8px"><strong>' +
+          esc(d.date) + "</strong> · " +
+          (d.reached ? '<span class="tag on">已达标</span>' : '<span class="tag off">未达标</span>') +
+          " · 目标 " + fmtInt(goal) + " ml</div>";
+
+        var rows = list.map(function (e) {
+          // 营养值口径与 App 一致：热量/咖啡因按每 250ml，酒精为 %vol
+          var nutri = [];
+          if (e.calories > 0) nutri.push("<strong>" + esc(e.calories) + "</strong> kcal");
+          if (e.caffeineMg > 0) nutri.push("咖啡因 " + esc(e.caffeineMg) + " mg");
+          if (e.alcoholPercent > 0) nutri.push("酒精 " + esc(e.alcoholPercent) + "%vol");
+          return [
+            esc((e.drankAt || "").replace("T", " ").slice(11, 16)),
+            "<b>" + esc(e.beverageName || "-") + "</b>",
+            esc(e.volumeMl) + " ml",
+            esc(e.effectiveMl) + " ml",
+            nutri.length
+              ? nutri.map(function (t) { return '<div class="nutri-line">' + t + "</div>"; }).join("")
+              : "-",
+          ];
+        });
+
+        var detail = rows.length
+          ? tableWrap(["时间", "饮品", "容量", "有效饮水", "营养（每 250ml）"], rows)
+          : '<div class="card"><div class="empty" style="padding:22px">当天暂无打卡记录</div></div>';
+        // 明细被 200 条上限截断时给出提示，避免误判为数据缺失
+        if (rows.length && rows.length < Number(d.entries || 0)) {
+          detail += '<div class="dash-note" style="margin-top:8px">当天共 ' +
+            fmtInt(d.entries) + " 条，明细仅展示最近 " + rows.length + " 条</div>";
+        }
+        $("dayDetail").innerHTML = header + detail;
+      };
+
+      pick.onchange = function () { renderDay(Number(pick.value) || 0); };
+      prevBtn.onclick = function () { renderDay(Math.min(days.length - 1, Number(pick.value) + 1)); };
+      nextBtn.onclick = function () { renderDay(Math.max(0, Number(pick.value) - 1)); };
+      renderDay(0);
+    } catch (err) {
+      toast(err.message || "打卡数据加载失败");
+      closeModal();
+    }
   }
 
   /// 人工赠送会员：按天数顺延，或直接设为永久
@@ -1197,14 +2280,19 @@
 
   /* ---------------- 会员套餐 ---------------- */
   async function renderPlans() {
-    var rows = await api("/admin/plans");
-    state.rows = Array.isArray(rows) ? rows : [];
+    var res = await Promise.all([api("/admin/plans"), api("/admin/benefits")]);
+    state.rows = Array.isArray(res[0]) ? res[0] : [];
+    state.benefitDict = Array.isArray(res[1]) ? res[1] : [];
     var body = state.rows.map(function (p) {
+      var names = (p.benefits || []).map(function (b) { return b.name; });
       return [
         '<span class="mono">' + esc(p.code) + "</span>",
         "<b>" + esc(p.name) + "</b>",
         "¥" + ((p.priceCents || 0) / 100).toFixed(2),
         p.durationDays > 0 ? esc(p.durationDays) + " 天" : "永久",
+        names.length
+          ? names.map(function (n) { return '<span class="tag on">' + esc(n) + "</span>"; }).join(" ")
+          : '<span class="tag off">未绑定</span>',
         p.badge ? '<span class="tag gold">' + esc(p.badge) + "</span>" : "-",
         esc(p.sort),
         p.isPublished ? '<span class="tag on">上架</span>' : '<span class="tag off">下架</span>',
@@ -1212,9 +2300,9 @@
       ];
     });
     $("view").innerHTML =
-      '<div class="toolbar"><span class="api-hint">套餐会实时同步到 App 会员页，改价/下架后客户端下次拉取即生效</span>' +
+      '<div class="toolbar"><span class="api-hint">套餐与权益会实时同步到 App 会员页，改价/下架/改权益后客户端下次拉取即生效</span>' +
       '<div class="grow"></div></div>' +
-      tableWrap(["代码", "名称", "价格", "时长", "角标", "排序", "状态", "操作"], body);
+      tableWrap(["代码", "名称", "价格", "时长", "权益", "角标", "排序", "状态", "操作"], body);
     document.querySelectorAll("[data-plan]").forEach(function (el) {
       el.onclick = function () {
         var plan = state.rows.find(function (x) { return x.code === el.dataset.plan; });
@@ -1225,6 +2313,9 @@
 
   function planModal(plan) {
     if (!plan) return;
+    var dict = state.benefitDict || [];
+    var bound = {};
+    (plan.benefits || []).forEach(function (b) { bound[b.code] = true; });
     openModal(
       "编辑套餐 · " + plan.code,
       '<div class="form-grid">' +
@@ -1234,9 +2325,21 @@
         '<div><label>角标文案</label><input id="p_badge" placeholder="如 限时优惠" value="' + esc(plan.badge || "") + '" /></div>' +
         '<div><label>排序</label><input id="p_sort" type="number" value="' + esc(plan.sort) + '" /></div>' +
         '<div class="check"><input id="p_pub" type="checkbox"' + (plan.isPublished ? " checked" : "") + ' /><label style="margin:0">上架到客户端</label></div>' +
-        '<div class="full" style="font-size:12px;opacity:.7;">修改价格只影响之后的订单金额，已支付订单不会被改写。</div>' +
+        '<div class="full"><label>会员权益（勾选后随套餐下发到客户端会员页）</label>' +
+          '<div class="benefit-grid">' +
+            dict.map(function (b) {
+              return '<label class="bcheck"><input type="checkbox" value="' + esc(b.code) + '"' +
+                (bound[b.code] ? " checked" : "") + " /><span>" + esc(b.name) + "</span></label>";
+            }).join("") +
+          "</div>" +
+        "</div>" +
+        '<div class="full" style="font-size:12px;opacity:.7;">修改价格只影响之后的订单金额，已确认订单不会被改写。</div>' +
       "</div>",
       async function () {
+        var benefits = [];
+        document.querySelectorAll("#modalBox .bcheck input:checked").forEach(function (el) {
+          benefits.push(el.value);
+        });
         var dto = {
           name: $("p_name").value.trim(),
           priceCents: Math.round(Number($("p_price").value) * 100),
@@ -1244,6 +2347,7 @@
           badge: $("p_badge").value.trim(),
           sort: Number($("p_sort").value),
           isPublished: $("p_pub").checked,
+          benefits: benefits,
         };
         if (!dto.name) throw new Error("套餐名称不能为空");
         if (!Number.isFinite(dto.priceCents) || dto.priceCents < 0) {
@@ -1263,14 +2367,355 @@
     );
   }
 
-  /* ---------------- 订单查询 ---------------- */
+  /* ---------------- 贴士卡 ---------------- */
+  var TIP_GROUPS = [
+    ["hydration", "进水量"],
+    ["lifehacks", "生活小窍门"],
+    ["drinks", "美味饮品"],
+    ["health", "健康益处"],
+    ["general", "通用"],
+  ];
+
+  function tipGroupName(code) {
+    for (var i = 0; i < TIP_GROUPS.length; i++) {
+      if (TIP_GROUPS[i][0] === code) return TIP_GROUPS[i][1];
+    }
+    return code;
+  }
+
+  async function renderTips() {
+    var rows = await api("/admin/tips");
+    state.rows = rows;
+    var body = rows.length
+      ? tableWrap(
+          ["分组", "文案", "配色", "插画", "排序", "状态", "操作"],
+          rows.map(function (r) {
+            var swatch =
+              '<span style="display:inline-block;width:34px;height:20px;border-radius:6px;border:1px solid var(--line);background:' +
+              esc(r.bgColor || "#eaf7fb") + ";color:" + esc(r.fgColor || "#3bb3db") +
+              ';font-size:10px;line-height:20px;text-align:center;">Aa</span>';
+            return [
+              esc(tipGroupName(r.groupCode)),
+              esc(r.title),
+              swatch,
+              r.imageUrl
+                ? '<a href="' + esc(assetUrl(r.imageUrl)) + '" target="_blank" style="color:var(--accent);">查看</a>'
+                : '<span class="tag off">纯色</span>',
+              esc(r.sort),
+              r.isPublished ? '<span class="tag on">展示中</span>' : '<span class="tag off">已隐藏</span>',
+              '<button class="btn sm ghost" data-tip="' + esc(r.id) + '">编辑</button> ' +
+                '<button class="btn sm ' + (r.isPublished ? "danger" : "ghost") + '" data-toggle-tip="' + esc(r.id) + '">' +
+                (r.isPublished ? "隐藏" : "展示") + "</button> " +
+                '<button class="btn sm danger" data-del-tip="' + esc(r.id) + '">删除</button>',
+            ];
+          })
+        )
+      : '<div class="card"><div class="empty">还没有配置贴士卡，App 会使用安装包内置的 27 张卡</div></div>';
+    $("view").innerHTML =
+      '<div class="toolbar">' +
+        '<span class="api-hint">保存后 App 30 秒内自动同步；全部隐藏或为空时回退到内置卡池</span>' +
+        '<div class="grow"></div>' +
+        '<button class="btn" id="addTip">新增贴士卡</button>' +
+      "</div>" + body;
+    $("addTip").onclick = function () { tipModal(null); };
+    document.querySelectorAll("[data-tip]").forEach(function (el) {
+      el.onclick = function () {
+        tipModal(state.rows.find(function (x) { return x.id === el.dataset.tip; }));
+      };
+    });
+    document.querySelectorAll("[data-toggle-tip]").forEach(function (el) {
+      el.onclick = async function () {
+        var row = state.rows.find(function (x) { return x.id === el.dataset.toggleTip; });
+        try {
+          await api("/admin/tips/" + row.id, {
+            method: "PATCH",
+            body: JSON.stringify({ isPublished: !row.isPublished }),
+          });
+          toast(row.isPublished ? "已隐藏" : "已展示");
+          render();
+        } catch (err) { toast(err.message); }
+      };
+    });
+    document.querySelectorAll("[data-del-tip]").forEach(function (el) {
+      el.onclick = async function () {
+        if (!confirm("删除这张贴士卡？App 会在一分钟内移出卡池。")) return;
+        try {
+          await api("/admin/tips/" + el.dataset.delTip, { method: "DELETE" });
+          toast("已删除");
+          render();
+        } catch (err) { toast(err.message); }
+      };
+    });
+  }
+
+  function tipModal(row) {
+    var isEdit = !!row;
+    var options = TIP_GROUPS.map(function (g) {
+      return '<option value="' + g[0] + '"' +
+        (isEdit && row.groupCode === g[0] ? " selected" : "") + ">" + g[1] + "</option>";
+    }).join("");
+    openModal(
+      isEdit ? "编辑贴士卡" : "新增贴士卡",
+      '<div class="form-grid">' +
+        '<div><label>分组（决定在「查看全部」中的位置）</label><select id="t_group">' + options + "</select></div>" +
+        '<div><label>状态</label><select id="t_pub">' +
+          '<option value="1"' + (!isEdit || row.isPublished ? " selected" : "") + ">展示</option>" +
+          '<option value="0"' + (isEdit && !row.isPublished ? " selected" : "") + ">隐藏</option>" +
+        "</select></div>" +
+        '<div class="full"><label>文案（建议 20 字以内）</label><input id="t_title" maxlength="120" value="' +
+          (isEdit ? esc(row.title) : "") + '" /></div>' +
+        '<div><label>背景色</label><input id="t_bg" type="color" value="' +
+          (isEdit && row.bgColor ? esc(row.bgColor) : "#EAF7FB") + '" style="height:38px;padding:3px;" /></div>' +
+        '<div><label>文字色</label><input id="t_fg" type="color" value="' +
+          (isEdit && row.fgColor ? esc(row.fgColor) : "#3BB3DB") + '" style="height:38px;padding:3px;" /></div>' +
+        '<div class="full"><label>插画地址（选填，留空显示纯色底）</label>' +
+          '<div style="display:flex;gap:8px;">' +
+            '<input id="t_img" placeholder="/static/xxx.png" value="' + (isEdit ? esc(row.imageUrl || "") : "") + '" />' +
+            '<label class="btn ghost" style="white-space:nowrap;line-height:22px;">上传<input id="t_file" type="file" accept="image/*" style="display:none;" /></label>' +
+          "</div></div>" +
+      "</div>",
+      async function () {
+        var title = $("t_title").value.trim();
+        if (!title) throw new Error("文案不能为空");
+        var dto = {
+          groupCode: $("t_group").value,
+          title: title,
+          bgColor: $("t_bg").value,
+          fgColor: $("t_fg").value,
+          imageUrl: $("t_img").value.trim(),
+          isPublished: $("t_pub").value === "1",
+        };
+        if (isEdit) {
+          await api("/admin/tips/" + row.id, { method: "PATCH", body: JSON.stringify(dto) });
+        } else {
+          await api("/admin/tips", { method: "POST", body: JSON.stringify(dto) });
+        }
+        closeModal();
+        toast(isEdit ? "已保存" : "已新增");
+        render();
+      }
+    );
+    $("t_file").onchange = async function () {
+      var file = this.files && this.files[0];
+      if (!file) return;
+      try {
+        var saved = await uploadAsset(file, "tips");
+        $("t_img").value = saved;
+        toast("插画已上传");
+      } catch (err) { toast(err.message); }
+    };
+  }
+
+  /* ---------------- 异常上报 ---------------- */
+  async function renderErrors() {
+    var page = state.errPage || 1;
+    var res = await api("/admin/errors?pageSize=50&page=" + page);
+    state.errRows = res.items || [];
+    var rows = state.errRows;
+    var body = rows.length
+      ? tableWrap(
+          ["上报时间", "用户", "版本 / 平台", "错误摘要", "操作"],
+          rows.map(function (r) {
+            var first = (r.message || "").split("\n")[0];
+            var short = first.length > 70 ? first.slice(0, 70) + "…" : first;
+            return [
+              esc((r.createdAt || "").replace("T", " ").slice(0, 16)),
+              esc(r.userNickname || (r.userId ? r.userId.slice(0, 8) : "游客")),
+              esc((r.appVersion || "-") + " / " + (r.platform || "-")),
+              '<span title="' + esc(r.message) + '">' + esc(short) + "</span>",
+              '<button class="btn sm ghost" data-err="' + esc(r.id) + '">详情</button>',
+            ];
+          })
+        )
+      : '<div class="card"><div class="empty">暂无异常上报</div></div>';
+    $("view").innerHTML =
+      '<div class="toolbar">' +
+        '<span class="api-hint">共 ' + (res.total || 0) + ' 条 · 仅 release 包上报，单次启动最多 10 条</span>' +
+        '<div class="grow"></div>' +
+        '<button class="btn ghost" id="errRefresh">刷新</button>' +
+      "</div>" + body +
+      (res.total > 50
+        ? '<div class="toolbar" style="justify-content:center;margin-top:12px;">' +
+          '<button class="btn ghost sm" id="errPrev"' + (page <= 1 ? " disabled" : "") + ">上一页</button>" +
+          '<span class="api-hint">第 ' + page + " 页</span>" +
+          '<button class="btn ghost sm" id="errNext"' + (page * 50 >= res.total ? " disabled" : "") + ">下一页</button>" +
+          "</div>"
+        : "");
+    $("errRefresh").onclick = function () { render(); };
+    if ($("errPrev")) $("errPrev").onclick = function () { state.errPage = page - 1; render(); };
+    if ($("errNext")) $("errNext").onclick = function () { state.errPage = page + 1; render(); };
+    document.querySelectorAll("[data-err]").forEach(function (el) {
+      el.onclick = function () {
+        var row = state.errRows.find(function (x) { return x.id === el.dataset.err; });
+        openModal(
+          "异常详情",
+          '<div class="api-hint" style="margin-bottom:8px;">' +
+            esc(row.appVersion || "-") + " / " + esc(row.platform || "-") + " / " +
+            esc(row.device || "-") + " · " + esc(row.createdAt || "") + "</div>" +
+            '<pre style="max-height:52vh;overflow:auto;white-space:pre-wrap;word-break:break-all;font-size:12px;background:#fafafb;border:1px solid var(--line);border-radius:10px;padding:12px;margin:0;">' +
+            esc((row.message || "") + "\n\n" + (row.stack || "无堆栈")) + "</pre>",
+          async function () { closeModal(); }
+        );
+        // 只读弹窗：隐藏保存按钮，取消改「关闭」
+        $("modalSave").style.display = "none";
+        $("modalCancel").textContent = "关闭";
+      };
+    });
+  }
+
+  /* ---------------- 版本发布 ---------------- */
+  async function renderReleases() {
+    var rows = await api("/admin/releases");
+    state.rows = rows;
+    var body = rows.length
+      ? tableWrap(
+          ["平台", "版本", "Build", "强制更新", "状态", "创建时间", "操作"],
+          rows.map(function (r) {
+            return [
+              esc(r.platform === "ios" ? "iOS" : "Android"),
+              esc(r.versionName),
+              esc(r.versionCode),
+              r.forceUpdate ? '<span class="tag gold">强制</span>' : '<span class="tag off">否</span>',
+              r.isPublished ? '<span class="tag on">已启用</span>' : '<span class="tag off">已停用</span>',
+              esc((r.createdAt || "").slice(0, 10)),
+              '<button class="btn sm ghost" data-release="' + esc(r.id) + '">编辑</button> ' +
+                '<button class="btn sm ' + (r.isPublished ? "danger" : "ghost") + '" data-toggle-release="' + esc(r.id) + '">' +
+                (r.isPublished ? "停用" : "启用") + "</button>",
+            ];
+          })
+        )
+      : '<div class="card"><div class="empty">还没有发布版本，客户端不会提示更新</div></div>';
+    $("view").innerHTML =
+      '<div class="toolbar">' +
+        '<span class="api-hint">客户端冷启动检查：同平台中版本号最大且已启用的一条生效</span>' +
+        '<div class="grow"></div>' +
+        '<button class="btn" id="addRelease">新增版本</button>' +
+      "</div>" + body;
+    $("addRelease").onclick = function () { releaseModal(null); };
+    document.querySelectorAll("[data-release]").forEach(function (el) {
+      el.onclick = function () {
+        var row = state.rows.find(function (x) { return x.id === el.dataset.release; });
+        releaseModal(row);
+      };
+    });
+    document.querySelectorAll("[data-toggle-release]").forEach(function (el) {
+      el.onclick = async function () {
+        var row = state.rows.find(function (x) { return x.id === el.dataset.toggleRelease; });
+        try {
+          await api("/admin/releases/" + row.id, {
+            method: "PATCH",
+            body: JSON.stringify({ isPublished: !row.isPublished }),
+          });
+          toast(row.isPublished ? "已停用" : "已启用");
+          render();
+        } catch (err) { toast(err.message); }
+      };
+    });
+  }
+
+  function releaseModal(row) {
+    var isEdit = !!row;
+    openModal(
+      isEdit ? "编辑版本 · " + row.versionName : "新增版本",
+      '<div class="form-grid">' +
+        '<div><label>平台</label><select id="r_platform"' + (isEdit ? " disabled" : "") + '>' +
+          '<option value="android"' + (isEdit && row.platform === "android" ? " selected" : "") + '>Android</option>' +
+          '<option value="ios"' + (isEdit && row.platform === "ios" ? " selected" : "") + '>iOS</option>' +
+        "</select></div>" +
+        '<div><label>版本号</label><input id="r_name" placeholder="如 1.0.1" value="' + (isEdit ? esc(row.versionName) : "") + '" /></div>' +
+        '<div><label>Build 号（递增，客户端据此判断）</label><input id="r_code" type="number" value="' + (isEdit ? esc(row.versionCode) : "") + '" /></div>' +
+        '<div class="full"><label>下载地址（选填）</label><input id="r_url" placeholder="安装包或商店链接" value="' + (isEdit ? esc(row.downloadUrl || "") : "") + '" /></div>' +
+        '<div class="full"><label>更新说明</label><textarea id="r_notes" rows="3" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:10px;font-family:inherit;font-size:13px;">' + (isEdit ? esc(row.notes || "") : "") + "</textarea></div>" +
+        '<div class="check"><input id="r_force" type="checkbox"' + (isEdit && row.forceUpdate ? " checked" : "") + ' /><label style="margin:0">强制更新</label></div>' +
+        '<div class="check"><input id="r_pub" type="checkbox"' + (!isEdit || row.isPublished ? " checked" : "") + ' /><label style="margin:0">启用（客户端可见）</label></div>' +
+      "</div>",
+      async function () {
+        var dto = {
+          versionName: $("r_name").value.trim(),
+          versionCode: Number($("r_code").value),
+          downloadUrl: $("r_url").value.trim(),
+          notes: $("r_notes").value.trim(),
+          forceUpdate: $("r_force").checked,
+          isPublished: $("r_pub").checked,
+        };
+        if (!dto.versionName) throw new Error("版本号不能为空");
+        if (!Number.isFinite(dto.versionCode) || dto.versionCode <= 0) {
+          throw new Error("Build 号需为正整数");
+        }
+        if (isEdit) {
+          await api("/admin/releases/" + row.id, {
+            method: "PATCH",
+            body: JSON.stringify(dto),
+          });
+        } else {
+          dto.platform = $("r_platform").value;
+          await api("/admin/releases", { method: "POST", body: JSON.stringify(dto) });
+        }
+        closeModal();
+        toast(isEdit ? "版本已更新" : "版本已发布");
+        render();
+      }
+    );
+  }
+
+  /* ---------------- 用户反馈 ---------------- */
+  async function renderFeedback() {
+    var status = state.fbStatus || "open";
+    var rows = await api("/admin/feedback?pageSize=100" + (status === "all" ? "" : "&status=" + status));
+    state.fbRows = rows;
+    var body = rows.length
+      ? tableWrap(
+          ["提交时间", "用户", "问题描述", "联系方式", "版本 / 平台", "状态", "操作"],
+          rows.map(function (r) {
+            var short = r.content.length > 60 ? r.content.slice(0, 60) + "…" : r.content;
+            return [
+              esc((r.createdAt || "").replace("T", " ").slice(0, 16)),
+              esc(r.userNickname || (r.userId ? r.userId.slice(0, 8) : "游客")),
+              '<span title="' + esc(r.content) + '">' + esc(short) + "</span>",
+              esc(r.contact || "-"),
+              esc((r.appVersion || "-") + " / " + (r.platform || "-")),
+              r.status === "open" ? '<span class="tag gold">待处理</span>' : '<span class="tag on">已处理</span>',
+              '<button class="btn sm ' + (r.status === "open" ? "" : "ghost") + '" data-fb="' + esc(r.id) + '">' +
+                (r.status === "open" ? "标记已处理" : "重新打开") + "</button>",
+            ];
+          })
+        )
+      : '<div class="card"><div class="empty">' + (status === "open" ? "没有待处理的反馈" : "暂无反馈") + "</div></div>";
+    $("view").innerHTML =
+      '<div class="toolbar">' +
+        '<select id="fbStatus">' +
+          '<option value="open"' + (status === "open" ? " selected" : "") + '>待处理</option>' +
+          '<option value="all"' + (status === "all" ? " selected" : "") + '>全部</option>' +
+        "</select>" +
+        '<div class="grow"></div>' +
+        '<span class="api-hint">共 ' + rows.length + " 条</span>" +
+      "</div>" + body;
+    $("fbStatus").onchange = function () {
+      state.fbStatus = this.value;
+      render();
+    };
+    document.querySelectorAll("[data-fb]").forEach(function (el) {
+      el.onclick = async function () {
+        var row = state.fbRows.find(function (x) { return x.id === el.dataset.fb; });
+        try {
+          await api("/admin/feedback/" + row.id, {
+            method: "PATCH",
+            body: JSON.stringify({ status: row.status === "open" ? "resolved" : "open" }),
+          });
+          toast(row.status === "open" ? "已标记处理" : "已重新打开");
+          render();
+        } catch (err) { toast(err.message); }
+      };
+    });
+  }
+
   async function renderOrders() {
     var qs = "/membership/orders?page=" + state.page + "&pageSize=" + state.pageSize;
     if (state.orderStatus) qs += "&status=" + encodeURIComponent(state.orderStatus);
     if (state.orderUser) qs += "&userId=" + encodeURIComponent(state.orderUser);
     var rows = await api(qs);
     state.rows = Array.isArray(rows) ? rows : [];
-    var STATUS = { pending: "待支付", paid: "已支付", cancelled: "已取消", refunded: "已退款" };
+    var STATUS = { pending: "待确认", paid: "已确认", rejected: "已拒绝", cancelled: "已取消", refunded: "已退款" };
     var body = state.rows.map(function (o) {
       var st = o.status || "pending";
       return [
@@ -1282,15 +2727,18 @@
         esc((o.createdAt || "").replace("T", " ").slice(0, 16)),
         esc(o.paidAt ? o.paidAt.replace("T", " ").slice(0, 16) : "-"),
         st === "pending"
-          ? '<button class="btn sm" data-paid="' + esc(o.id) + '">标记已支付</button>'
+          ? '<button class="btn sm" data-paid="' + esc(o.id) + '">确认并开通</button> ' +
+            '<button class="btn sm danger" data-reject="' + esc(o.id) + '">拒绝</button>'
           : '<span class="tag off">-</span>',
       ];
     });
     $("view").innerHTML =
       '<div class="toolbar">' +
+        '<span class="api-hint">内测阶段无真实支付：用户提交开通申请后在此确认，确认即下发会员权益，App 自动刷新生效</span>' +
+        '<div class="grow"></div>' +
         '<select id="orderStatus">' +
           '<option value="">全部状态</option>' +
-          ["pending", "paid", "cancelled", "refunded"].map(function (s) {
+          ["pending", "paid", "rejected", "cancelled", "refunded"].map(function (s) {
             return '<option value="' + s + '"' + (state.orderStatus === s ? " selected" : "") + ">" + STATUS[s] + "</option>";
           }).join("") +
         "</select>" +
@@ -1315,23 +2763,50 @@
     document.querySelectorAll("[data-paid]").forEach(function (el) {
       el.onclick = function () { markPaid(el.dataset.paid); };
     });
+    document.querySelectorAll("[data-reject]").forEach(function (el) {
+      el.onclick = function () { rejectOrder(el.dataset.reject); };
+    });
+  }
+
+  async function rejectOrder(id) {
+    var order = state.rows.find(function (x) { return x.id === id; });
+    var who = order
+      ? (order.user ? (order.user.nickname || order.user.email || order.user.id) : order.userId)
+      : id;
+    if (!confirm("拒绝「" + who + "」的开通申请？\n\n用户会收到「申请未通过」提示，可重新提交。")) return;
+    try {
+      await api("/membership/orders/" + id + "/reject", {
+        method: "PATCH",
+        body: JSON.stringify({}),
+      });
+      toast("已拒绝该申请");
+      render();
+    } catch (err) { toast(err.message); }
   }
 
   async function markPaid(id) {
-    var tx = prompt("请输入外部交易号（Apple IAP / Google Play order id，可留空）：", "");
-    if (tx === null) return;
+    var order = state.rows.find(function (x) { return x.id === id; });
+    var who = order
+      ? (order.user ? (order.user.nickname || order.user.email || order.user.id) : order.userId)
+      : id;
+    var planName = order && order.plan ? order.plan.name : (order ? order.planId : "");
+    var amount = order ? "¥" + ((order.amountCents || 0) / 100).toFixed(2) : "";
+    if (!confirm(
+      "确认「" + who + "」的开通申请？\n\n套餐：" + planName + "\n金额：" + amount +
+      "\n\n确认后立即下发会员权益，操作不可撤销。"
+    )) return;
     try {
       await api("/membership/orders/" + id + "/paid", {
         method: "PATCH",
-        body: JSON.stringify({ externalTxId: tx || "manual_" + Date.now() }),
+        body: JSON.stringify({ externalTxId: "manual_" + Date.now() }),
       });
-      toast("已标记支付");
+      toast("已确认，会员权益已下发");
       render();
     } catch (err) { toast(err.message); }
   }
 
   /* ---------------- 弹窗 ---------------- */
-  function openModal(title, bodyHtml, onSubmit) {
+  function openModal(title, bodyHtml, onSubmit, canSubmit) {
     var box = $("modalBox");
     box.innerHTML =
       "<h3>" + esc(title) + "</h3>" +
@@ -1351,15 +2826,68 @@
       } catch (err) {
         $("modalErr").textContent = err.message || "保存失败";
       } finally {
-        btn.disabled = false;
+        btn.disabled = canSubmit ? !canSubmit() : false;
         btn.textContent = "保存";
       }
     };
   }
 
   function closeModal() {
+    closeIconPicker();
     $("modalMask").classList.add("hidden");
+    $("modalBox").classList.remove("wide");
+    $("modalBox").classList.remove("mid");
     $("modalBox").innerHTML = "";
+  }
+
+  /// 容器图标选择：独立小卡片浮在编辑弹窗之上，选完即关，主弹窗尺寸不变
+  function openIconPicker(currentUrl, onPick) {
+    var box = $("pickerBox");
+    box.innerHTML = "<h3>选择容器图标</h3>" +
+      '<div class="icon-pick-grid" id="pickerGrid"><div class="api-hint">加载中…</div></div>' +
+      '<div class="modal-foot"><button class="btn ghost" id="pickerCancel">取消</button></div>';
+    $("pickerMask").classList.remove("hidden");
+    $("pickerMask").onclick = function (e) {
+      if (e.target === $("pickerMask")) closeIconPicker();
+    };
+    $("pickerCancel").onclick = closeIconPicker;
+    (async function () {
+      var assets = [];
+      try {
+        var rows = await api("/admin/assets");
+        assets = (rows || []).filter(function (a) {
+          return a.name.indexOf("preset/containers/") === 0;
+        });
+      } catch (err) {
+        toast(err.message || "图标库加载失败");
+      }
+      var grid = $("pickerGrid");
+      if (!grid) return;
+      if (!assets.length) {
+        grid.style.background = "transparent";
+        grid.style.padding = "0";
+        grid.innerHTML = '<div class="api-hint">图标库为空，请先到「容器图标库」上传</div>';
+        return;
+      }
+      grid.innerHTML = assets.map(function (a) {
+        var on = currentUrl && currentUrl === a.url;
+        return '<button type="button" class="icon-pick' + (on ? " selected" : "") +
+          '" data-pick="' + esc(a.url) + '" title="' + esc(String(a.name).split("/").pop()) + '">' +
+          '<img src="' + esc(assetUrl(a.url)) + '" alt="" /></button>';
+      }).join("");
+      grid.onclick = function (e) {
+        var btn = e.target.closest("[data-pick]");
+        if (!btn) return;
+        var url = btn.dataset.pick;
+        closeIconPicker();
+        onPick(url);
+      };
+    })();
+  }
+
+  function closeIconPicker() {
+    $("pickerMask").classList.add("hidden");
+    $("pickerBox").innerHTML = "";
   }
 
   /* ---------------- 启动 ---------------- */
@@ -1372,6 +2900,18 @@
   $("modalMask").onclick = function (e) {
     if (e.target === $("modalMask")) closeModal();
   };
+
+  // 实时刷新：停留的页面每 15 秒静默拉一次数据（弹窗 / 输入中 / 后台标签页暂停）
+  setInterval(function () {
+    if (!state.token) return;
+    if (document.visibilityState !== "visible") return;
+    if (!$("modalMask").classList.contains("hidden")) return;
+    if (!$("pickerMask").classList.contains("hidden")) return;
+    var el = document.activeElement;
+    if (el && /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) return;
+    var y = window.scrollY;
+    render({ silent: true }).then(function () { window.scrollTo(0, y); });
+  }, 15000);
 
   if (state.token) enterApp();
   else showLogin();

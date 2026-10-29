@@ -51,6 +51,7 @@ class CustomBeverageListNotifier extends StateNotifier<List<Beverage>> {
       hydrationRatio: ratio,
       templateId: m['templateId'] as String?,
       animation: m['animation'] as String?,
+      volumePreset: m['volumePreset'] as String?,
       containerId: m['containerId'] as String?,
       calories: (m['calories'] as num?)?.toInt(),
       caffeineMg: (m['caffeineMg'] as num?)?.toInt(),
@@ -67,6 +68,7 @@ class CustomBeverageListNotifier extends StateNotifier<List<Beverage>> {
         if (b.hydrationRatio != null) 'hydrationRatio': b.hydrationRatio,
         if (b.templateId != null) 'templateId': b.templateId,
         if (b.animation != null) 'animation': b.animation,
+        if (b.volumePreset != null) 'volumePreset': b.volumePreset,
         if (b.containerId != null) 'containerId': b.containerId,
         if (b.calories != null) 'calories': b.calories,
         if (b.caffeineMg != null) 'caffeineMg': b.caffeineMg,
@@ -145,6 +147,9 @@ class HomeDrinksNotifier extends StateNotifier<HomeDrinksState> {
   static const _kOrder = 'home_drink_order';
   static const _kHidden = 'home_drink_hidden';
 
+  /// 上次对齐过的目录顺序签名：后台调整排序后才会覆盖本机顺序
+  static const _kOrderSig = 'home_drink_order_sig';
+
   Future<void> _load() async {
     final storage = await ref.read(localStorageProvider.future);
     final orderRaw = storage.prefs.getString(_kOrder);
@@ -217,6 +222,19 @@ class HomeDrinksNotifier extends StateNotifier<HomeDrinksState> {
     final o = [...order]..remove('water_pure');
     o.insert(0, 'water_pure');
     return o;
+  }
+
+  /// 后台调整了饮品排序 / 新增删除：把本机顺序对齐到最新目录顺序
+  /// （目录顺序没变时直接返回，不会覆盖用户自己拖拽的顺序；隐藏状态保持不变）
+  Future<void> syncCatalogOrder(List<String> libraryIds) async {
+    if (libraryIds.isEmpty) return;
+    final storage = await ref.read(localStorageProvider.future);
+    final sig = jsonEncode(libraryIds);
+    if (storage.prefs.getString(_kOrderSig) == sig) return;
+    await storage.prefs.setString(_kOrderSig, sig);
+    if (!mounted) return;
+    state = HomeDrinksState(order: _normalized(libraryIds), hidden: state.hidden);
+    await _save();
   }
 
   /// 完整顺序 = 已持久化 order + 未登记 id（内置预设 + 当前自定义）按声明序追加。

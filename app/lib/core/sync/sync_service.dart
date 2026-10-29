@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 
 import '../../shared/models/drink_entry.dart';
 import '../storage/local_storage.dart';
+import 'profile_sync.dart';
+import 'session_watch.dart';
 import 'sync_api.dart';
 
 class SyncResult {
@@ -28,6 +30,10 @@ class SyncService {
   /// 会话被其他设备顶掉时的全局回调（App 根节点注册，用于弹窗提示）
   static void Function()? onSessionRevoked;
 
+  /// 当前设备的数据归属账号发生变化（登录 / 退出 / 被顶下线）。
+  /// App 根节点据此推进会话纪元，让按 owner 读取的数据统一重载。
+  static void Function()? onSessionChanged;
+
   static Future<void> signIn(
     LocalStorage storage,
     String email,
@@ -51,13 +57,33 @@ class SyncService {
     await _applyAccount(storage, res);
   }
 
-  static Future<void> signOut(LocalStorage storage) =>
-      storage.clearSyncSession();
+  static Future<void> signOut(LocalStorage storage) async {
+    // 退出后回到登录前的游客档案，账号的身体数据不会残留在游客视图
+    await ProfileSync.restoreGuestProfile(storage);
+    SessionWatch.stop();
+    await storage.clearSyncSession();
+    onSessionChanged?.call();
+  }
+
+  /// 账号被其他设备顶掉：恢复游客档案 + 清会话 + 断开实时通道
+  static Future<void> handleSessionRevoked(LocalStorage storage) async {
+    await ProfileSync.restoreGuestProfile(storage);
+    SessionWatch.stop();
+    await storage.clearSyncSession();
+    onSessionChanged?.call();
+  }
 
   static Future<void> _applyAccount(
     LocalStorage storage,
     Map<String, dynamic> res,
   ) async {
+    // 登录前先快照游客档案，退出账号时恢复
+    if (!storage.hasAccountSession) {
+      final guestProfile = storage.loadProfile();
+      if (guestProfile != null) {
+        await storage.saveGuestProfileSnapshot(guestProfile);
+      }
+    }
     await storage.setSyncSession(
       res['userId'] as String,
       res['accessToken'] as String,
@@ -67,10 +93,17 @@ class SyncService {
     if (nickname != null && nickname.isNotEmpty) {
       await storage.setAccountNickname(nickname);
     }
+    // 新登录的账号必须先从服务端拉档案，不能把本机默认目标抢先写进账号
+    await storage.clearLastPushedProfileSignature();
     // 未登录期间产生的本地记录归属到该账号（本地数据与账号绑定），
     // 之后再从 0 开始拉取云端历史
     await storage.bindGuestEntriesToAccount(res['userId'] as String);
     await storage.setSyncCursor(0);
+    // 归属账号已切换：通知界面按新 owner 重载本地数据
+    onSessionChanged?.call();
+    // 实时监听顶号；随后立刻拉一次完整档案与头像
+    SessionWatch.start(res['accessToken'] as String);
+    await ProfileSync.sync(storage, force: true);
   }
 
   static Future<SyncResult> syncNow(LocalStorage storage) async {
@@ -141,11 +174,13 @@ class SyncService {
       }
 
       await storage.setSyncLastSyncAt(DateTime.now());
+      // 记录同步完成后，顺带同步账号资料（头像 / 饮水目标）
+      await ProfileSync.sync(storage);
       return SyncResult(pushed: pushed, pulled: pulled);
     } catch (e) {
       // 账号已在其他设备登录：清掉本机会话并通知 UI 弹窗
       if (e is SyncApiException && e.isSessionRevoked) {
-        await storage.clearSyncSession();
+        await handleSessionRevoked(storage);
         debugPrint('[Sync] session revoked by another device');
         onSessionRevoked?.call();
         return SyncResult(failed: true, message: '账号已在其他设备登录');

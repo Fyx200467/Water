@@ -8,10 +8,12 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/storage/providers.dart';
+import '../../core/sync/profile_sync.dart';
 import '../../core/sync/sync_api.dart';
 import '../../core/sync/sync_service.dart';
 import '../../shared/widgets/account_avatar.dart';
 import '../home/providers/home_providers.dart';
+import '../membership/membership_provider.dart';
 import '../stats/providers/stats_providers.dart';
 
 /// 账号状态（未登录 = 本地模式；登录后才允许云同步）
@@ -299,6 +301,11 @@ class _CloudBackupScreenState extends ConsumerState<CloudBackupScreen> {
         } catch (_) {}
       }
       ref.invalidate(cloudBackupStateProvider);
+      // 登录状态下立即上传，换设备登录即可看到同一头像
+      final token = storage.syncToken;
+      if (token != null && token.isNotEmpty) {
+        await ProfileSync.uploadLocal(storage, token, dest.path);
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
@@ -320,6 +327,14 @@ class _CloudBackupScreenState extends ConsumerState<CloudBackupScreen> {
       try {
         final f = File(old);
         if (await f.exists()) await f.delete();
+      } catch (_) {}
+    }
+    // 同步清除服务端头像，避免其他设备登录后又把旧头像拉回来
+    final token = storage.syncToken;
+    if (token != null && token.isNotEmpty) {
+      try {
+        await SyncApi.deleteAvatar(token);
+        await storage.setAccountAvatarRemoteUrl(null);
       } catch (_) {}
     }
     ref.invalidate(cloudBackupStateProvider);
@@ -660,7 +675,11 @@ class _CloudBackupScreenState extends ConsumerState<CloudBackupScreen> {
     if (confirmed != true) return;
     final storage = await ref.read(localStorageProvider.future);
     await SyncService.signOut(storage);
+    // 会员属于账号权益：退出登录后立刻清掉本地会员状态与权益
+    await ref.read(membershipProvider.notifier).reset();
     ref.invalidate(cloudBackupStateProvider);
+    // 身体数据/目标已恢复为登录前的游客档案
+    ref.invalidate(profileProvider);
     // 记录按账号归属：退出后立刻刷新为游客视图，不再显示账号数据
     ref.invalidate(todayEntriesProvider);
     ref.invalidate(yearEntriesProvider);
