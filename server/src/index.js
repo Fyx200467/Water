@@ -4,12 +4,14 @@ import {
   createReadStream,
   existsSync,
   mkdirSync,
+  readFileSync,
   readdirSync,
   statSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import http from 'node:http';
+import https from 'node:https';
 import os from 'node:os';
 import path from 'node:path';
 import { db, dbPath, nowIso } from './db.js';
@@ -125,22 +127,52 @@ function serveStatic(res, pathname) {
   }
   const stat = statSync(filePath);
   if (!stat.isFile()) return fail(res, 404, 'not_found', '文件不存在');
-  res.writeHead(200, {
-    'Content-Type':
-      staticTypes[path.extname(filePath).toLowerCase()] ||
-      'application/octet-stream',
+  const ext = path.extname(filePath).toLowerCase();
+  // 固定文件名的素材（容器图标、贴士插画）会被后台上传覆盖，只能短缓存；
+  // UUID 命名的上传文件内容永不变化，可以按一年 immutable 缓存
+  const immutable = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\./i
+    .test(path.basename(filePath));
+  const headers = {
+    'Content-Type': staticTypes[ext] || 'application/octet-stream',
     'Content-Length': stat.size,
-    'Cache-Control': 'public, max-age=86400',
+    'Cache-Control': immutable
+      ? 'public, max-age=31536000, immutable'
+      : 'public, max-age=300, must-revalidate',
     ...corsHeaders,
-  });
+  };
+  // SVG 可能内嵌脚本：作为图片资源托管时加沙箱 CSP，禁止其执行脚本
+  if (ext === '.svg') {
+    headers['Content-Security-Policy'] =
+      "default-src 'none'; style-src 'unsafe-inline'; sandbox";
+    headers['X-Content-Type-Options'] = 'nosniff';
+  }
+  res.writeHead(200, headers);
   createReadStream(filePath).pipe(res);
 }
 
 const isIso = (v) => typeof v === 'string' && !Number.isNaN(Date.parse(v));
 
+// ==================== 登录限流 ====================
+// 单机内存计数：按「路由 + 来源 IP」限制 1 分钟内的尝试次数，防暴力破解与批量注册
+const authAttempts = new Map();
+function authRateLimited(req, route, limit = 20) {
+  const ip = req.socket.remoteAddress || 'unknown';
+  const key = `${route}:${ip}`;
+  const now = Date.now();
+  const item = authAttempts.get(key);
+  if (!item || now - item.start >= 60000) {
+    if (authAttempts.size > 5000) authAttempts.clear();
+    authAttempts.set(key, { start: now, count: 1 });
+    return false;
+  }
+  item.count += 1;
+  return item.count > limit;
+}
+
 // ==================== 管理员鉴权 ====================
 
-const ADMIN_TOKEN_TTL_DAYS = 7;
+// 后台会话有效期：管理端权限远高于 App 用户，缩短到 1 天
+const ADMIN_TOKEN_TTL_DAYS = 1;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 function hashPassword(password) {
@@ -180,6 +212,22 @@ function authenticateAdmin(req) {
     .get(token);
   if (!row || row.expires_at < nowIso()) return null;
   return { id: row.id, email: row.email, role: row.role };
+}
+
+// 可选：用 ADMIN_ALLOW_IPS 限制后台来源 IP（逗号分隔，填 * 表示不限制）
+// 未配置时不做任何限制，内测阶段默认保持关闭
+const ADMIN_ALLOW_IPS = new Set(
+  (process.env.ADMIN_ALLOW_IPS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
+);
+
+function adminIpAllowed(req) {
+  if (!ADMIN_ALLOW_IPS.size || ADMIN_ALLOW_IPS.has('*')) return true;
+  const raw = req.socket.remoteAddress || '';
+  const ip = raw.startsWith('::ffff:') ? raw.slice(7) : raw;
+  return ADMIN_ALLOW_IPS.has(ip);
 }
 
 // 首次启动时写入默认管理员，账号密码可在环境变量里覆盖
@@ -247,6 +295,8 @@ const ANALYTICS_EVENTS = new Set([
   'order_confirmed',
   'paywall_view',
   'checkin',
+  // 删除饮水记录（与打卡相反的修正行为，用于观察误录率）
+  'entry_remove',
 ]);
 
 const FUNNEL_STEPS = [
@@ -380,6 +430,19 @@ function loadBenefitDict() {
     .all();
 }
 
+/// 会员日兑换：1 天所需积分（与客户端 kMemberDayPoints 一致）
+const POINTS_PER_MEMBER_DAY = 60;
+
+/// 当前积分余额：只认流水求和，客户端不上行总额
+function pointsBalance(userId) {
+  const row = db
+    .prepare(
+      'SELECT COALESCE(SUM(amount), 0) AS total FROM points_events WHERE user_id = ?',
+    )
+    .get(userId);
+  return Number(row?.total || 0);
+}
+
 /// 套餐里 benefits 存逗号分隔的权益 code，下发时展开成对象数组
 function mapPlan(r, benefitDict = []) {
   const codes = String(r.benefits || '')
@@ -492,6 +555,42 @@ function nextRev(userId) {
 const currentRev = (userId) =>
   db.prepare('SELECT rev_seq FROM users WHERE id = ?').get(userId).rev_seq;
 
+// ==================== 登录凭证 ====================
+
+const CRED_PROVIDERS = new Set(['email']);
+const normalizeIdentifier = (provider, raw) => {
+  const value = String(raw || '').trim();
+  return provider === 'email' ? value.toLowerCase() : value;
+};
+
+/// 按凭证查账号：登录时用，返回值额外带 secret_hash 供校验
+function credentialByIdentity(provider, identifier) {
+  return db
+    .prepare(
+      `SELECT c.id AS credential_id, c.user_id, c.secret_hash,
+              u.nickname, u.email, u.rev_seq, u.deleted_at, u.avatar_url, u.daily_goal_ml
+         FROM user_credentials c JOIN users u ON u.id = c.user_id
+        WHERE c.provider = ? AND c.identifier = ?`,
+    )
+    .get(provider, identifier);
+}
+
+/// 账号已绑定的登录方式列表（GET /v1/me 下发给客户端）
+function listCredentials(userId) {
+  return db
+    .prepare(
+      `SELECT provider, identifier, created_at
+         FROM user_credentials WHERE user_id = ?
+        ORDER BY created_at`,
+    )
+    .all(userId)
+    .map((r) => ({
+      provider: r.provider,
+      identifier: r.identifier,
+      boundAt: r.created_at,
+    }));
+}
+
 // ==================== 路由 ====================
 
 async function handle(req, res, url) {
@@ -511,7 +610,6 @@ async function handle(req, res, url) {
       name: 'water-server',
       version: '0.1.0',
       endpoints: [
-        'POST /v1/auth/guest',
         'GET /v1/me',
         'PATCH /v1/me',
         'POST /v1/sync/push',
@@ -519,6 +617,10 @@ async function handle(req, res, url) {
         'GET /v1/membership/plans',
         'POST /v1/auth/register',
         'POST /v1/auth/login',
+        'POST /v1/auth/logout',
+        'POST /v1/auth/bind',
+        'POST /v1/auth/unbind',
+        'POST /v1/auth/delete',
         'POST /v1/admin/login',
         'GET|POST /v1/beverages',
         'GET|POST /v1/characters',
@@ -531,6 +633,9 @@ async function handle(req, res, url) {
   // ==================== 账号注册 / 登录（邮箱 + 密码，暂代第三方登录） ====================
 
   if (method === 'POST' && pathname === '/v1/auth/register') {
+    if (authRateLimited(req, 'register')) {
+      return fail(res, 429, 'too_many_requests', '操作过于频繁，请稍后再试');
+    }
     const body = await readJson(req);
     const email = String(body.email || '').trim().toLowerCase();
     const password = String(body.password || '');
@@ -541,15 +646,30 @@ async function handle(req, res, url) {
     if (password.length < 8) {
       return fail(res, 400, 'weak_password', '密码至少 8 位');
     }
-    const existing = db
-      .prepare('SELECT id FROM users WHERE email = ?')
-      .get(email);
+    const existing =
+      credentialByIdentity('email', email) ||
+      db.prepare('SELECT id FROM users WHERE email = ?').get(email);
     if (existing) return fail(res, 409, 'email_taken', '该邮箱已注册');
     const userId = crypto.randomUUID();
-    db.prepare(
-      `INSERT INTO users (id, anon_id, nickname, email, password_hash, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run(userId, `acct_${userId}`, nickname, email, hashPassword(password), nowIso());
+    const createdAt = nowIso();
+    const secret = hashPassword(password);
+    db.exec('BEGIN');
+    try {
+      // users.email / password_hash 保留双写：后台列表仍按邮箱展示
+      db.prepare(
+        `INSERT INTO users (id, anon_id, nickname, email, password_hash, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(userId, `acct_${userId}`, nickname, email, secret, createdAt);
+      db.prepare(
+        `INSERT INTO user_credentials (id, user_id, provider, identifier, secret_hash, created_at)
+         VALUES (?, ?, 'email', ?, ?, ?)`,
+      ).run(`cred_${userId}`, userId, email, secret, createdAt);
+      db.exec('COMMIT');
+    } catch (err) {
+      db.exec('ROLLBACK');
+      console.error('[auth] register failed:', err);
+      return fail(res, 409, 'email_taken', '该邮箱已注册');
+    }
     const session = createSession(userId);
     return send(res, 200, {
       userId,
@@ -557,66 +677,39 @@ async function handle(req, res, url) {
       nickname,
       accessToken: session.token,
       expiresAt: session.expiresAt,
-      cursor: 0,
+      cursor: currentRev(userId),
     });
   }
 
   if (method === 'POST' && pathname === '/v1/auth/login') {
+    if (authRateLimited(req, 'login')) {
+      return fail(res, 429, 'too_many_requests', '操作过于频繁，请稍后再试');
+    }
     const body = await readJson(req);
     const email = String(body.email || '').trim().toLowerCase();
     const password = String(body.password || '');
     if (!email || !password) {
       return fail(res, 400, 'invalid_credentials', '请输入邮箱和密码');
     }
-    const user = db
-      .prepare(
-        `SELECT id, nickname, email, password_hash, rev_seq, deleted_at,
-                avatar_url, daily_goal_ml
-           FROM users WHERE email = ?`,
-      )
-      .get(email);
-    if (!user || user.deleted_at || !verifyPassword(password, user.password_hash)) {
+    const user = credentialByIdentity('email', email);
+    if (
+      !user ||
+      user.deleted_at ||
+      !verifyPassword(password, user.secret_hash)
+    ) {
       return fail(res, 401, 'invalid_credentials', '邮箱或密码错误');
     }
-    const session = createSession(user.id);
+    // 单设备登录：发新会话时旧 token 会被撤销
+    const session = createSession(user.user_id);
     return send(res, 200, {
-      userId: user.id,
+      userId: user.user_id,
       email: user.email,
       nickname: user.nickname,
       avatarUrl: user.avatar_url || null,
       dailyGoalMl: user.daily_goal_ml ?? null,
       accessToken: session.token,
       expiresAt: session.expiresAt,
-      cursor: user.rev_seq,
-    });
-  }
-
-  if (method === 'POST' && pathname === '/v1/auth/guest') {
-    const body = await readJson(req);
-    const { anonId, nickname, platform } = body;
-    if (typeof anonId !== 'string' || !/^[a-zA-Z0-9_-]{8,64}$/.test(anonId)) {
-      return fail(res, 400, 'invalid_anon_id', 'anonId 格式不合法');
-    }
-    let user = db
-      .prepare('SELECT id, nickname, rev_seq FROM users WHERE anon_id = ?')
-      .get(anonId);
-    if (!user) {
-      const id = crypto.randomUUID();
-      db.prepare(
-        'INSERT INTO users (id, anon_id, nickname, created_at) VALUES (?, ?, ?, ?)',
-      ).run(id, anonId, (nickname || '').trim() || '喝水羊驼', nowIso());
-      user = db
-        .prepare('SELECT id, nickname, rev_seq FROM users WHERE id = ?')
-        .get(id);
-    }
-    const session = createSession(user.id);
-    return send(res, 200, {
-      userId: user.id,
-      nickname: user.nickname,
-      accessToken: session.token,
-      expiresAt: session.expiresAt,
-      cursor: user.rev_seq,
-      platform: platform || null,
+      cursor: currentRev(user.user_id),
     });
   }
 
@@ -814,6 +907,13 @@ async function handle(req, res, url) {
 
   // ==================== 管理后台：登录 ====================
   if (method === 'POST' && pathname === '/v1/admin/login') {
+    if (!adminIpAllowed(req)) {
+      return fail(res, 403, 'forbidden', '当前网络不允许访问管理后台');
+    }
+    // 后台登录同样限流，避免固定口令被撞库
+    if (authRateLimited(req, 'admin-login', 10)) {
+      return fail(res, 429, 'too_many_requests', '尝试过于频繁，请 1 分钟后再试');
+    }
     const body = await readJson(req);
     const email = String(body.email || '').trim().toLowerCase();
     const password = String(body.password || '');
@@ -848,8 +948,20 @@ async function handle(req, res, url) {
     pathname.startsWith('/v1/admin/');
 
   if (isAdminRoute) {
+    if (!adminIpAllowed(req)) {
+      return fail(res, 403, 'forbidden', '当前网络不允许访问管理后台');
+    }
     const admin = authenticateAdmin(req);
     if (!admin) return fail(res, 401, 'unauthorized', '管理员登录已过期');
+
+    // ---------- 退出登录：吊销服务端会话 ----------
+    if (pathname === '/v1/admin/logout' && method === 'POST') {
+      const token = (req.headers.authorization || '').slice(7);
+      if (token) {
+        db.prepare('DELETE FROM admin_sessions WHERE token = ?').run(token);
+      }
+      return send(res, 200, { ok: true });
+    }
 
     // ---------- 管理员账号：查看 / 修改邮箱与密码 ----------
     if (pathname === '/v1/admin/account' && method === 'GET') {
@@ -927,9 +1039,10 @@ async function handle(req, res, url) {
       const name = `${crypto.randomUUID()}.${ext}`;
 
       // 目录可选：preset/containers（容器图标库，App 会同步）、preset/characters
+      // 以及 tips（后台贴士卡插画）
       const dirRaw = String(url.searchParams.get('dir') || '')
         .replace(/^\/+|\/+$/g, '');
-      if (!['', 'preset/containers', 'preset/characters'].includes(dirRaw)) {
+      if (!['', 'preset/containers', 'preset/characters', 'tips'].includes(dirRaw)) {
         return fail(res, 400, 'invalid_dir', '非法目录');
       }
       // 保留原文件名（后台按图标文件名管理，App 以文件名作为容器 id）
@@ -1511,12 +1624,29 @@ async function handle(req, res, url) {
       const rows = db
         .prepare(
           `SELECT id, nickname, email, phone, gender, weight_kg, height_cm,
-                  daily_goal_ml, membership_expire_at, membership_permanent, created_at
+                  daily_goal_ml, membership_expire_at, membership_permanent,
+                  avatar_url, created_at
              FROM users
             ${where}
             ORDER BY created_at DESC LIMIT ? OFFSET ?`,
         )
         .all(...params, pageSize, offset);
+      // 后台展示账号绑定的登录方式（解绑邮箱后 users.email 会为空，靠凭证表兜底）
+      const providersOf = new Map();
+      if (rows.length) {
+        const ids = rows.map((r) => r.id);
+        const creds = db
+          .prepare(
+            `SELECT user_id, provider, identifier FROM user_credentials
+              WHERE user_id IN (${ids.map(() => '?').join(',')})`,
+          )
+          .all(...ids);
+        for (const c of creds) {
+          const list = providersOf.get(c.user_id) || [];
+          list.push({ provider: c.provider, identifier: c.identifier });
+          providersOf.set(c.user_id, list);
+        }
+      }
       return send(
         res,
         200,
@@ -1531,6 +1661,8 @@ async function handle(req, res, url) {
           dailyGoalMl: r.daily_goal_ml,
           membershipExpireAt: r.membership_expire_at,
           membershipPermanent: toBool(r.membership_permanent),
+          providers: providersOf.get(r.id) || [],
+          avatarUrl: r.avatar_url || null,
           createdAt: r.created_at,
         })),
       );
@@ -1878,20 +2010,23 @@ async function handle(req, res, url) {
 
     // ---------- 用户反馈 ----------
     if (pathname === '/v1/admin/feedback' && method === 'GET') {
-      const { pageSize, offset } = pageArgs(url);
+      const { page, pageSize, offset } = pageArgs(url);
       const status = String(url.searchParams.get('status') || '');
+      const where = status ? 'WHERE f.status = ?' : '';
+      const args = status ? [status] : [];
+      const total = db
+        .prepare(`SELECT COUNT(*) AS n FROM feedback f ${where}`)
+        .get(...args).n;
       const rows = db
         .prepare(
           `SELECT f.*, u.nickname AS user_nickname
              FROM feedback f LEFT JOIN users u ON u.id = f.user_id
-            ${status ? 'WHERE f.status = ?' : ''}
+            ${where}
             ORDER BY f.created_at DESC LIMIT ? OFFSET ?`,
         )
-        .all(...(status ? [status] : []), pageSize, offset);
-      return send(
-        res,
-        200,
-        rows.map((r) => ({
+        .all(...args, pageSize, offset);
+      return send(res, 200, {
+        items: rows.map((r) => ({
           id: r.id,
           userId: r.user_id,
           userNickname: r.user_nickname,
@@ -1904,7 +2039,10 @@ async function handle(req, res, url) {
           createdAt: r.created_at,
           resolvedAt: r.resolved_at,
         })),
-      );
+        total,
+        page,
+        pageSize,
+      });
     }
 
     const feedbackMatch = pathname.match(/^\/v1\/admin\/feedback\/([^/]+)$/);
@@ -2285,7 +2423,7 @@ async function handle(req, res, url) {
         steps[i].overallRate =
           first > 0 ? Math.round((steps[i].users / first) * 1000) / 10 : 0;
       }
-      const extra = ['paywall_view', 'checkin'].map((event) => ({
+      const extra = ['paywall_view', 'checkin', 'entry_remove'].map((event) => ({
         event,
         users: byEvent.get(event)?.users || 0,
         total: byEvent.get(event)?.total || 0,
@@ -2347,6 +2485,179 @@ async function handle(req, res, url) {
     return;
   }
 
+  // ---------- 退出登录：吊销当前会话 ----------
+
+  if (method === 'POST' && pathname === '/v1/auth/logout') {
+    db.prepare(
+      'UPDATE sessions SET revoked_at = ? WHERE token = ? AND revoked_at IS NULL',
+    ).run(nowIso(), user.token);
+    // 不主动推送 session_revoked：本机退出不需要弹「已在其他设备登录」
+    return send(res, 200, { ok: true });
+  }
+
+  // ---------- 登录方式绑定 / 解绑 / 注销账号 ----------
+
+  if (method === 'POST' && pathname === '/v1/auth/bind') {
+    const body = await readJson(req);
+    const provider = String(body.provider || 'email').trim().toLowerCase();
+    if (!CRED_PROVIDERS.has(provider)) {
+      return fail(res, 400, 'unsupported_provider', '暂仅支持绑定邮箱');
+    }
+    const identifier = normalizeIdentifier(
+      provider,
+      body.identifier ?? body.email,
+    );
+    const password = String(body.password || '');
+    if (!EMAIL_RE.test(identifier)) {
+      return fail(res, 400, 'invalid_email', '邮箱格式不合法');
+    }
+    if (password.length < 8) {
+      return fail(res, 400, 'weak_password', '密码至少 8 位');
+    }
+    const bound = db
+      .prepare(
+        'SELECT user_id FROM user_credentials WHERE provider = ? AND identifier = ?',
+      )
+      .get(provider, identifier);
+    if (bound) {
+      return bound.user_id === user.id
+        ? fail(res, 409, 'already_bound', '当前账号已绑定该邮箱')
+        : fail(res, 409, 'identifier_taken', '该邮箱已被其他账号绑定');
+    }
+    const legacy = db
+      .prepare('SELECT id FROM users WHERE email = ?')
+      .get(identifier);
+    if (legacy && legacy.id !== user.id) {
+      return fail(res, 409, 'identifier_taken', '该邮箱已被其他账号绑定');
+    }
+    const current = db
+      .prepare(
+        `SELECT id FROM user_credentials WHERE user_id = ? AND provider = 'email'`,
+      )
+      .get(user.id);
+    if (current) return fail(res, 409, 'already_bound', '当前账号已绑定邮箱');
+
+    const secret = hashPassword(password);
+    db.exec('BEGIN');
+    try {
+      db.prepare(
+        `INSERT INTO user_credentials
+           (id, user_id, provider, identifier, secret_hash, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(crypto.randomUUID(), user.id, provider, identifier, secret, nowIso());
+      // 双写 users.email/password_hash，后台账号列表继续按邮箱展示
+      db.prepare('UPDATE users SET email = ?, password_hash = ? WHERE id = ?').run(
+        identifier,
+        secret,
+        user.id,
+      );
+      db.exec('COMMIT');
+    } catch (err) {
+      db.exec('ROLLBACK');
+      console.error('[auth] bind failed:', err);
+      return fail(res, 409, 'identifier_taken', '该邮箱已被其他账号绑定');
+    }
+    return send(res, 200, { ok: true, providers: listCredentials(user.id) });
+  }
+
+  if (method === 'POST' && pathname === '/v1/auth/unbind') {
+    const body = await readJson(req);
+    const provider = String(body.provider || '').trim().toLowerCase();
+    if (!CRED_PROVIDERS.has(provider)) {
+      return fail(res, 400, 'unsupported_provider', '暂仅支持解绑邮箱');
+    }
+    const cred = db
+      .prepare(
+        'SELECT id FROM user_credentials WHERE user_id = ? AND provider = ?',
+      )
+      .get(user.id, provider);
+    if (!cred) return fail(res, 404, 'not_bound', '当前账号未绑定该登录方式');
+    const total = db
+      .prepare('SELECT COUNT(*) AS n FROM user_credentials WHERE user_id = ?')
+      .get(user.id).n;
+    if (total <= 1) {
+      return fail(
+        res,
+        409,
+        'last_credential',
+        '至少保留一种登录方式，请先绑定其他方式',
+      );
+    }
+    db.exec('BEGIN');
+    try {
+      db.prepare('DELETE FROM user_credentials WHERE id = ?').run(cred.id);
+      if (provider === 'email') {
+        db.prepare(
+          'UPDATE users SET email = NULL, password_hash = NULL WHERE id = ?',
+        ).run(user.id);
+      }
+      db.exec('COMMIT');
+    } catch (err) {
+      db.exec('ROLLBACK');
+      console.error('[auth] unbind failed:', err);
+      return fail(res, 500, 'unbind_failed', '解绑失败，请稍后重试');
+    }
+    return send(res, 200, { ok: true, providers: listCredentials(user.id) });
+  }
+
+  // 账号注销：二次确认后物理删除云端账号与数据（不可恢复）
+  if (method === 'POST' && pathname === '/v1/auth/delete') {
+    const body = await readJson(req);
+    if (body.confirm !== true) {
+      return fail(res, 400, 'confirm_required', '请先确认注销账号');
+    }
+    const emailCred = db
+      .prepare(
+        `SELECT secret_hash FROM user_credentials
+          WHERE user_id = ? AND provider = 'email'`,
+      )
+      .get(user.id);
+    if (emailCred) {
+      const password = String(body.password || '');
+      if (!password || !verifyPassword(password, emailCred.secret_hash)) {
+        return fail(res, 401, 'invalid_credentials', '密码错误，无法注销');
+      }
+    }
+    db.exec('BEGIN');
+    try {
+      // FK 打开：先删子表，再删账号本身
+      db.prepare('DELETE FROM drink_entries WHERE user_id = ?').run(user.id);
+      db.prepare('DELETE FROM settings WHERE user_id = ?').run(user.id);
+      db.prepare('DELETE FROM points_events WHERE user_id = ?').run(user.id);
+      db.prepare('DELETE FROM sessions WHERE user_id = ?').run(user.id);
+      db.prepare('DELETE FROM user_credentials WHERE user_id = ?').run(user.id);
+      db.prepare('DELETE FROM membership_orders WHERE user_id = ?').run(user.id);
+      // 支持与反馈里可能含邮箱等个人信息：直接删；行为埋点保留但匿名化
+      db.prepare('DELETE FROM feedback WHERE user_id = ?').run(user.id);
+      db.prepare('UPDATE client_errors SET user_id = NULL WHERE user_id = ?').run(
+        user.id,
+      );
+      db.prepare(
+        `UPDATE analytics_events
+            SET user_id = NULL, actor_id = 'user:deleted'
+          WHERE user_id = ?`,
+      ).run(user.id);
+      db.prepare('DELETE FROM users WHERE id = ?').run(user.id);
+      db.exec('COMMIT');
+    } catch (err) {
+      db.exec('ROLLBACK');
+      console.error('[auth] delete account failed:', err);
+      return fail(res, 500, 'delete_failed', '注销失败，请稍后重试');
+    }
+    // 清掉云端头像文件：DB 事务外执行，删文件失败不影响注销结果
+    try {
+      const avatarDir = path.join(assetsDir, 'avatars');
+      for (const name of readdirSync(avatarDir)) {
+        if (name.startsWith(`${user.id}.`)) {
+          unlinkSync(path.join(avatarDir, name));
+        }
+      }
+    } catch {}
+    // 关闭本机实时通道，客户端下轮请求会收到未授权并回到游客态
+    notifySessionRevoked([user.token]);
+    return send(res, 200, { ok: true });
+  }
+
   if (method === 'GET' && pathname === '/v1/me') {
     const row = db
       .prepare(
@@ -2369,6 +2680,7 @@ async function handle(req, res, url) {
         activityLevel: row.activity_level || null,
         dailyGoalMl: row.daily_goal_ml ?? null,
       },
+      providers: listCredentials(row.id),
       cursor: row.rev_seq,
       createdAt: row.created_at,
     });
@@ -2758,6 +3070,204 @@ async function handle(req, res, url) {
     });
   }
 
+  // ---------- 积分流水（离线累计、联网补传，服务端去重与合并） ----------
+
+  // 积分来源白名单：客户端只能上报这些日常来源，兑换扣分只由服务端写入
+  const POINT_SOURCES = new Set([
+    'match3',
+    'checkin',
+    'milestone',
+    'challenge',
+    'streak',
+    'achievement',
+    'migrate',
+  ]);
+  const EARN_DAILY_CAP = 500;
+  const EARN_EVENT_CAP = 200;
+
+  if (method === 'POST' && pathname === '/v1/points/events') {
+    const body = await readJson(req);
+    const events = Array.isArray(body.events) ? body.events : [];
+    if (events.length > 200) {
+      return fail(res, 400, 'too_many_items', '单次最多 200 条积分流水');
+    }
+
+    let accepted = 0;
+    let skipped = 0;
+
+    db.exec('BEGIN');
+    try {
+      for (const raw of events) {
+        const eventId = String(raw?.eventId || '').slice(0, 64);
+        const source = String(raw?.source || '').slice(0, 64) || 'unknown';
+        const amount = Number(raw?.amount);
+        const occurredAt = String(raw?.occurredAt || '');
+        // 金额取整、限幅，避免一条异常流水把余额打爆
+        if (
+          !eventId ||
+          !Number.isInteger(amount) ||
+          amount === 0 ||
+          Math.abs(amount) > 100000 ||
+          !isIso(occurredAt)
+        ) {
+          throw new Error('point 事件缺少 eventId 或字段非法');
+        }
+        // 只接受白名单来源：改包伪造未知来源（如 redeem:）直接忽略
+        if (!POINT_SOURCES.has(source)) {
+          skipped += 1;
+          continue;
+        }
+        // 单条与单日赚分上限：即使客户端改包，也刷不出超量积分。
+        // migrate 只允许每个账号一次性补传旧版本余额。
+        if (amount > 0) {
+          if (source === 'migrate') {
+            const migrated = db
+              .prepare(
+                `SELECT 1 FROM points_events
+                  WHERE user_id = ? AND source = 'migrate' LIMIT 1`,
+              )
+              .get(user.id);
+            if (migrated || amount > 1000) {
+              skipped += 1;
+              continue;
+            }
+          } else {
+            if (amount > EARN_EVENT_CAP) {
+              skipped += 1;
+              continue;
+            }
+            const day = occurredAt.slice(0, 10);
+            const earned = db
+              .prepare(
+                `SELECT COALESCE(SUM(amount), 0) AS total
+                   FROM points_events
+                  WHERE user_id = ? AND amount > 0 AND source <> 'migrate'
+                    AND substr(occurred_at, 1, 10) = ?`,
+              )
+              .get(user.id, day).total;
+            if (earned + amount > EARN_DAILY_CAP) {
+              skipped += 1;
+              continue;
+            }
+          }
+        }
+        // 支出不能把余额扣成负数（多设备并发时以服务端余额为准）
+        if (amount < 0 && pointsBalance(user.id) + amount < 0) {
+          skipped += 1;
+          continue;
+        }
+        const result = db
+          .prepare(
+            `INSERT INTO points_events
+               (id, user_id, event_id, source, amount, occurred_at, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(user_id, event_id) DO NOTHING`,
+          )
+          .run(
+            crypto.randomUUID(),
+            user.id,
+            eventId,
+            source,
+            amount,
+            occurredAt,
+            nowIso(),
+          );
+        if (result.changes > 0) accepted += 1;
+      }
+      db.exec('COMMIT');
+    } catch (err) {
+      db.exec('ROLLBACK');
+      return fail(res, 400, 'invalid_item', err.message);
+    }
+
+    return send(res, 200, {
+      accepted,
+      skipped,
+      balance: pointsBalance(user.id),
+    });
+  }
+
+  if (method === 'GET' && pathname === '/v1/points') {
+    const rows = db
+      .prepare(
+        `SELECT source, amount, occurred_at
+           FROM points_events
+          WHERE user_id = ?
+          ORDER BY occurred_at DESC, created_at DESC
+          LIMIT 60`,
+      )
+      .all(user.id);
+    return send(res, 200, {
+      balance: pointsBalance(user.id),
+      history: rows.map((r) => ({
+        source: r.source,
+        amount: Number(r.amount),
+        at: r.occurred_at,
+      })),
+    });
+  }
+
+  // 积分兑换会员：扣积分与开通有效期都在服务端完成，客户端只展示结果
+  if (method === 'POST' && pathname === '/v1/membership/redeem') {
+    const body = await readJson(req);
+    const days = Math.min(Math.max(Number(body.days) || 1, 1), 30);
+    const cost = days * POINTS_PER_MEMBER_DAY;
+
+    const row = db
+      .prepare(
+        'SELECT membership_expire_at, membership_permanent FROM users WHERE id = ?',
+      )
+      .get(user.id);
+    const permanent = !!row?.membership_permanent;
+    const expireAtRaw = row?.membership_expire_at || null;
+    const isMember =
+      permanent || (!!expireAtRaw && expireAtRaw > nowIso());
+    if (isMember) {
+      return fail(
+        res,
+        409,
+        'already_member',
+        '当前会员仍有效，到期后才能再兑换',
+      );
+    }
+
+    const balance = pointsBalance(user.id);
+    if (balance < cost) {
+      return fail(res, 400, 'insufficient_points', '积分不足');
+    }
+
+    const expireAt = new Date(Date.now() + days * 86400000).toISOString();
+    db.exec('BEGIN');
+    try {
+      db.prepare(
+        `INSERT INTO points_events
+           (id, user_id, event_id, source, amount, occurred_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        crypto.randomUUID(),
+        user.id,
+        `redeem-${crypto.randomUUID()}`,
+        'redeem:member_day',
+        -cost,
+        nowIso(),
+        nowIso(),
+      );
+      db.prepare(
+        'UPDATE users SET membership_expire_at = ?, membership_permanent = 0 WHERE id = ?',
+      ).run(expireAt, user.id);
+      db.exec('COMMIT');
+    } catch (err) {
+      db.exec('ROLLBACK');
+      return fail(res, 500, 'redeem_failed', err.message);
+    }
+
+    return send(res, 200, {
+      expireAt,
+      balance: balance - cost,
+      days,
+    });
+  }
+
   if (method === 'POST' && pathname === '/v1/sync/push') {
     const body = await readJson(req);
     const entries = Array.isArray(body.entries) ? body.entries : [];
@@ -2948,7 +3458,28 @@ function lanAddresses() {
   return out;
 }
 
-const server = http.createServer(async (req, res) => {
+// 墓碑清理：已删除超过 90 天的记录/偏好物理删除，避免表无限膨胀
+// （90 天内保留，保证长期离线的设备重新上线仍能拉到删除状态）
+function purgeTombstones() {
+  const cutoff = new Date(Date.now() - 90 * 86400000).toISOString();
+  try {
+    const entries = db
+      .prepare('DELETE FROM drink_entries WHERE deleted_at IS NOT NULL AND deleted_at < ?')
+      .run(cutoff);
+    const settings = db
+      .prepare('DELETE FROM settings WHERE deleted_at IS NOT NULL AND deleted_at < ?')
+      .run(cutoff);
+    if (entries.changes || settings.changes) {
+      console.log(
+        `[purge] tombstones removed: entries=${entries.changes} settings=${settings.changes}`,
+      );
+    }
+  } catch (err) {
+    console.error('[purge] failed:', err);
+  }
+}
+
+const requestHandler = async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
 
   if (req.method === 'OPTIONS') {
@@ -2965,17 +3496,30 @@ const server = http.createServer(async (req, res) => {
     console.error(err);
     fail(res, 500, 'internal_error', '服务器内部错误');
   }
-});
+};
+
+// 配置了 TLS_CERT / TLS_KEY 时走 HTTPS（生产环境应始终开启）
+const tlsCert = process.env.TLS_CERT;
+const tlsKey = process.env.TLS_KEY;
+const useTls = !!(tlsCert && tlsKey && existsSync(tlsCert) && existsSync(tlsKey));
+const server = useTls
+  ? https.createServer(
+      { cert: readFileSync(tlsCert), key: readFileSync(tlsKey) },
+      requestHandler,
+    )
+  : http.createServer(requestHandler);
 
 ensureDefaultAdmin();
+purgeTombstones();
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`water-server listening on http://127.0.0.1:${PORT}`);
+  const scheme = useTls ? 'https' : 'http';
+  console.log(`water-server listening on ${scheme}://127.0.0.1:${PORT}`);
   console.log(`  db: ${dbPath}`);
-  console.log(`  App API:      http://127.0.0.1:${PORT}/v1`);
-  console.log(`  Admin API:    http://127.0.0.1:${PORT}/api/v1`);
+  console.log(`  App API:      ${scheme}://127.0.0.1:${PORT}/v1`);
+  console.log(`  Admin API:    ${scheme}://127.0.0.1:${PORT}/api/v1`);
   console.log(`  admin: ${DEFAULT_ADMIN_EMAIL}（口令取自 ADMIN_PASSWORD 环境变量）`);
   for (const ip of lanAddresses()) {
-    console.log(`  LAN: http://${ip}:${PORT}`);
+    console.log(`  LAN: ${scheme}://${ip}:${PORT}`);
   }
 });

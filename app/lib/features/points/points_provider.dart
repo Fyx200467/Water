@@ -1,7 +1,11 @@
-import 'dart:convert';
+import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../../core/storage/providers.dart';
+import '../../../core/sync/sync_service.dart';
+import '../home/providers/home_providers.dart';
 
 /// 一条积分流水（收入为正、支出为负）
 class PointsRecord {
@@ -59,17 +63,22 @@ class PointsState {
   );
 }
 
-/// 积分系统（本地持久化）
+/// 积分系统（账号级，离线优先）
 ///
-/// 后续接会员只改 [redeem]：把 itemId/cost 换成真实兑换（会员天数、券等），
-/// 余额与流水逻辑不用动，也不影响消消乐的发分入口。
+/// - 未登录（游客）：不计分、不产生流水，积分页只展示历史遗留余额；
+/// - 已登录：每笔收入/支出都会记一条带 eventId 的待上行流水，联网后补传，
+///   服务端按 eventId 去重、以流水求和得到余额，再回写本机（多设备合并）。
 class PointsNotifier extends StateNotifier<PointsState> {
-  PointsNotifier() : super(const PointsState()) {
-    _load();
+  PointsNotifier(this.ref) : super(const PointsState()) {
+    loaded = _load();
   }
 
-  static const _kKey = 'points_state';
-  static const _maxHistory = 60;
+  final Ref ref;
+
+  /// 磁盘加载完成信号，避免首个发分请求覆盖已加载的余额
+  late final Future<void> loaded;
+
+  static const int _maxHistory = 60;
 
   /// 消消乐每日最多可得积分
   static const int matchGameDailyCap = 20;
@@ -77,28 +86,37 @@ class PointsNotifier extends StateNotifier<PointsState> {
   /// 每多少分折算 1 积分
   static const int scorePerPoint = 1000;
 
+  static final math.Random _random = math.Random();
+
   String _todayKey() {
     final d = DateTime.now();
     return '${d.year}-${d.month.toString().padLeft(2, '0')}-'
         '${d.day.toString().padLeft(2, '0')}';
   }
 
+  String _newEventId() {
+    final rand = _random.nextInt(1 << 24).toRadixString(16);
+    return '${DateTime.now().microsecondsSinceEpoch}-$rand';
+  }
+
   Future<void> _load() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_kKey);
-      if (raw == null) return;
-      final m = jsonDecode(raw) as Map<String, dynamic>;
+      final storage = await ref.read(localStorageProvider.future);
+      final snapshot = storage.loadPointsSnapshot();
       final key = _todayKey();
-      final savedKey = (m['dayKey'] as String?) ?? '';
+      if (snapshot == null) {
+        state = PointsState(dayKey: key);
+        return;
+      }
+      final savedKey = snapshot['dayKey']?.toString() ?? '';
       state = PointsState(
-        balance: (m['balance'] as num?)?.toInt() ?? 0,
+        balance: (snapshot['balance'] as num?)?.toInt() ?? 0,
         // 跨天：今日累计归零，余额不受影响
         todayEarned: savedKey == key
-            ? ((m['todayEarned'] as num?)?.toInt() ?? 0)
+            ? ((snapshot['todayEarned'] as num?)?.toInt() ?? 0)
             : 0,
         dayKey: key,
-        history: ((m['history'] as List?) ?? const [])
+        history: ((snapshot['history'] as List?) ?? const [])
             .whereType<Map>()
             .map((e) => PointsRecord.fromJson(Map<String, dynamic>.from(e)))
             .toList(),
@@ -110,16 +128,13 @@ class PointsNotifier extends StateNotifier<PointsState> {
 
   Future<void> _persist() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-        _kKey,
-        jsonEncode({
-          'balance': state.balance,
-          'todayEarned': state.todayEarned,
-          'dayKey': state.dayKey,
-          'history': state.history.map((e) => e.toJson()).toList(),
-        }),
-      );
+      final storage = await ref.read(localStorageProvider.future);
+      await storage.savePointsSnapshot({
+        'balance': state.balance,
+        'todayEarned': state.todayEarned,
+        'dayKey': state.dayKey,
+        'history': state.history.map((e) => e.toJson()).toList(),
+      });
     } catch (_) {
       // 持久化失败不阻塞游戏流程
     }
@@ -131,6 +146,10 @@ class PointsNotifier extends StateNotifier<PointsState> {
     required int amount,
     int dailyCap = matchGameDailyCap,
   }) async {
+    await loaded;
+    final storage = await ref.read(localStorageProvider.future);
+    // 积分是账号权益：游客不计分（否则本机可反复刷分，登录后余额来源也无法校验）
+    if (!storage.hasAccountSession) return 0;
     if (amount <= 0) return 0;
     final key = _todayKey();
     final earnedToday = state.dayKey == key ? state.todayEarned : 0;
@@ -154,30 +173,27 @@ class PointsNotifier extends StateNotifier<PointsState> {
       ].take(_maxHistory).toList(),
     );
     await _persist();
-    return granted;
-  }
 
-  /// 消费积分（兑换会员 / 商品时调用），余额不足返回 false
-  Future<bool> redeem({required String itemId, required int cost}) async {
-    if (cost <= 0) return false;
-    if (state.balance < cost) return false;
-    state = state.copyWith(
-      balance: state.balance - cost,
-      history: [
-        PointsRecord(
-          source: 'redeem:$itemId',
-          amount: -cost,
-          at: DateTime.now(),
-        ),
-        ...state.history,
-      ].take(_maxHistory).toList(),
-    );
-    await _persist();
-    // 会员权益由调用方（会员中心积分兑换入口）落库
-    return true;
+    // 记一条待上行流水：离线累计，联网后按 eventId 去重补传
+    await storage.addPendingPointEvent({
+      'eventId': _newEventId(),
+      'source': source,
+      'amount': granted,
+      'occurredAt': DateTime.now().toUtc().toIso8601String(),
+    });
+    unawaited(SyncService.autoSync(storage));
+    return granted;
   }
 }
 
-final pointsProvider = StateNotifierProvider<PointsNotifier, PointsState>(
-  (ref) => PointsNotifier(),
-);
+/// 云端积分（余额 / 流水）已合并到本机后 +1，积分页据此重新加载
+final pointsRevisionProvider = StateProvider<int>((ref) => 0);
+
+final pointsProvider = StateNotifierProvider<PointsNotifier, PointsState>((
+  ref,
+) {
+  // 会话切换 / 云端积分合并后，按新归属账号重新加载
+  ref.watch(sessionEpochProvider);
+  ref.watch(pointsRevisionProvider);
+  return PointsNotifier(ref);
+});

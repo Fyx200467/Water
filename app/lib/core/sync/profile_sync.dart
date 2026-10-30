@@ -68,6 +68,7 @@ class ProfileSync {
       _lastRemoteCheck = now;
 
       final me = await SyncApi.me(token);
+      await _syncNickname(storage, token, me);
       await _applyServerProfile(storage, me, storage.loadProfile());
       await _syncAvatar(storage, token, me);
     } catch (_) {
@@ -101,6 +102,40 @@ class ProfileSync {
     final complete = const ['gender', 'weightKg', 'heightCm', 'age', 'activityLevel']
         .every((key) => data[key] != null);
     if (!complete) await _pushProfile(storage, remote);
+  }
+
+  /// 昵称同步：本机改过（dirty）就上行；否则以服务端为准覆盖本机。
+  static Future<void> _syncNickname(
+    LocalStorage storage,
+    String token,
+    Map<String, dynamic> me,
+  ) async {
+    if (storage.nicknameDirty) {
+      final local = storage.accountNickname;
+      if (local.isEmpty) return;
+      try {
+        await SyncApi.updateNickname(token, local);
+        await storage.clearNicknameDirty();
+      } catch (_) {
+        // 离线：保留 dirty 标记，下轮再推
+      }
+      return;
+    }
+    final remote = (me['nickname'] as String?)?.trim() ?? '';
+    if (remote.isNotEmpty && remote != storage.accountNickname) {
+      await storage.setAccountNickname(remote);
+      onProfileSynced?.call();
+    }
+  }
+
+  /// 删除本机当前账号的头像文件（注销账号时调用）
+  static Future<void> deleteLocalAvatar(LocalStorage storage) async {
+    final path = storage.accountAvatarPath;
+    if (path == null || path.isEmpty) return;
+    try {
+      final f = File(path);
+      if (await f.exists()) await f.delete();
+    } catch (_) {}
   }
 
   /// 本机修改档案后立即调用（也由 [sync] 兜底）

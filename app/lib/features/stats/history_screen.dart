@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui show TextDirection;
 
@@ -9,25 +8,24 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:intl/intl.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../../core/storage/providers.dart';
 import '../../core/time/logical_day.dart';
 import '../../shared/models/beverage.dart';
 import '../../shared/models/drink_entry.dart';
 import '../../shared/models/preferred_unit.dart';
+import '../../shared/services/share_image.dart';
 import '../../shared/widgets/drink_illustration.dart';
 import '../characters/current_character_provider.dart';
 import '../drink/providers/beverage_catalog_provider.dart';
 
 import '../drink/widgets/svg_container.dart';
 import '../home/providers/home_providers.dart';
-import '../membership/membership_screen.dart';
 import '../onboarding/widgets/animal_silhouette.dart';
 import '../settings/settings_flags.dart';
 import '../settings/widget_settings_screen.dart';
 import 'providers/stats_providers.dart';
+import 'widgets/share_stats_card.dart';
 
 // 品牌色规范
 const Color _kCyan = Color(0xFF4DB8D8);
@@ -251,7 +249,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
               right: 16,
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onTap: _exportCsv,
+                onTap: _shareStats,
                 child: Container(
                   width: 36,
                   height: 36,
@@ -286,57 +284,66 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     );
   }
 
-  // ---------------- 数据导出（会员权益） ----------------
+  // ---------------- 战绩图片分享（免费，跟随当前视图） ----------------
 
-  /// 导出全部饮水记录为 CSV，调起系统分享面板
-  Future<void> _exportCsv() async {
-    if (!await ensureMember(context, ref, feature: '数据导出')) return;
+  /// 按当前视图生成竖版战绩卡（日期=当月 / 趋势=本周 / 列表=本月），
+  /// 截图后调起系统分享面板；卡片不含昵称头像等个人信息。
+  Future<void> _shareStats() async {
+    final today = LogicalDay.today();
+    final List<DayTotal> days;
+    final String title;
+    final String subtitle;
+    if (_viewTab == 1) {
+      days = await ref.read(last7DaysProvider.future);
+      title = '我的本周战绩';
+      subtitle = '${_monthDay(days.first.day)} - ${_monthDay(days.last.day)}';
+    } else {
+      final month = _viewTab == 0
+          ? _calMonth
+          : DateTime(today.year, today.month, 1);
+      final map = await ref.read(monthDataProvider(month).future);
+      days = map.values.toList()..sort((a, b) => a.day.compareTo(b.day));
+      title = '我的清晰${month.month}月';
+      subtitle = '${month.year} 年 ${month.month} 月';
+    }
     if (!mounted) return;
-    final storage = await ref.read(localStorageProvider.future);
-    final now = DateTime.now();
-    final entries = (await storage.loadEntriesForRange(
-      DateTime(2000),
-      DateTime(now.year, now.month, now.day + 1),
-    ))
-        .where((e) => !e.deleted)
-        .toList()
-      ..sort((a, b) => a.drankAt.compareTo(b.drankAt));
-    if (!mounted) return;
-    if (entries.isEmpty) {
+    final total = days.fold<int>(0, (s, d) => s + d.effectiveMl);
+    if (total <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('暂无可导出的饮水记录')),
+        const SnackBar(content: Text('暂无可分享的记录')),
       );
       return;
     }
-    final csv = StringBuffer('日期,时间,饮品,分类,容量(ml),有效水分(ml),热量(kcal)\n');
-    final dateFmt = DateFormat('yyyy-MM-dd');
-    final timeFmt = DateFormat('HH:mm');
-    for (final e in entries) {
-      final name = e.beverageName.replaceAll('"', '""');
-      csv.write('${dateFmt.format(e.drankAt)},${timeFmt.format(e.drankAt)},'
-          '"$name",${e.beverageCategory.label},${e.volumeMl},'
-          '${e.effectiveMl},${e.calories < 0 ? '' : e.calories}\n');
-    }
+    final activeDays = days.where((d) => d.count > 0).length;
+    final completeDays = days.where((d) => d.complete).length;
+    final streak = ref.read(checkinDaysProvider).valueOrNull ?? 0;
     try {
-      final dir = await getTemporaryDirectory();
-      final file = File(
-          '${dir.path}${Platform.pathSeparator}water_llama_'
-          '${dateFmt.format(now)}.csv');
-      await file.writeAsString('\uFEFF$csv', flush: true);
-      await SharePlus.instance.share(
-        ShareParams(
-          files: [XFile(file.path, mimeType: 'text/csv')],
-          subject: '吨吨饮水记录导出',
-          text: '吨吨饮水记录（${entries.length} 条）',
+      await ShareImage.capture(
+        context: context,
+        fileName: 'dun_dun_stats_${DateTime.now().millisecondsSinceEpoch}.png',
+        text: '吨吨 · 我的饮水记录',
+        builder: (_) => StatsShareCard(
+          title: title,
+          subtitle: subtitle,
+          totalText: UnitFormat.volume(total, compact: true),
+          avgText: UnitFormat.volume(
+            activeDays == 0 ? 0 : total ~/ activeDays,
+            compact: true,
+          ),
+          completeDays: completeDays,
+          streakDays: streak,
+          days: days,
         ),
       );
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('导出失败，请稍后重试')),
+        const SnackBar(content: Text('分享失败，请稍后重试')),
       );
     }
   }
+
+  String _monthDay(DateTime d) => '${d.month}月${d.day}日';
 
   // ---------------- 底部悬浮视图切换 ----------------
 

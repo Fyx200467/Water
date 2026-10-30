@@ -2,10 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../characters/character_art.dart';
 import '../../shared/models/preferred_unit.dart';
+import '../../shared/services/share_image.dart';
+import '../../shared/widgets/sparkles_text.dart';
 import 'providers/home_providers.dart';
 
 /// 今日回顾（对标原版 WaterLlama 庆祝流程，两张截图两步跳转）：
@@ -91,18 +92,27 @@ class PosterView extends StatelessWidget {
         children: [
           const SizedBox(height: 24),
           // 标题：我的「清晰」星期四（动态星期X）
-          Text.rich(
-            TextSpan(
-              style: const TextStyle(
-                color: _cyan,
-                fontWeight: FontWeight.w800,
-                height: 1.05,
+          // 定格星光：海报不播放动画，星星固定在同一画面（截图/分享一致）
+          SparklesText(
+            animate: false,
+            count: 9,
+            seed: 11,
+            child: Text.rich(
+              TextSpan(
+                style: const TextStyle(
+                  color: _cyan,
+                  fontWeight: FontWeight.w800,
+                  height: 1.05,
+                ),
+                children: [
+                  const TextSpan(text: '我的', style: TextStyle(fontSize: 42)),
+                  const TextSpan(text: '清晰', style: TextStyle(fontSize: 64)),
+                  TextSpan(
+                    text: '\n${_weekday()}',
+                    style: const TextStyle(fontSize: 64),
+                  ),
+                ],
               ),
-              children: [
-                const TextSpan(text: '我的', style: TextStyle(fontSize: 42)),
-                const TextSpan(text: '清晰', style: TextStyle(fontSize: 64)),
-                TextSpan(text: '\n${_weekday()}', style: const TextStyle(fontSize: 64)),
-              ],
             ),
           ),
           const SizedBox(height: 14),
@@ -139,17 +149,10 @@ class PosterView extends StatelessWidget {
               child: CharacterArt(animalId: animalId, unlocked: false, size: 300),
             ),
           ),
-          // 目标量行：彩色小羊驼 + 青色水杯 + 「ml 2000」
+          // 目标量行：青色水杯 + 「ml 2000」（左侧彩色小羊驼已按需求移除）
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Image.asset(
-                'assets/images/animal_llama_full.png',
-                width: 46,
-                height: 46,
-                fit: BoxFit.contain,
-              ),
-              const SizedBox(width: 6),
               Icon(Icons.local_drink_rounded, color: _cyan, size: 30),
               const SizedBox(width: 4),
               Text.rich(
@@ -172,23 +175,10 @@ class PosterView extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 6),
-          // 页脚：站点名 + 标语
-          const Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                'Waterllama.com  ',
-                style: TextStyle(
-                  color: Color(0xFF1C1C1E),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              Text(
-                '保持充足的水分，拥有快乐的心情！',
-                style: TextStyle(color: _cyan, fontSize: 10),
-              ),
-            ],
+          // 页脚：标语（站点名已按需求移除）
+          const Text(
+            '保持充足的水分，拥有快乐的心情！',
+            style: TextStyle(color: _cyan, fontSize: 10),
           ),
           const SizedBox(height: 14),
         ],
@@ -207,13 +197,28 @@ class SharePosterScreen extends ConsumerWidget {
 
   static const _cyan = Color(0xFF45B7D8);
 
-  Future<void> _share(int goalMl) async {
-    await SharePlus.instance.share(
-      ShareParams(
-        text: '我在 Waterlllama 达成了今日 ${UnitFormat.volume(goalMl)} 饮水目标！'
-            '保持充足的水分，拥有快乐的心情！ Waterllama.com',
-      ),
-    );
+  /// 分享海报图片（按海报原始 250×470 尺寸离屏渲染，导出约 1000×1880）
+  Future<void> _share(BuildContext context, int goalMl) async {
+    try {
+      await ShareImage.capture(
+        context: context,
+        fileName: 'dun_dun_poster_'
+            '${DateTime.now().millisecondsSinceEpoch}.png',
+        text: '我在吨吨达成了今日 ${UnitFormat.volume(goalMl)} 饮水目标！'
+            '保持充足的水分，拥有快乐的心情！ @吨吨_app',
+        pixelRatio: 4,
+        builder: (_) => SizedBox(
+          width: 250,
+          height: 470,
+          child: PosterView(animalId: animalId, goalMl: goalMl),
+        ),
+      );
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('分享失败，请稍后重试')),
+      );
+    }
   }
 
   @override
@@ -257,19 +262,9 @@ class SharePosterScreen extends ConsumerWidget {
                       ),
                     ),
                     const SizedBox(height: 22),
-                    // 提及文案
+                    // 平台账号（「提及我们」提示文案已按需求移除）
                     const Text(
-                      '要分享到社交媒体？🤗 提及我们，我们将回复你！',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Color(0xFF1C1C1E),
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      '@waterllama_app',
+                      '@吨吨_app',
                       style: TextStyle(
                         color: _cyan,
                         fontSize: 15,
@@ -277,14 +272,14 @@ class SharePosterScreen extends ConsumerWidget {
                       ),
                     ),
                     const SizedBox(height: 20),
-                    // 四个社交分享按钮（调起系统分享面板）
+                    // 两个分享按钮：微信 / QQ（均调起系统分享面板）
                     _shareButton(
-                      bg: const Color(0xFFDCF8E6),
+                      bg: const Color(0xFFDFF6E8),
                       icon: Container(
                         width: 34,
                         height: 34,
                         decoration: const BoxDecoration(
-                          color: Color(0xFF34C759),
+                          color: Color(0xFF07C160),
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(
@@ -293,75 +288,23 @@ class SharePosterScreen extends ConsumerWidget {
                           size: 20,
                         ),
                       ),
-                      label: '信息',
-                      color: const Color(0xFF1DA84C),
-                      onTap: () => _share(goal),
+                      label: '微信',
+                      color: const Color(0xFF07C160),
+                      onTap: () => _share(context, goal),
                     ),
                     const SizedBox(height: 12),
                     _shareButton(
-                      bg: const Color(0xFFECEBFF),
+                      bg: const Color(0xFFE3F4FE),
                       icon: Container(
                         width: 34,
                         height: 34,
                         decoration: const BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [Color(0xFF00B2FF), Color(0xFF006AFF)],
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                          ),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.bolt,
-                          color: Colors.white,
-                          size: 20,
-                        ),
-                      ),
-                      label: 'Messenger',
-                      color: const Color(0xFF006AFF),
-                      onTap: () => _share(goal),
-                    ),
-                    const SizedBox(height: 12),
-                    _shareButton(
-                      bg: const Color(0xFFFBDDF0),
-                      icon: Container(
-                        width: 34,
-                        height: 34,
-                        decoration: const BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              Color(0xFFFEDA75),
-                              Color(0xFFD62976),
-                              Color(0xFF962FBF),
-                            ],
-                            begin: Alignment.bottomLeft,
-                            end: Alignment.topRight,
-                          ),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.camera_alt_rounded,
-                          color: Colors.white,
-                          size: 18,
-                        ),
-                      ),
-                      label: 'Instagram',
-                      color: const Color(0xFFC13584),
-                      onTap: () => _share(goal),
-                    ),
-                    const SizedBox(height: 12),
-                    _shareButton(
-                      bg: const Color(0xFFE3EDFF),
-                      icon: Container(
-                        width: 34,
-                        height: 34,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFF1877F2),
+                          color: Color(0xFF12B7F5),
                           shape: BoxShape.circle,
                         ),
                         child: const Center(
                           child: Text(
-                            'f',
+                            'Q',
                             style: TextStyle(
                               color: Colors.white,
                               fontSize: 22,
@@ -371,9 +314,9 @@ class SharePosterScreen extends ConsumerWidget {
                           ),
                         ),
                       ),
-                      label: 'Facebook',
-                      color: const Color(0xFF1877F2),
-                      onTap: () => _share(goal),
+                      label: 'QQ',
+                      color: const Color(0xFF12B7F5),
+                      onTap: () => _share(context, goal),
                     ),
                   ],
                 ),

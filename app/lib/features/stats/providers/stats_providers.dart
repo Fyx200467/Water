@@ -79,6 +79,7 @@ int _goalOf(Ref ref) => ref.watch(profileProvider)?.dailyGoalMl ?? 2000;
 /// 同一轮刷新只查一次数据库。
 final yearEntriesProvider = FutureProvider<List<DrinkEntry>>((ref) async {
   ref.watch(todayEntriesProvider); // 新增/删除饮水后立即重算
+  ref.watch(sessionEpochProvider); // 账号切换后必须按新归属重查
   final storage = await ref.read(localStorageProvider.future);
   final today = LogicalDay.today();
   final start = today.subtract(Duration(days: historyWindowDays - 1));
@@ -135,6 +136,7 @@ final filteredLast7DaysProvider =
 final monthDataProvider =
     FutureProvider.family<Map<int, DayTotal>, DateTime>((ref, month) async {
   ref.watch(todayEntriesProvider); // 新增/删除饮水后重算日历圆点
+  ref.watch(sessionEpochProvider); // 账号切换后按新归属重查
   final storage = await ref.read(localStorageProvider.future);
   final first = DateTime(month.year, month.month, 1);
   final next = DateTime(month.year, month.month + 1, 1);
@@ -150,6 +152,7 @@ final monthDataProvider =
 final dayEntriesForProvider =
     FutureProvider.family<List<DrinkEntry>, DateTime>((ref, day) async {
   ref.watch(todayEntriesProvider); // 记录变化后当日明细实时刷新
+  ref.watch(sessionEpochProvider); // 账号切换后按新归属重查
   final storage = await ref.read(localStorageProvider.future);
   return storage.loadEntriesForDay(day);
 });

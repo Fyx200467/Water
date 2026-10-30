@@ -33,7 +33,7 @@ class PointsScreen extends ConsumerWidget {
                 const SizedBox(height: 14),
                 const Text(
                   '积分来自消消乐等任务，可兑换会员天数；'
-                  '明细仅保存在本机，卸载重装后不保留。',
+                  '积分属于账号权益，游客（未登录）不计分，登录后积分与明细跟随账号。',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: _gray, fontSize: 11, height: 1.5),
                 ),
@@ -85,10 +85,7 @@ class PointsScreen extends ConsumerWidget {
             children: [
               const Icon(Icons.stars_rounded, size: 20, color: _gold),
               const SizedBox(width: 6),
-              const Text(
-                '当前积分',
-                style: TextStyle(color: _gold, fontSize: 13),
-              ),
+              const Text('当前积分', style: TextStyle(color: _gold, fontSize: 13)),
             ],
           ),
           const SizedBox(height: 6),
@@ -198,10 +195,7 @@ class PointsScreen extends ConsumerWidget {
                   style: const TextStyle(color: _ink, fontSize: 14),
                 ),
                 const SizedBox(height: 2),
-                Text(
-                  time,
-                  style: const TextStyle(color: _gray, fontSize: 11),
-                ),
+                Text(time, style: const TextStyle(color: _gray, fontSize: 11)),
               ],
             ),
           ),

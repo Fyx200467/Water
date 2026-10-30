@@ -29,6 +29,7 @@ import 'app_prefs_screen.dart';
 import 'calorie_screen.dart';
 import 'cloud_backup_screen.dart';
 import 'health_sync_screen.dart';
+import 'legal_screen.dart';
 import 'reset_time_screen.dart';
 import 'settings_flags.dart';
 import 'widget_settings_screen.dart';
@@ -45,9 +46,8 @@ import 'widget_settings_screen.dart';
 /// 7. 云备份
 /// 8. 语言 / 帮助与支持
 /// 9. 社区
-/// 10. 分享 CTA
-/// 11. "我们的网站" 推荐区
-/// 12. 底部 footer（恢复购买 / 条款 / 版本号）
+/// 10. "我们的网站" 推荐区
+/// 11. 底部 footer（条款和隐私 / 版本号）
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
@@ -275,12 +275,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
                 // ---- 分组6：社区 ----
                 _buildSection('', [
-                  _settingRow(iconAsset: 'social.svg', title: '社交媒体上的喝水羊驼社区'),
+                  _settingRow(iconAsset: 'social.svg', title: '吨吨社区'),
                 ]),
-                const SizedBox(height: 24),
-
-                // ---- CTA 分享按钮 ----
-                _buildShareButton(),
                 const SizedBox(height: 32),
 
                 // ---- "我们的网站" 推荐区 ----
@@ -655,38 +651,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  // ==================== 分享 CTA ====================
-
-  Widget _buildShareButton() {
-    return GestureDetector(
-      onTap: () => _showSnack('分享功能开发中'),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFF5AC8FA), Color(0xFF34C759)],
-          ),
-          borderRadius: BorderRadius.circular(28),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: const [
-            Icon(Icons.celebration, color: Colors.white, size: 20),
-            SizedBox(width: 8),
-            Text(
-              '让你的朋友保持充足的水分',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   // ==================== "我们的网站" 推荐区 ====================
 
   Widget _buildOurAppsSection() {
@@ -812,32 +776,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     return Column(
       children: [
         TextButton(
-          onPressed: () async {
-            bool ok;
-            try {
-              ok = await ref.read(membershipProvider.notifier).restore();
-            } catch (_) {
-              if (!mounted) return;
-              _showSnack('恢复购买需要联网，请检查网络后重试');
-              return;
-            }
-            if (!mounted) return;
-            if (ok) {
-              _showSnack('会员权益已恢复');
-            } else {
-              // 没有本地记录：引导到会员中心（正式版由服务端凭据恢复）
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const MembershipScreen()),
-              );
-            }
-          },
-          child: const Text(
-            '恢复购买',
-            style: TextStyle(color: _textSecondary, fontSize: 14),
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const LegalScreen()),
           ),
-        ),
-        TextButton(
-          onPressed: () => _showSnack('条款和隐私'),
           child: const Text(
             '条款和隐私',
             style: TextStyle(color: _textSecondary, fontSize: 12),

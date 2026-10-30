@@ -1,6 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/settings/account_settings.dart';
 import '../../../core/storage/providers.dart';
+import '../../../core/sync/sync_service.dart';
+import '../home/providers/home_providers.dart';
 import '../membership/membership_provider.dart';
 import 'character_catalog.dart';
 
@@ -8,18 +13,19 @@ import 'character_catalog.dart';
 ///
 /// 业务规则（PRD §2.3）：
 /// - 默认值 'alpaca'
-/// - 持久化到 SharedPreferences，App 重启后保持上次选择
+/// - 持久化到账号级偏好，App 重启 / 换设备后保持上次选择
 class CurrentCharacterNotifier extends StateNotifier<String> {
   CurrentCharacterNotifier(this.ref) : super('alpaca') {
     _load();
   }
 
   final Ref ref;
-  static const _key = 'current_character_id';
 
   Future<void> _load() async {
     final storage = await ref.read(localStorageProvider.future);
-    final saved = storage.prefs.getString(_key);
+    final saved = storage
+        .readAccountSetting(AccountSettingKeys.currentCharacter)
+        ?.toString();
     if (saved != null && saved.isNotEmpty) {
       state = saved;
     }
@@ -29,14 +35,21 @@ class CurrentCharacterNotifier extends StateNotifier<String> {
   Future<void> select(String animalId) async {
     state = animalId;
     final storage = await ref.read(localStorageProvider.future);
-    await storage.prefs.setString(_key, animalId);
+    await storage.writeAccountSetting(
+      AccountSettingKeys.currentCharacter,
+      animalId,
+    );
+    unawaited(SyncService.autoSync(storage));
   }
 }
 
 final currentCharacterProvider =
     StateNotifierProvider<CurrentCharacterNotifier, String>((ref) {
-  return CurrentCharacterNotifier(ref);
-});
+      // 会话切换 / 云端偏好更新后按新归属重载
+      ref.watch(sessionEpochProvider);
+      ref.watch(accountSettingsRevisionProvider);
+      return CurrentCharacterNotifier(ref);
+    });
 
 /// 实际生效的填充角色：非会员时若选中的是会员专属角色，回退到默认羊驼。
 ///

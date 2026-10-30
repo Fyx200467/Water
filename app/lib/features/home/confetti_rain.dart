@@ -2,18 +2,20 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-/// 持续礼炮雨：粒子从屏幕顶部缓慢下落，循环不断
+/// 达标礼炮：**一次性**庆祝雨
 ///
-/// 复用自欢迎页 _ConfettiRainPainter：每个粒子用 `localT = (t + phase) % 1.0`
-/// 实现无限循环——t 不断增加（repeat），localT 在 [0,1) 循环 → 粒子从顶部到底部
-/// 不断循环出现，不会"一瞬间消失"
+/// 与旧版的区别：粒子不再无限循环，而是从顶部一次性撒出——顶部先露出一部分，
+/// 随后自然下落，落到屏幕底部就消失，整段动画约 3.2 秒后自动结束不再重播。
+/// 达标后常驻的喜庆感交给文字上的星光（SparklesText），礼炮只做开场。
 ///
-/// - 55 个粒子（数量适中）
+/// - 45 个粒子（数量适中）
+/// - 每个粒子有自己的起落延迟（phase），错峰出现，形成「先撒一把」的观感
 /// - 缓慢下落 + sin 横向漂移 + 自转
-/// - 前 5% 淡入、后 5% 淡出（无突兀闪现）
+/// - 首尾各淡入/淡出，避免突兀闪现
 /// - 8 色循环（粉/橙/黄/绿/蓝/紫/品红/青）
 class ConfettiRain extends StatefulWidget {
   const ConfettiRain({super.key, required this.active});
+
   final bool active;
 
   @override
@@ -23,24 +25,38 @@ class ConfettiRain extends StatefulWidget {
 class _ConfettiRainState extends State<ConfettiRain>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl;
+  bool _finished = false;
 
   @override
   void initState() {
     super.initState();
     _ctrl = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 6),
-    );
-    if (widget.active) _ctrl.repeat();
+      duration: const Duration(milliseconds: 3200),
+    )..addStatusListener(_onStatus);
+    if (widget.active) _play();
+  }
+
+  void _onStatus(AnimationStatus status) {
+    if (status == AnimationStatus.completed && mounted) {
+      setState(() => _finished = true);
+    }
+  }
+
+  void _play() {
+    _finished = false;
+    _ctrl.forward(from: 0);
   }
 
   @override
   void didUpdateWidget(covariant ConfettiRain old) {
     super.didUpdateWidget(old);
+    // 达标那一刻（false → true）撒一次；之后不再重复
     if (widget.active && !old.active) {
-      _ctrl.repeat();
+      _play();
     } else if (!widget.active && old.active) {
       _ctrl.stop();
+      _finished = false;
     }
   }
 
@@ -52,7 +68,7 @@ class _ConfettiRainState extends State<ConfettiRain>
 
   @override
   Widget build(BuildContext context) {
-    if (!widget.active) return const SizedBox.shrink();
+    if (!widget.active || _finished) return const SizedBox.shrink();
     final screen = MediaQuery.sizeOf(context);
     return IgnorePointer(
       child: AnimatedBuilder(
@@ -66,7 +82,7 @@ class _ConfettiRainState extends State<ConfettiRain>
   }
 }
 
-/// 礼炮雨画师：55 个粒子循环下落
+/// 礼炮雨画师：45 个粒子一次性下落
 class ConfettiRainPainter extends CustomPainter {
   ConfettiRainPainter({required this.t, required this.active});
 
@@ -74,7 +90,7 @@ class ConfettiRainPainter extends CustomPainter {
   final bool active;
 
   static final _rng = math.Random(42);
-  static final _particles = List.generate(55, (_) => RainParticle(_rng));
+  static final _particles = List.generate(45, (_) => RainParticle(_rng));
 
   static const _colors = [
     Color(0xFFFF6B6B), // 粉红
@@ -95,17 +111,20 @@ class ConfettiRainPainter extends CustomPainter {
     final w = size.width;
 
     for (final p in _particles) {
-      // localT 在 [0,1) 循环 → 粒子从顶部下落到底部再从顶部出现，无限循环
-      final localT = ((t + p.phase) % 1.0);
-      final y = localT * (h + 60) - 20;
-      final drift = math.sin(localT * math.pi * 3 + p.driftPhase) * p.driftAmp;
+      // 起落延迟：phase 越大出现越晚，整段 0.65 个时间窗内落完
+      final local = (t - p.phase * 0.35) / 0.65;
+      if (local <= 0 || local >= 1) continue;
+
+      final y = local * (h + 60) - 20;
+      final drift =
+          math.sin(local * math.pi * 3 + p.driftPhase) * p.driftAmp;
       final x = (p.baseX * w) + drift;
-      final rot = p.spin * (localT * math.pi * 2 + p.spinOffset);
+      final rot = p.spin * (local * math.pi * 2 + p.spinOffset);
       final color = _colors[p.colorIdx];
-      // 前 5% 淡入，后 5% 淡出（避免突兀闪现）
-      final alpha = localT < 0.05
-          ? localT / 0.05
-          : (localT > 0.95 ? (1 - localT) / 0.05 : 1.0);
+      // 前 8% 淡入，末尾 15% 淡出（落到下方时自然消失）
+      final alpha = local < 0.08
+          ? local / 0.08
+          : (local > 0.85 ? (1 - local) / 0.15 : 1.0);
 
       canvas.save();
       canvas.translate(x, y);
@@ -127,7 +146,7 @@ class ConfettiRainPainter extends CustomPainter {
       old.t != t || old.active != active;
 }
 
-/// 礼炮粒子参数（每帧固定，由 t 驱动循环动画）
+/// 礼炮粒子参数（每帧固定，由 t 驱动一次性动画）
 class RainParticle {
   RainParticle(math.Random r)
       : phase = r.nextDouble(),
@@ -139,7 +158,7 @@ class RainParticle {
         size = 6 + r.nextDouble() * 10,
         colorIdx = r.nextInt(8);
 
-  final double phase;      // 循环相位偏移（让粒子不同步下落）
+  final double phase;      // 出现顺序（错峰撒出）
   final double baseX;      // 横向基准位置 [0,1]
   final double driftAmp;   // 横向 sin 漂移幅度
   final double driftPhase; // 漂移相位

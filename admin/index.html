@@ -154,6 +154,16 @@
   .tag.cancelled, .tag.refunded { background: #f1f2f5; color: #8e8e93; }
   .tag.rejected { background: #fdecec; color: var(--danger); }
   .row-actions { display: flex; gap: 6px; }
+  /* 用户头像：表格里的圆形缩略图（点击放大） */
+  .user-cell { display: flex; align-items: center; gap: 8px; }
+  .user-avatar {
+    width: 30px; height: 30px; border-radius: 50%; flex: 0 0 auto;
+    object-fit: cover; background: #f1f2f5; color: #9aa0aa;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 600; cursor: zoom-in;
+  }
+  .avatar-preview { text-align: center; }
+  .avatar-preview img { max-width: 260px; max-height: 260px; border-radius: 12px; }
   .empty { padding: 40px; text-align: center; color: var(--gray); font-size: 13px; }
   .pager { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; font-size: 12px; color: var(--gray); align-items: center; }
   /* 容器图标库：表格里的图标缩略图（点击放大） */
@@ -489,6 +499,22 @@
       .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   };
 
+  // 服务端时间统一按 UTC 存储（ISO Z 结尾）。后台统一换算成北京时间
+  // （UTC+8）展示，否则与手机端本地时间相差 8 小时（会员订单创建/支付时间
+  // 尤其明显）。withTime 默认 true：YYYY-MM-DD HH:mm
+  var fmtTime = function (v, withTime) {
+    if (!v) return "-";
+    var s = String(v);
+    var ms = Date.parse(/Z$|[+\-]\d{2}:\d{2}$/.test(s) ? s : s + "Z");
+    if (isNaN(ms)) return s;
+    var d = new Date(ms + 8 * 3600 * 1000);
+    var p = function (n) { return String(n).padStart(2, "0"); };
+    var day = d.getUTCFullYear() + "-" + p(d.getUTCMonth() + 1) + "-" + p(d.getUTCDate());
+    return withTime === false
+      ? day
+      : day + " " + p(d.getUTCHours()) + ":" + p(d.getUTCMinutes());
+  };
+
   function toast(msg) {
     var el = $("toast");
     el.textContent = msg;
@@ -575,12 +601,23 @@
   }
 
   function logout() {
+    // 先让服务端吊销会话，本地再清空（失败也不阻塞退出）
+    if (state.token) {
+      try {
+        fetch(state.api + "/admin/logout", {
+          method: "POST",
+          headers: { "Authorization": "Bearer " + state.token },
+          keepalive: true,
+        }).catch(function () {});
+      } catch (_) {}
+    }
     state.token = "";
     state.tab = "beverages";
     state.page = 1;
     state.categories = [];
     localStorage.removeItem(LS_TOKEN);
     localStorage.removeItem(LS_USER);
+    localStorage.removeItem(LS_EMAIL);
     showLogin();
   }
 
@@ -746,6 +783,16 @@
       '<button class="btn ghost sm" id="prevPage" ' + (state.page <= 1 ? "disabled" : "") + ">上一页</button>" +
       "<span>第 " + state.page + " 页</span>" +
       '<button class="btn ghost sm" id="nextPage" ' + (state.rows.length < state.pageSize ? "disabled" : "") + ">下一页</button>" +
+      "</div>";
+  }
+
+  /// 带总数的分页条：服务端返回 total，末页不再靠 rows.length 猜
+  function pagerTotal(total) {
+    var pages = Math.max(1, Math.ceil(Number(total || 0) / state.pageSize));
+    return '<div class="pager">' +
+      '<button class="btn ghost sm" id="prevPage" ' + (state.page <= 1 ? "disabled" : "") + ">上一页</button>" +
+      "<span>第 " + state.page + " / " + pages + " 页 · 共 " + Number(total || 0) + " 条</span>" +
+      '<button class="btn ghost sm" id="nextPage" ' + (state.page >= pages ? "disabled" : "") + ">下一页</button>" +
       "</div>";
   }
 
@@ -953,7 +1000,7 @@
         '<button class="btn ghost" id="statRefresh">刷新</button>' +
         '<div class="grow"></div>' +
         '<span class="api-hint">统计时间 ' +
-        esc(String(data.generatedAt || "").replace("T", " ").slice(0, 16)) + "</span>" +
+        esc(fmtTime(data.generatedAt)) + "</span>" +
       "</div>" +
       '<div class="kpi-grid">' + kpis + "</div>" +
       '<div class="chart-card" style="margin-bottom:16px"><div class="chart-head"><h3>会员转化漏斗</h3>' +
@@ -2020,7 +2067,7 @@
     if (u.membershipPermanent) return '<span class="tag gold">永久会员</span>';
     var exp = u.membershipExpireAt ? Date.parse(u.membershipExpireAt) : NaN;
     if (Number.isFinite(exp) && exp > Date.now()) {
-      return '<span class="tag on">会员至 ' + esc(u.membershipExpireAt.slice(0, 10)) + "</span>";
+      return '<span class="tag on">会员至 ' + esc(fmtTime(u.membershipExpireAt, false)) + "</span>";
     }
     return '<span class="tag off">非会员</span>';
   }
@@ -2041,14 +2088,19 @@
     var rows = await api(qs);
     state.rows = Array.isArray(rows) ? rows : [];
     var body = state.rows.map(function (u) {
+      // 头像按相对地址拼到 API 域名；没有头像时用昵称首字占位
+      var avatarSrc = u.avatarUrl ? state.api + u.avatarUrl : "";
+      var avatar = avatarSrc
+        ? '<img class="user-avatar" src="' + esc(avatarSrc) + '" data-avatar="' + esc(avatarSrc) + '" alt="" />'
+        : '<span class="user-avatar">' + esc((u.nickname || "?").slice(0, 1)) + "</span>";
       return [
         shortTonId(u.id),
-        "<b>" + esc(u.nickname || "未命名") + "</b>",
+        '<div class="user-cell">' + avatar + "<b>" + esc(u.nickname || "未命名") + "</b></div>",
         esc(GENDER_LABEL[u.gender] || u.gender || "-"),
         esc(u.email || "-"),
         esc(u.phone || "-"),
         memberCell(u),
-        esc((u.createdAt || "").slice(0, 10)),
+        esc(fmtTime(u.createdAt, false)),
         '<div class="row-actions">' +
           '<button class="btn ghost sm" data-entries="' + esc(u.id) + '">打卡</button>' +
           '<button class="btn ghost sm" data-member="' + esc(u.id) + '">设置会员</button>' +
@@ -2089,6 +2141,14 @@
       el.onclick = function () {
         var user = state.rows.find(function (x) { return x.id === el.dataset.entries; });
         userEntriesModal(user);
+      };
+    });
+    document.querySelectorAll("[data-avatar]").forEach(function (img) {
+      img.onclick = function () {
+        openInfoModal(
+          "用户头像",
+          '<div class="avatar-preview"><img src="' + esc(img.dataset.avatar) + '" alt="" /></div>',
+        );
       };
     });
   }
@@ -2168,7 +2228,7 @@
           '<div class="day-detail" id="dayDetail"></div>' +
         "</div>" +
         '<div class="dash-note">吨吨ID：' + esc(user.id) +
-        " · 最近打卡：" + esc(String(s.lastDrankAt || "-").replace("T", " ").slice(0, 16)) +
+        " · 最近打卡：" + esc(fmtTime(s.lastDrankAt)) +
         " · 明细最多展示最近 200 条</div>";
 
       var box = $("modalBox");
@@ -2246,7 +2306,7 @@
     var state_ = user.membershipPermanent
       ? "永久会员"
       : user.membershipExpireAt && Date.parse(user.membershipExpireAt) > Date.now()
-        ? "会员至 " + user.membershipExpireAt.slice(0, 10)
+        ? "会员至 " + fmtTime(user.membershipExpireAt, false)
         : "非会员";
     openModal(
       "设置会员 · " + (user.nickname || user.id),
@@ -2519,7 +2579,7 @@
             var first = (r.message || "").split("\n")[0];
             var short = first.length > 70 ? first.slice(0, 70) + "…" : first;
             return [
-              esc((r.createdAt || "").replace("T", " ").slice(0, 16)),
+              esc(fmtTime(r.createdAt)),
               esc(r.userNickname || (r.userId ? r.userId.slice(0, 8) : "游客")),
               esc((r.appVersion || "-") + " / " + (r.platform || "-")),
               '<span title="' + esc(r.message) + '">' + esc(short) + "</span>",
@@ -2551,7 +2611,7 @@
           "异常详情",
           '<div class="api-hint" style="margin-bottom:8px;">' +
             esc(row.appVersion || "-") + " / " + esc(row.platform || "-") + " / " +
-            esc(row.device || "-") + " · " + esc(row.createdAt || "") + "</div>" +
+            esc(row.device || "-") + " · " + esc(fmtTime(row.createdAt)) + "</div>" +
             '<pre style="max-height:52vh;overflow:auto;white-space:pre-wrap;word-break:break-all;font-size:12px;background:#fafafb;border:1px solid var(--line);border-radius:10px;padding:12px;margin:0;">' +
             esc((row.message || "") + "\n\n" + (row.stack || "无堆栈")) + "</pre>",
           async function () { closeModal(); }
@@ -2577,7 +2637,7 @@
               esc(r.versionCode),
               r.forceUpdate ? '<span class="tag gold">强制</span>' : '<span class="tag off">否</span>',
               r.isPublished ? '<span class="tag on">已启用</span>' : '<span class="tag off">已停用</span>',
-              esc((r.createdAt || "").slice(0, 10)),
+              esc(fmtTime(r.createdAt, false)),
               '<button class="btn sm ghost" data-release="' + esc(r.id) + '">编辑</button> ' +
                 '<button class="btn sm ' + (r.isPublished ? "danger" : "ghost") + '" data-toggle-release="' + esc(r.id) + '">' +
                 (r.isPublished ? "停用" : "启用") + "</button>",
@@ -2661,7 +2721,12 @@
   /* ---------------- 用户反馈 ---------------- */
   async function renderFeedback() {
     var status = state.fbStatus || "open";
-    var rows = await api("/admin/feedback?pageSize=100" + (status === "all" ? "" : "&status=" + status));
+    var qs = "/admin/feedback?page=" + state.page + "&pageSize=" + state.pageSize +
+      (status === "all" ? "" : "&status=" + status);
+    var data = await api(qs);
+    // 兼容旧版纯数组返回
+    var rows = Array.isArray(data) ? data : (data.items || []);
+    var total = Array.isArray(data) ? rows.length : (data.total || 0);
     state.fbRows = rows;
     var body = rows.length
       ? tableWrap(
@@ -2669,7 +2734,7 @@
           rows.map(function (r) {
             var short = r.content.length > 60 ? r.content.slice(0, 60) + "…" : r.content;
             return [
-              esc((r.createdAt || "").replace("T", " ").slice(0, 16)),
+              esc(fmtTime(r.createdAt)),
               esc(r.userNickname || (r.userId ? r.userId.slice(0, 8) : "游客")),
               '<span title="' + esc(r.content) + '">' + esc(short) + "</span>",
               esc(r.contact || "-"),
@@ -2688,12 +2753,14 @@
           '<option value="all"' + (status === "all" ? " selected" : "") + '>全部</option>' +
         "</select>" +
         '<div class="grow"></div>' +
-        '<span class="api-hint">共 ' + rows.length + " 条</span>" +
-      "</div>" + body;
+        '<span class="api-hint">共 ' + total + " 条</span>" +
+      "</div>" + body + pagerTotal(total);
     $("fbStatus").onchange = function () {
       state.fbStatus = this.value;
+      state.page = 1;
       render();
     };
+    bindPager();
     document.querySelectorAll("[data-fb]").forEach(function (el) {
       el.onclick = async function () {
         var row = state.fbRows.find(function (x) { return x.id === el.dataset.fb; });
@@ -2724,8 +2791,8 @@
         esc(o.plan ? o.plan.name : o.planId),
         "¥" + ((o.amountCents || 0) / 100).toFixed(2),
         '<span class="tag ' + esc(st) + '">' + esc(STATUS[st] || st) + "</span>",
-        esc((o.createdAt || "").replace("T", " ").slice(0, 16)),
-        esc(o.paidAt ? o.paidAt.replace("T", " ").slice(0, 16) : "-"),
+        esc(fmtTime(o.createdAt)),
+        esc(fmtTime(o.paidAt)),
         st === "pending"
           ? '<button class="btn sm" data-paid="' + esc(o.id) + '">确认并开通</button> ' +
             '<button class="btn sm danger" data-reject="' + esc(o.id) + '">拒绝</button>'

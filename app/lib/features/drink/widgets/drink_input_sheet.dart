@@ -46,24 +46,46 @@ class _DrinkInputSheetState extends ConsumerState<DrinkInputSheet> {
   int get _effective =>
       HydrationCalculator.previewEffectiveMl(_beverage, _volume);
 
+  /// 提交中标记：入库后的小组件同步是网络/磁盘操作，期间连点会重复入账
+  bool _submitting = false;
+
   Future<void> _submit() async {
+    if (_submitting) return;
+    setState(() => _submitting = true);
     final entry = DrinkEntry.create(
       beverage: _beverage,
       volumeMl: _volume,
     );
-    await ref.read(todayEntriesProvider.notifier).add(entry);
-    // 成功入库后同步桌面小组件（今日合计 / 目标 / 连续签到）
-    // 连续天数用 .future 等待重算：新增记录会使 checkinDaysProvider 失效，
-    // 此时 valueOrNull 为 null（会误同步成 0）
-    final streak = await ref.read(checkinDaysProvider.future);
-    await syncWidgetFromSettings(
-      ref.read,
-      todayMl:
-          HydrationCalculator.sumEffective(ref.read(todayEntriesProvider)),
-      goalMl: ref.read(profileProvider)?.dailyGoalMl ?? 2000,
-      streakDays: streak,
-    );
-    if (mounted) Navigator.pop(context);
+    try {
+      await ref.read(todayEntriesProvider.notifier).add(entry);
+    } catch (e) {
+      // 入库失败：保留弹层让用户重试（输入不丢），并提示原因
+      debugPrint('[drink] add entry failed: $e');
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text('记录失败，请稍后再试')),
+      );
+      return;
+    }
+    // 已入账：后续小组件同步（磁盘/网络）失败也不能挡住关页面
+    try {
+      // 连续天数用 .future 等待重算：新增记录会使 checkinDaysProvider 失效，
+      // 此时 valueOrNull 为 null（会误同步成 0）
+      final streak = await ref.read(checkinDaysProvider.future);
+      await syncWidgetFromSettings(
+        ref.read,
+        todayMl:
+            HydrationCalculator.sumEffective(ref.read(todayEntriesProvider)),
+        goalMl: ref.read(profileProvider)?.dailyGoalMl ?? 2000,
+        streakDays: streak,
+      );
+    } catch (e) {
+      debugPrint('[drink] sync widget after add failed: $e');
+    }
+    if (!mounted) return;
+    setState(() => _submitting = false);
+    Navigator.pop(context);
   }
 
   @override
@@ -215,7 +237,7 @@ class _DrinkInputSheetState extends ConsumerState<DrinkInputSheet> {
             ),
             const SizedBox(height: 16),
             ElevatedButton.icon(
-              onPressed: _submit,
+              onPressed: _submitting ? null : _submit,
               icon: const Icon(Icons.add_circle),
               label: const Text('记录饮水'),
             ),

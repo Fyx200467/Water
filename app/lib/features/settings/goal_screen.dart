@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/settings/account_settings.dart';
 import '../../core/storage/providers.dart';
+import '../../core/sync/sync_service.dart';
 import '../../shared/models/user_profile.dart';
 import '../../shared/widgets/goal_info_form.dart';
 import '../../shared/widgets/underwater_scene.dart';
@@ -20,12 +24,6 @@ class GoalScreen extends ConsumerStatefulWidget {
 }
 
 class _GoalScreenState extends ConsumerState<GoalScreen> {
-  /// 温度持久化 key（与 onboarding 共用）
-  static const _kTempKey = 'goal_temperature';
-
-  /// 性别展示标签持久化 key（与 onboarding 共用）
-  static const _kGenderLabelKey = 'gender_display_label';
-
   late GoalInfoValues _values;
 
   @override
@@ -34,9 +32,7 @@ class _GoalScreenState extends ConsumerState<GoalScreen> {
     final profile = ref.read(profileProvider);
     _values = GoalInfoValues(
       gender: profile?.gender,
-      genderLabel: profile == null
-          ? null
-          : defaultGenderLabel(profile.gender),
+      genderLabel: profile == null ? null : defaultGenderLabel(profile.gender),
       weightKg: profile?.weightKg ?? 60,
       heightCm: profile?.heightCm ?? 170,
       activityLevel: profile?.activityLevel ?? ActivityLevel.medium,
@@ -48,11 +44,15 @@ class _GoalScreenState extends ConsumerState<GoalScreen> {
     _loadPrefs();
   }
 
-  /// 回填持久化的温度偏好与性别展示标签
+  /// 回填持久化的温度偏好与性别展示标签（账号级偏好，与 onboarding 共用）
   Future<void> _loadPrefs() async {
     final storage = await ref.read(localStorageProvider.future);
-    final tempName = storage.prefs.getString(_kTempKey);
-    final label = storage.prefs.getString(_kGenderLabelKey);
+    final tempName = storage
+        .readAccountSetting(AccountSettingKeys.goalTemperature)
+        ?.toString();
+    final label = storage
+        .readAccountSetting(AccountSettingKeys.genderDisplayLabel)
+        ?.toString();
     if (!mounted) return;
     setState(() {
       _values = _values.copyWith(
@@ -68,11 +68,18 @@ class _GoalScreenState extends ConsumerState<GoalScreen> {
   Future<void> _onChanged(GoalInfoValues next) async {
     setState(() => _values = next);
     final storage = await ref.read(localStorageProvider.future);
-    await storage.prefs.setString(_kTempKey, next.temperature.name);
+    await storage.writeAccountSetting(
+      AccountSettingKeys.goalTemperature,
+      next.temperature.name,
+    );
     final label = next.genderLabel;
     if (label != null) {
-      await storage.prefs.setString(_kGenderLabelKey, label);
+      await storage.writeAccountSetting(
+        AccountSettingKeys.genderDisplayLabel,
+        label,
+      );
     }
+    unawaited(SyncService.autoSync(storage));
     if (!mounted) return;
     final profile = ref.read(profileProvider);
     final updated = profile == null

@@ -6,10 +6,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/analytics/analytics.dart';
 import '../../core/storage/providers.dart';
+import '../../core/sync/points_sync.dart';
 import '../../core/sync/sync_api.dart';
 import '../points/points_provider.dart';
 import '../points/points_screen.dart';
 import '../settings/cloud_backup_screen.dart';
+import '../stats/services/export_csv.dart';
 import 'membership_provider.dart';
 
 /// 会员权益统一校验：
@@ -252,15 +254,6 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
                 const SizedBox(height: 18),
                 _subscribeButton(selected, membership),
                 const SizedBox(height: 14),
-                Center(
-                  child: TextButton(
-                    onPressed: _restore,
-                    child: const Text(
-                      '恢复购买',
-                      style: TextStyle(color: _gray, fontSize: 14),
-                    ),
-                  ),
-                ),
                 const Center(
                   child: Text(
                     '内测阶段无需付款：提交申请后由运营确认，确认后自动开通；'
@@ -517,9 +510,9 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
     }
 
     return GestureDetector(
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const PointsScreen()),
-      ),
+      onTap: () => Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const PointsScreen())),
       behavior: HitTestBehavior.opaque,
       child: Container(
         padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
@@ -620,19 +613,18 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
     );
     if (ok != true || !mounted) return;
 
-    final spent = await ref
-        .read(pointsProvider.notifier)
-        .redeem(itemId: 'member_day', cost: cost);
-    if (!mounted) return;
-    if (!spent) {
-      _toast('积分不足，去消消乐再赚一点吧');
-      return;
+    final storage = await ref.read(localStorageProvider.future);
+    try {
+      // 兑换在服务端完成：扣分与开通会员日都由服务端校验，余额以服务端为准
+      final expireAt = await PointsSync.redeemMemberDay(storage);
+      if (!mounted) return;
+      await ref.read(membershipProvider.notifier).applyRedeemDay(expireAt);
+      if (!mounted) return;
+      _toast('已兑换 1 天会员，特权立即生效');
+    } catch (e) {
+      if (!mounted) return;
+      _toast(e is SyncApiException ? e.message : '兑换失败，请检查网络后重试');
     }
-    await ref
-        .read(membershipProvider.notifier)
-        .applyRedeemDay(DateTime.now().add(const Duration(days: 1)));
-    if (!mounted) return;
-    _toast('已兑换 1 天会员，特权立即生效');
   }
 
   /// 后台权益 code -> 图标；未收录的 code 用通用图标兜底
@@ -653,6 +645,22 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
     }
   }
 
+  /// 会员专享「数据导出」：生成 CSV 并调起系统分享面板
+  Future<void> _exportCsvFromBenefits() async {
+    if (!ref.read(membershipProvider).isMember) {
+      _toast('开通会员后可使用数据导出');
+      return;
+    }
+    _toast('正在生成 CSV…');
+    final result = await exportAllEntriesCsv(ref);
+    if (!mounted) return;
+    _toast(switch (result) {
+      CsvExportResult.ok => '已生成 CSV，可在分享面板中保存或发送',
+      CsvExportResult.empty => '暂无可导出的饮水记录',
+      CsvExportResult.failed => '导出失败，请稍后重试',
+    });
+  }
+
   Widget _benefitsCard(MembershipPlan plan) {
     // 权益由后台按套餐绑定下发；为空（离线/未配置）时回退内置文案
     final items = plan.benefits.isEmpty
@@ -670,41 +678,52 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
       child: Column(
         children: [
           for (final (icon, title, sub) in items)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              child: Row(
-                children: [
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFEAF7FB),
-                      shape: BoxShape.circle,
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              // 「数据导出」是唯一可点击的权益（会员导出全部记录为 CSV）
+              onTap: title == '数据导出' ? _exportCsvFromBenefits : null,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 36,
+                      height: 36,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFEAF7FB),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(icon, size: 18, color: _cyan),
                     ),
-                    child: Icon(icon, size: 18, color: _cyan),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
-                          style: const TextStyle(
-                            color: _ink,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            style: const TextStyle(
+                              color: _ink,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          sub,
-                          style: const TextStyle(color: _gray, fontSize: 11),
-                        ),
-                      ],
+                          const SizedBox(height: 2),
+                          Text(
+                            sub,
+                            style: const TextStyle(color: _gray, fontSize: 11),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                    if (title == '数据导出')
+                      const Icon(
+                        Icons.download_rounded,
+                        size: 18,
+                        color: _cyan,
+                      ),
+                  ],
+                ),
               ),
             ),
         ],
@@ -882,21 +901,6 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
     );
     if (!mounted) return;
     _toast('${plan.name}已开通');
-  }
-
-  Future<void> _restore() async {
-    try {
-      final ok = await ref.read(membershipProvider.notifier).restore();
-      if (!mounted) return;
-      _toast(ok ? '已恢复会员权益' : '未查询到可恢复的购买记录');
-    } on NotLoggedInError {
-      if (!mounted) return;
-      _toast('恢复购买需要先登录账号');
-      await _openLogin();
-    } catch (_) {
-      if (!mounted) return;
-      _toast('恢复购买需要联网，请检查网络后重试');
-    }
   }
 
   /// 跳转账号页登录，返回后若已登录则继续原操作

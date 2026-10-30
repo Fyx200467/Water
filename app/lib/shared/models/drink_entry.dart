@@ -141,10 +141,14 @@ class DrinkEntry {
   }
 
   /// 工厂：从饮品选择快速生成
+  ///
+  /// [clientId] 可指定稳定主键（如小组件补录按「槽位 + 点按时间戳」派生），
+  /// 重复写入同一 id 由存储层的 replace 语义覆盖，实现幂等入账
   factory DrinkEntry.create({
     required Beverage beverage,
     required int volumeMl,
     DateTime? drankAt,
+    String? clientId,
   }) {
     final at = drankAt ?? DateTime.now();
     final perDefault = beverage.calories;
@@ -152,7 +156,7 @@ class DrinkEntry {
         ? 0
         : (perDefault * volumeMl / beverage.defaultMl).round();
     return DrinkEntry(
-      clientId: _uuid(),
+      clientId: clientId ?? _uuid(),
       beverageId: beverage.id,
       beverageCategory: beverage.category,
       beverageName: beverage.name,

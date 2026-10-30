@@ -1,10 +1,11 @@
-﻿import 'dart:math' as math;
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/notification/notification_service.dart';
+import '../../core/settings/account_settings.dart';
 import '../../core/storage/providers.dart';
 import '../../shared/models/user_profile.dart';
 import '../../shared/widgets/goal_info_form.dart';
@@ -49,11 +50,17 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       customGoalMl: _values.previewGoal,
     );
     final storage = await ref.read(localStorageProvider.future);
-    // 温度与性别展示标签持久化，与「我的饮水目标」页共用同一 key
-    await storage.prefs.setString('goal_temperature', _values.temperature.name);
+    // 温度与性别展示标签写入账号级偏好，与「我的饮水目标」页共用
+    await storage.writeAccountSetting(
+      AccountSettingKeys.goalTemperature,
+      _values.temperature.name,
+    );
     final label = _values.genderLabel;
     if (label != null) {
-      await storage.prefs.setString('gender_display_label', label);
+      await storage.writeAccountSetting(
+        AccountSettingKeys.genderDisplayLabel,
+        label,
+      );
     }
     await ref.read(profileProvider.notifier).save(profile);
     if (mounted) context.go('/');
@@ -65,25 +72,19 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       body: IndexedStack(
-          index: _step,
-          children: [
-            // 信息录入页与设置页「我的饮水目标」共用同一套 UI
-            GoalInfoForm(
-              values: _values,
-              onChanged: (v) => setState(() => _values = v),
-              continueLabel: '继续',
-              onContinue: _goNext,
-            ),
-            _ReminderScreen(
-              onContinue: _goNext,
-              onSkip: _goSkip,
-            ),
-            _LoadingScreen(
-              visible: _step == 2,
-              onDone: _finishProfile,
-            ),
-          ],
-        ),
+        index: _step,
+        children: [
+          // 信息录入页与设置页「我的饮水目标」共用同一套 UI
+          GoalInfoForm(
+            values: _values,
+            onChanged: (v) => setState(() => _values = v),
+            continueLabel: '继续',
+            onContinue: _goNext,
+          ),
+          _ReminderScreen(onContinue: _goNext, onSkip: _goSkip),
+          _LoadingScreen(visible: _step == 2, onDone: _finishProfile),
+        ],
+      ),
     );
   }
 }
@@ -107,8 +108,10 @@ class _ReminderScreen extends StatelessWidget {
               alignment: Alignment.centerRight,
               child: TextButton(
                 onPressed: onSkip,
-                child: const Text('跳过',
-                    style: TextStyle(color: Color(0xFF8E8E93))),
+                child: const Text(
+                  '跳过',
+                  style: TextStyle(color: Color(0xFF8E8E93)),
+                ),
               ),
             ),
             const SizedBox(height: 8),
@@ -140,10 +143,7 @@ class _ReminderScreen extends StatelessWidget {
                       accentColor: const Color(0xFF4DB8D8),
                       size: 240,
                     ),
-                    const Positioned(
-                      top: 0,
-                      child: _NotificationCard(),
-                    ),
+                    const Positioned(top: 0, child: _NotificationCard()),
                   ],
                 ),
               ),
@@ -165,9 +165,12 @@ class _ReminderScreen extends StatelessWidget {
                   foregroundColor: Colors.white,
                   elevation: 0,
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(28)),
+                    borderRadius: BorderRadius.circular(28),
+                  ),
                   textStyle: const TextStyle(
-                      fontSize: 17, fontWeight: FontWeight.w600),
+                    fontSize: 17,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 child: const Text('提醒我喝水'),
               ),
@@ -214,8 +217,11 @@ class _NotificationCard extends StatelessWidget {
                   color: const Color(0xFFF1F3F7),
                   borderRadius: BorderRadius.circular(7),
                 ),
-                child: const Icon(Icons.water_drop,
-                    color: Color(0xFF72E3F0), size: 18),
+                child: const Icon(
+                  Icons.water_drop,
+                  color: Color(0xFF72E3F0),
+                  size: 18,
+                ),
               ),
               const SizedBox(width: 8),
               const Text(
@@ -264,11 +270,7 @@ class _LoadingScreenState extends State<_LoadingScreen>
   int _currentStep = 0;
 
   /// 三步文案
-  static const _steps = <String>[
-    '正在分析你的数据',
-    '正在个性化目标',
-    '正在与羊驼互动',
-  ];
+  static const _steps = <String>['正在分析你的数据', '正在个性化目标', '正在与羊驼互动'];
 
   @override
   void initState() {
@@ -410,11 +412,7 @@ class _StepIndicator extends StatelessWidget {
       width: 24,
       height: 24,
       alignment: Alignment.center,
-      child: Container(
-        width: 14,
-        height: 2,
-        color: const Color(0xFF8E8E93),
-      ),
+      child: Container(width: 14, height: 2, color: const Color(0xFF8E8E93)),
     );
   }
 }

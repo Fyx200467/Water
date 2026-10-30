@@ -30,8 +30,10 @@ Future<void> main() async {
     systemStatusBarContrastEnforced: false,
   ));
   // 设置开关（动画/卡路里/重置时间等）启动即加载，
-  // 保证渲染层首帧就能读到持久化的开关状态
-  SettingsFlags.instance.ensureLoaded();
+  // 保证渲染层首帧就能读到持久化的开关状态。
+  // 必须 await：LogicalDay 的「一天重置时刻」口径来自这里，未加载完就
+  // 查库会把重置时刻当作 00:00，跨重置点的那几秒会算错归属日
+  await SettingsFlags.instance.ensureLoaded();
   // 统计页 DateFormat 使用 zh 语言环境，需预载符号表
   initializeDateFormatting('zh');
   // 小组件饮料格后台录入回调：注册后点按饮品格由广播在 headless 引擎

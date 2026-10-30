@@ -59,6 +59,37 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_settings_rev
     ON settings(user_id, server_rev);
 
+  -- 积分流水：客户端离线累计后补传，服务端按 (user_id, event_id) 去重，
+  -- 余额始终由流水求和得出，不接受客户端直接改总额
+  CREATE TABLE IF NOT EXISTS points_events (
+    id          TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL REFERENCES users(id),
+    event_id    TEXT NOT NULL,
+    source      TEXT NOT NULL,
+    amount      INTEGER NOT NULL,
+    occurred_at TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    UNIQUE(user_id, event_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_points_time
+    ON points_events(user_id, occurred_at DESC);
+
+  -- 登录凭证：一个账号可绑定多种方式（邮箱 / 后续微信、QQ），
+  -- identifier 已按 provider 归一化（邮箱统一小写），secret_hash 为空表示免密第三方
+  CREATE TABLE IF NOT EXISTS user_credentials (
+    id          TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL REFERENCES users(id),
+    provider    TEXT NOT NULL,
+    identifier  TEXT NOT NULL,
+    secret_hash TEXT,
+    created_at  TEXT NOT NULL,
+    UNIQUE(provider, identifier)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_credentials_user
+    ON user_credentials(user_id);
+
   CREATE TABLE IF NOT EXISTS membership_plans (
     code         TEXT PRIMARY KEY,
     name         TEXT NOT NULL,
@@ -280,6 +311,15 @@ addMissingColumns('sessions', {
 db.exec(`
   CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email
     ON users(email) WHERE email IS NOT NULL;
+`);
+
+// 历史账号回填为邮箱凭证（users.email/password_hash 保留双写，供后台展示）
+db.exec(`
+  INSERT OR IGNORE INTO user_credentials
+    (id, user_id, provider, identifier, secret_hash, created_at)
+  SELECT 'cred_' || id, id, 'email', lower(email), password_hash, created_at
+    FROM users
+   WHERE email IS NOT NULL AND password_hash IS NOT NULL;
 `);
 
 addMissingColumns('beverages', {

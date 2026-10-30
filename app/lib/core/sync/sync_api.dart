@@ -61,10 +61,6 @@ class SyncApi {
     return '${uri.scheme}://${uri.host}$port';
   }
 
-  static Future<Map<String, dynamic>> guest(String anonId) {
-    return _request('POST', '/v1/auth/guest', body: {'anonId': anonId});
-  }
-
   static Future<Map<String, dynamic>> register({
     required String email,
     required String password,
@@ -89,6 +85,54 @@ class SyncApi {
       'POST',
       '/v1/auth/login',
       body: {'email': email, 'password': password},
+    );
+  }
+
+  /// 退出登录：服务端吊销当前 token（清掉本机会话之外也真正断开）
+  static Future<void> logout(String token) async {
+    await _request('POST', '/v1/auth/logout', token: token);
+  }
+
+  /// 绑定登录方式（目前仅邮箱）：成功后服务端返回 providers 列表
+  static Future<Map<String, dynamic>> bindEmail(
+    String token, {
+    required String email,
+    required String password,
+  }) {
+    return _request(
+      'POST',
+      '/v1/auth/bind',
+      token: token,
+      body: {'provider': 'email', 'email': email, 'password': password},
+    );
+  }
+
+  /// 解绑登录方式；仅剩一种方式时服务端返回 last_credential
+  static Future<Map<String, dynamic>> unbindProvider(
+    String token,
+    String provider,
+  ) {
+    return _request(
+      'POST',
+      '/v1/auth/unbind',
+      token: token,
+      body: {'provider': provider},
+    );
+  }
+
+  /// 注销账号：服务端校验密码后删除云端账号与全部数据
+  static Future<Map<String, dynamic>> deleteAccount(
+    String token, {
+    String? password,
+  }) {
+    return _request(
+      'POST',
+      '/v1/auth/delete',
+      token: token,
+      body: {
+        'confirm': true,
+        if (password != null && password.isNotEmpty) 'password': password,
+      },
     );
   }
 
@@ -256,6 +300,37 @@ class SyncApi {
     return _request('GET', '/v1/membership/status', token: token);
   }
 
+  /// 上行积分流水：离线累计后补传，服务端按 eventId 去重合并
+  static Future<Map<String, dynamic>> pushPointEvents(
+    String token,
+    List<Map<String, dynamic>> events,
+  ) {
+    return _request(
+      'POST',
+      '/v1/points/events',
+      token: token,
+      body: {'events': events},
+    );
+  }
+
+  /// 服务端积分余额 + 最近 60 条流水
+  static Future<Map<String, dynamic>> pointsSummary(String token) {
+    return _request('GET', '/v1/points', token: token);
+  }
+
+  /// 积分兑换会员天数：扣分与开通都在服务端完成
+  static Future<Map<String, dynamic>> redeemMembershipDay(
+    String token, {
+    int days = 1,
+  }) {
+    return _request(
+      'POST',
+      '/v1/membership/redeem',
+      token: token,
+      body: {'days': days},
+    );
+  }
+
   /// 当前账号最新的待确认开通申请；没有则返回 null
   static Future<Map<String, dynamic>?> pendingMembershipOrder(
     String token,
@@ -394,7 +469,10 @@ class SyncApi {
       final decoded = jsonDecode(text);
       final items = decoded is Map ? decoded['items'] : decoded;
       if (items is List) {
-        return items.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+        return items
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
       }
       return const [];
     } finally {

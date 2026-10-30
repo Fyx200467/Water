@@ -1,12 +1,16 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/settings/account_settings.dart';
 import '../../../core/storage/providers.dart';
+import '../../../core/sync/sync_service.dart';
 import '../../../shared/models/beverage.dart';
+import '../../home/providers/home_providers.dart';
 
-/// 自定义饮品列表（持久化到 SharedPreferences，供首页快捷栏 / 加量页 / 管理页共用）
+/// 自定义饮品列表（账号级偏好，供首页快捷栏 / 加量页 / 管理页共用）
 class CustomBeverageListNotifier extends StateNotifier<List<Beverage>> {
   CustomBeverageListNotifier(this.ref) : super(const []) {
     loaded = _load();
@@ -14,21 +18,18 @@ class CustomBeverageListNotifier extends StateNotifier<List<Beverage>> {
 
   final Ref ref;
 
-  static const _kKey = 'custom_beverages';
-
   /// 磁盘加载完成信号：完成前 state 是空列表，小组件同步若不等待，
   /// 自定义饮品槽位会查不到（回退到 all.first）并推错图标/名称
   late final Future<void> loaded;
 
   Future<void> _load() async {
     final storage = await ref.read(localStorageProvider.future);
-    final raw = storage.prefs.getString(_kKey);
-    if (raw == null || raw.isEmpty) return;
+    final raw = storage.readAccountSetting(AccountSettingKeys.customBeverages);
+    if (raw is! List || raw.isEmpty) return;
     try {
-      final list = (jsonDecode(raw) as List)
-          .map((e) => _fromMap(e as Map<String, dynamic>))
+      state = raw
+          .map((e) => _fromMap((e as Map).cast<String, dynamic>()))
           .toList();
-      state = list;
     } catch (_) {
       // 数据异常时忽略，保持空列表
     }
@@ -60,27 +61,29 @@ class CustomBeverageListNotifier extends StateNotifier<List<Beverage>> {
   }
 
   Map<String, dynamic> _toMap(Beverage b) => {
-        'id': b.id,
-        'name': b.name,
-        'category': b.category.name,
-        'defaultMl': b.defaultMl,
-        if (b.liquidColor != null) 'liquidColor': b.liquidColor!.toARGB32(),
-        if (b.hydrationRatio != null) 'hydrationRatio': b.hydrationRatio,
-        if (b.templateId != null) 'templateId': b.templateId,
-        if (b.animation != null) 'animation': b.animation,
-        if (b.volumePreset != null) 'volumePreset': b.volumePreset,
-        if (b.containerId != null) 'containerId': b.containerId,
-        if (b.calories != null) 'calories': b.calories,
-        if (b.caffeineMg != null) 'caffeineMg': b.caffeineMg,
-        if (b.alcoholPercent != null) 'alcoholPercent': b.alcoholPercent,
-      };
+    'id': b.id,
+    'name': b.name,
+    'category': b.category.name,
+    'defaultMl': b.defaultMl,
+    if (b.liquidColor != null) 'liquidColor': b.liquidColor!.toARGB32(),
+    if (b.hydrationRatio != null) 'hydrationRatio': b.hydrationRatio,
+    if (b.templateId != null) 'templateId': b.templateId,
+    if (b.animation != null) 'animation': b.animation,
+    if (b.volumePreset != null) 'volumePreset': b.volumePreset,
+    if (b.containerId != null) 'containerId': b.containerId,
+    if (b.calories != null) 'calories': b.calories,
+    if (b.caffeineMg != null) 'caffeineMg': b.caffeineMg,
+    if (b.alcoholPercent != null) 'alcoholPercent': b.alcoholPercent,
+  };
 
   Future<void> _save() async {
     final storage = await ref.read(localStorageProvider.future);
-    await storage.prefs.setString(
-      _kKey,
-      jsonEncode(state.map(_toMap).toList()),
+    await storage.writeAccountSetting(
+      AccountSettingKeys.customBeverages,
+      state.map(_toMap).toList(),
     );
+    // 自定义饮品跟随账号：联网立即上行，换设备登录后可用
+    unawaited(SyncService.autoSync(storage));
   }
 
   /// 新增自定义饮品（由编辑页构建完整对象后传入）。
@@ -110,8 +113,11 @@ class CustomBeverageListNotifier extends StateNotifier<List<Beverage>> {
 
 final customBeveragesProvider =
     StateNotifierProvider<CustomBeverageListNotifier, List<Beverage>>((ref) {
-  return CustomBeverageListNotifier(ref);
-});
+      // 会话切换 / 云端偏好更新：按新归属账号的自定义饮品重载
+      ref.watch(sessionEpochProvider);
+      ref.watch(accountSettingsRevisionProvider);
+      return CustomBeverageListNotifier(ref);
+    });
 
 // ============================================================
 // 首页饮品栏可见性与排序（对标原版：开关控制展示，箭头上下排序）
@@ -175,8 +181,7 @@ class HomeDrinksNotifier extends StateNotifier<HomeDrinksState> {
   Future<void> _save() async {
     final storage = await ref.read(localStorageProvider.future);
     await storage.prefs.setString(_kOrder, jsonEncode(state.order));
-    await storage.prefs
-        .setString(_kHidden, jsonEncode(state.hidden.toList()));
+    await storage.prefs.setString(_kHidden, jsonEncode(state.hidden.toList()));
   }
 
   /// 完整顺序（含未登记的新饮品 id）
@@ -233,7 +238,10 @@ class HomeDrinksNotifier extends StateNotifier<HomeDrinksState> {
     if (storage.prefs.getString(_kOrderSig) == sig) return;
     await storage.prefs.setString(_kOrderSig, sig);
     if (!mounted) return;
-    state = HomeDrinksState(order: _normalized(libraryIds), hidden: state.hidden);
+    state = HomeDrinksState(
+      order: _normalized(libraryIds),
+      hidden: state.hidden,
+    );
     await _save();
   }
 
@@ -281,10 +289,7 @@ class HomeDrinksNotifier extends StateNotifier<HomeDrinksState> {
     // 未登记饮品并入 order（新饮品入列尾），分区/展示口径一致
     final order = _mergedOrder();
     if (!order.contains(id)) order.add(id);
-    state = HomeDrinksState(
-      order: order,
-      hidden: {...state.hidden, id},
-    );
+    state = HomeDrinksState(order: order, hidden: {...state.hidden, id});
     await _save();
   }
 
@@ -314,5 +319,5 @@ class HomeDrinksNotifier extends StateNotifier<HomeDrinksState> {
 
 final homeDrinksProvider =
     StateNotifierProvider<HomeDrinksNotifier, HomeDrinksState>((ref) {
-  return HomeDrinksNotifier(ref);
-});
+      return HomeDrinksNotifier(ref);
+    });

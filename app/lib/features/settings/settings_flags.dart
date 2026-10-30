@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/settings/account_settings.dart';
+import '../../core/storage/local_storage.dart';
 import '../../shared/models/preferred_unit.dart';
 
 /// 设置项共享标志（重置时间 / 一周开始 / 卡路里开关），
@@ -50,11 +52,15 @@ class SettingsFlags extends ChangeNotifier {
     _loaded = true;
     try {
       final prefs = await SharedPreferences.getInstance();
-      // 单位偏好与 PreferredUnitNotifier 共用同一个 key：
-      // 启动时先同步到全局 UnitFormat，保证首屏就按用户单位显示
-      UnitFormat.unit = prefs.getString('preferred_unit') == 'oz'
-          ? PreferredUnit.oz
-          : PreferredUnit.ml;
+      // 单位偏好是账号级偏好：启动时按当前归属账号同步到全局 UnitFormat，
+      // 保证首屏就按用户单位显示（老版本全局 key 在迁移前作兜底）
+      final unitRaw =
+          LocalStorage.peekAccountSetting(
+            prefs,
+            AccountSettingKeys.preferredUnit,
+          )?.toString() ??
+          prefs.getString(AccountSettingKeys.preferredUnit);
+      UnitFormat.unit = unitRaw == 'oz' ? PreferredUnit.oz : PreferredUnit.ml;
       final raw = prefs.getString(_kKey);
       if (raw != null) {
         final m = jsonDecode(raw) as Map<String, dynamic>;

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/storage/providers.dart';
 import '../../../shared/models/beverage.dart';
 import '../../drink/providers/beverage_catalog_provider.dart';
 import '../../drink/widgets/svg_container.dart';
@@ -312,14 +313,17 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
   }
 
   Future<void> _showResult({required bool won}) async {
-    final earned = won
+    final storage = await ref.read(localStorageProvider.future);
+    // 积分是账号权益：游客不计分，结算只提示登录后可获得
+    final isGuest = !storage.hasAccountSession;
+    final earned = (won && !isGuest)
         ? await ref.read(pointsProvider.notifier).earn(
               source: 'match3',
               amount: _score ~/ PointsNotifier.scorePerPoint,
             )
         : 0;
     if (!mounted) return;
-    final reachedCap = won && earned == 0;
+    final reachedCap = won && !isGuest && earned == 0;
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -353,9 +357,11 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
               const SizedBox(height: 6),
               Text(
                 won
-                    ? (reachedCap
-                        ? '今日积分已达上限，明天再来～'
-                        : '获得 $earned 积分')
+                    ? (isGuest
+                        ? '登录后才能获得积分，游客不计分'
+                        : (reachedCap
+                            ? '今日积分已达上限，明天再来～'
+                            : '获得 $earned 积分'))
                     : '目标 $_targetScore 分，再试一次吧',
                 style: const TextStyle(
                   color: Color(0xFF8E8E93),

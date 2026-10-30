@@ -8,8 +8,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/analytics/analytics.dart';
 import '../core/app_info.dart';
 import '../core/health/health_sync_service.dart';
+import '../core/settings/account_settings.dart';
 import '../core/storage/providers.dart';
 import '../core/sync/character_sync.dart';
+import '../core/sync/points_sync.dart';
 import '../core/sync/container_icon_sync.dart';
 import '../core/sync/profile_sync.dart';
 import '../core/sync/session_watch.dart';
@@ -19,13 +21,18 @@ import '../features/home/tips_deck.dart';
 import '../features/characters/character_catalog.dart';
 import '../features/drink/providers/beverage_catalog_provider.dart';
 import '../features/drink/providers/custom_beverage_provider.dart';
-import '../features/drink/widgets/svg_container.dart' show invalidateSvgContainerIdsCache;
+import '../features/drink/widgets/svg_container.dart'
+    show invalidateSvgContainerIdsCache;
 import '../features/home/providers/home_providers.dart';
 import '../features/membership/membership_provider.dart';
+import '../features/points/points_provider.dart';
 import '../features/reminder/reminder_providers.dart';
 import '../features/settings/cloud_backup_screen.dart'
     show cloudBackupStateProvider;
+import '../features/settings/widget_settings_screen.dart'
+    show widgetSettingsProvider;
 import '../features/stats/providers/stats_providers.dart';
+import '../shared/models/preferred_unit.dart';
 import 'router.dart';
 import 'theme/app_theme.dart';
 
@@ -55,6 +62,15 @@ class _WaterLlamaAppState extends ConsumerState<WaterLlamaApp>
     SessionWatch.onRevoked = _showSessionRevokedDialog;
     // 登录 / 退出 / 被顶下线：推进会话纪元，按账号归属读取的数据统一重载
     SyncService.onSessionChanged = _handleSessionChanged;
+    // 云端账号级偏好（单位 / 角色 / 自定义饮品）应用到本机后刷新界面
+    SyncService.onSettingsSynced = _handleSettingsSynced;
+    // 每轮同步（成功/失败）结束：刷新账号卡的待同步条数与上次同步时间
+    SyncService.onSyncFinished = () {
+      if (!mounted) return;
+      ref.read(syncRevisionProvider.notifier).state++;
+    };
+    // 云端积分余额 / 明细合并到本机后刷新积分页
+    PointsSync.onSynced = _handlePointsSynced;
     // 头像在后台同步（如另一台设备换头像）后，刷新账号页展示
     ProfileSync.onAvatarSynced = () {
       if (mounted) ref.invalidate(cloudBackupStateProvider);
@@ -144,6 +160,9 @@ class _WaterLlamaAppState extends ConsumerState<WaterLlamaApp>
       SyncService.onSessionRevoked = null;
     }
     SyncService.onSessionChanged = null;
+    SyncService.onSettingsSynced = null;
+    SyncService.onSyncFinished = null;
+    PointsSync.onSynced = null;
     ProfileSync.onAvatarSynced = null;
     ProfileSync.onProfileSynced = null;
     if (SessionWatch.onRevoked == _showSessionRevokedDialog) {
@@ -175,9 +194,7 @@ class _WaterLlamaAppState extends ConsumerState<WaterLlamaApp>
           title: Text('发现新版本 ${res['versionName'] ?? ''}'.trim()),
           content: Text(
             '${notes?.isNotEmpty == true ? notes : '内测版本已更新，建议升级后再体验。'}\n\n'
-            '${downloadUrl?.isNotEmpty == true
-                ? '下载地址：$downloadUrl'
-                : '请到内测群获取最新安装包。'}',
+            '${downloadUrl?.isNotEmpty == true ? '下载地址：$downloadUrl' : '请到内测群获取最新安装包。'}',
             style: const TextStyle(height: 1.5),
           ),
           actions: [
@@ -206,6 +223,64 @@ class _WaterLlamaAppState extends ConsumerState<WaterLlamaApp>
     ref.read(sessionEpochProvider.notifier).state++;
     ref.invalidate(profileProvider);
     ref.invalidate(cloudBackupStateProvider);
+    // 按归属账号读取的数据要显式失效：不能只靠「今日记录列表内容变化」
+    // 驱动下游重算——新旧归属的数据恰好都为空时（退出/顶号回到游客），
+    // 列表还是同一个 const []，Riverpod 不会通知下游，历史/统计会继续
+    // 显示上一归属的缓存，出现「首页 0ml 但历史仍有记录」的混合状态
+    ref.invalidate(todayEntriesProvider);
+    ref.invalidate(yearEntriesProvider);
+    ref.invalidate(checkinDaysProvider);
+    ref.invalidate(bestCheckinDaysProvider);
+    ref.invalidate(monthDataProvider);
+    ref.invalidate(dayEntriesForProvider);
+    // 立刻按新归属完成一次加载，首页不用等下一次触发才追上
+    unawaited(ref.read(todayEntriesProvider.notifier).loaded);
+    // 账号级偏好也要立刻切到新归属：单位是静态全局值，只能显式重读
+    unawaited(_applyOwnerUnit());
+    // 会员状态以服务端为准：登录后主动拉一次，不依赖定时轮询
+    unawaited(_refreshMembershipOnLogin());
+    // 退出 / 被顶下线：会员是账号权益，立刻清掉本机会员状态
+    unawaited(_resetMembershipOnLogout());
+  }
+
+  Future<void> _resetMembershipOnLogout() async {
+    final storage = await ref.read(localStorageProvider.future);
+    if (!mounted || storage.hasAccountSession) return;
+    await ref.read(membershipProvider.notifier).reset();
+  }
+
+  /// 登录后按服务端会员状态刷新本机会员（离线失败时保留本地缓存）
+  Future<void> _refreshMembershipOnLogin() async {
+    final storage = await ref.read(localStorageProvider.future);
+    if (!mounted || !storage.hasAccountSession) return;
+    try {
+      await ref.read(membershipProvider.notifier).restore();
+    } catch (_) {
+      // 未登录 / 网络不可达：保留本地状态，定时轮询会再校正
+    }
+  }
+
+  /// 云端账号级偏好已应用到本机：刷新偏好 provider 与全局单位
+  void _handleSettingsSynced() {
+    if (!mounted) return;
+    ref.read(accountSettingsRevisionProvider.notifier).state++;
+    unawaited(_applyOwnerUnit());
+  }
+
+  /// 云端积分已合并到本机：积分页按账号重新加载
+  void _handlePointsSynced() {
+    if (!mounted) return;
+    ref.read(pointsRevisionProvider.notifier).state++;
+  }
+
+  /// 按当前归属账号重读单位偏好，并同步到全局格式化 / 桌面小组件
+  Future<void> _applyOwnerUnit() async {
+    final storage = await ref.read(localStorageProvider.future);
+    final raw = storage.loadPreferredUnit();
+    if (!mounted) return;
+    UnitFormat.unit = raw == 'oz' ? PreferredUnit.oz : PreferredUnit.ml;
+    // 单位切换后桌面小组件文案立即跟随（ml ↔ oz）
+    unawaited(ref.read(widgetSettingsProvider.notifier).refreshWidget());
   }
 
   /// 其他设备登录后本机会话已失效：弹窗告知（本机数据保留，不自动删除）
@@ -267,9 +342,12 @@ class _WaterLlamaAppState extends ConsumerState<WaterLlamaApp>
         );
         final permanent = status['permanent'] == true;
         final current = ref.read(membershipProvider);
-        final changed = !current.hasPaidOrder ||
+        final changed =
+            !current.hasPaidOrder ||
             current.planCode != planCode ||
-            (permanent ? current.expireAt != null : current.expireAt != expireAt);
+            (permanent
+                ? current.expireAt != null
+                : current.expireAt != expireAt);
         if (changed) {
           await notifier.applyServer(
             planCode: planCode,
@@ -337,9 +415,9 @@ class _WaterLlamaAppState extends ConsumerState<WaterLlamaApp>
     await ref.read(beverageCatalogProvider.notifier).refresh();
     final library = ref.read(beverageLibraryProvider);
     if (library.isEmpty) return;
-    await ref.read(homeDrinksProvider.notifier).syncCatalogOrder(
-          [for (final b in library) b.id],
-        );
+    await ref.read(homeDrinksProvider.notifier).syncCatalogOrder([
+      for (final b in library) b.id,
+    ]);
   }
 
   /// 回前台：补排期间流逝的槽位（数据/设置可能由小组件后台路径改写）

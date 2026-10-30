@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -7,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../../core/storage/local_storage.dart';
 import '../../core/storage/providers.dart';
 import '../../core/sync/profile_sync.dart';
 import '../../core/sync/sync_api.dart';
@@ -15,6 +18,7 @@ import '../../shared/widgets/account_avatar.dart';
 import '../home/providers/home_providers.dart';
 import '../membership/membership_provider.dart';
 import '../stats/providers/stats_providers.dart';
+import 'legal_screen.dart';
 
 /// 账号状态（未登录 = 本地模式；登录后才允许云同步）
 class CloudBackupState {
@@ -26,6 +30,7 @@ class CloudBackupState {
     this.avatarPath,
     this.lastBackupAt,
     this.pendingCount = 0,
+    this.lastError,
   });
 
   final String anonId;
@@ -45,13 +50,21 @@ class CloudBackupState {
   /// 本地待上行条数
   final int pendingCount;
 
-  bool get isLoggedIn => (email ?? '').isNotEmpty && (userId ?? '').isNotEmpty;
+  /// 最近一次同步失败原因（成功后由同步服务清除）
+  final String? lastError;
+
+  /// 登录态以 userId 为准：解绑某一种登录方式（如邮箱）不等于退出登录
+  bool get isLoggedIn => (userId ?? '').isNotEmpty;
 
   /// 吨吨ID：登录后展示服务端用户 ID（唯一标识），未登录不展示
   String get displayId => isLoggedIn ? userId! : '登录后生成';
 }
 
 final cloudBackupStateProvider = FutureProvider<CloudBackupState>((ref) async {
+  // 依赖「会话纪元 + 同步版本」：登录/退出、打卡/删除、每轮同步结束
+  // 都会重算待上行条数与上次同步时间，否则账号卡会一直显示旧快照
+  ref.watch(sessionEpochProvider);
+  ref.watch(syncRevisionProvider);
   final storage = await ref.watch(localStorageProvider.future);
   return CloudBackupState(
     anonId: storage.accountAnonId,
@@ -62,6 +75,7 @@ final cloudBackupStateProvider = FutureProvider<CloudBackupState>((ref) async {
     avatarPath: storage.accountAvatarPath,
     lastBackupAt: storage.syncLastSyncAt ?? storage.accountLastBackupAt,
     pendingCount: await storage.countPendingSyncEntries(),
+    lastError: storage.hasAccountSession ? storage.syncLastError : null,
   );
 });
 
@@ -138,6 +152,9 @@ class _CloudBackupScreenState extends ConsumerState<CloudBackupScreen> {
                 _buildLoginForm(),
                 const SizedBox(height: 18),
                 _buildAgreement(),
+              ] else ...[
+                const SizedBox(height: 6),
+                _buildDangerZone(),
               ],
               const SizedBox(height: 18),
               _buildDataSyncCard(state),
@@ -402,10 +419,45 @@ class _CloudBackupScreenState extends ConsumerState<CloudBackupScreen> {
             ),
           ),
           _infoRow(
-            title: '登录账号',
-            trailing: Text(
-              (state?.email ?? '').isEmpty ? '未登录' : state!.email!,
-              style: const TextStyle(fontSize: 13, color: _textSecondary),
+            title: '登录方式',
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 150),
+                  child: Text(
+                    (state?.email ?? '').isEmpty
+                        ? '未登录'
+                        : '邮箱 ${state!.email}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 13, color: _textSecondary),
+                  ),
+                ),
+                if (loggedIn) ...[
+                  const SizedBox(width: 6),
+                  GestureDetector(
+                    onTap: _busy ? null : _onUnbindEmail,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                          color: const Color(0xFFD9D9DE),
+                          width: 0.8,
+                        ),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Text(
+                        '解绑',
+                        style: TextStyle(fontSize: 11, color: _textSecondary),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
           _infoRow(
@@ -453,6 +505,33 @@ class _CloudBackupScreenState extends ConsumerState<CloudBackupScreen> {
     );
   }
 
+  // ==================== 危险操作（注销账号） ====================
+
+  Widget _buildDangerZone() {
+    return Center(
+      child: Column(
+        children: [
+          TextButton(
+            onPressed: _busy ? null : _onDeleteAccount,
+            style: TextButton.styleFrom(foregroundColor: _red),
+            child: const Text('注销账号', style: TextStyle(fontSize: 13)),
+          ),
+          const Text(
+            '注销后云端账号与全部数据将被永久删除',
+            style: TextStyle(fontSize: 11, color: _textSecondary),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 打开条款和隐私（用户协议 / 隐私政策 / 儿童保护规则）
+  void _openLegal() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const LegalScreen()),
+    );
+  }
+
   // ==================== 登录页 ====================
 
   /// 登录表单：邮箱 + 密码（暂代第三方登录，后续可平滑替换为微信/Apple）
@@ -472,7 +551,11 @@ class _CloudBackupScreenState extends ConsumerState<CloudBackupScreen> {
                 keyboardType: TextInputType.emailAddress,
                 autocorrect: false,
                 decoration: const InputDecoration(
-                  hintText: '邮箱',
+                  hintText: '请输入你的邮箱',
+                  hintStyle: TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFFB6B9BE),
+                  ),
                   border: InputBorder.none,
                 ),
               ),
@@ -482,6 +565,10 @@ class _CloudBackupScreenState extends ConsumerState<CloudBackupScreen> {
                 obscureText: true,
                 decoration: const InputDecoration(
                   hintText: '密码（至少 8 位）',
+                  hintStyle: TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFFB6B9BE),
+                  ),
                   border: InputBorder.none,
                 ),
               ),
@@ -573,16 +660,30 @@ class _CloudBackupScreenState extends ConsumerState<CloudBackupScreen> {
       // 拉下来的历史数据要立刻回显：刷新首页与统计缓存
       ref.invalidate(todayEntriesProvider);
       ref.invalidate(yearEntriesProvider);
+      ref.invalidate(monthDataProvider);
+      ref.invalidate(dayEntriesForProvider);
+      // 等今日记录按新归属真正加载完成再提示，避免提示「同步完成」
+      // 而首页还停在登录前的 0ml
+      await ref.read(todayEntriesProvider.notifier).loaded;
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            result.failed
-                ? '登录成功，但同步失败：${result.message}'
-                : '已登录，同步完成（上行 ${result.pushed} 条，下行 ${result.pulled} 条）',
+      // 登录成功后询问是否把本机游客记录并入当前账号（默认只拉云端）
+      final merged = await _askMergeGuestData(storage);
+      if (!mounted) return;
+      if (merged > 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已登录，并把本机 $merged 条记录并入此账号')),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              result.failed
+                  ? '登录成功，但同步失败：${result.message}'
+                  : '已登录，同步完成（上行 ${result.pushed} 条，下行 ${result.pulled} 条）',
+            ),
           ),
-        ),
-      );
+        );
+      }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -618,30 +719,34 @@ class _CloudBackupScreenState extends ConsumerState<CloudBackupScreen> {
             ),
             const SizedBox(width: 8),
             Expanded(
-              child: RichText(
-                text: TextSpan(
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: _textSecondary,
-                    height: 1.5,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _openLegal,
+                child: RichText(
+                  text: TextSpan(
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: _textSecondary,
+                      height: 1.5,
+                    ),
+                    children: [
+                      const TextSpan(text: '我已阅读并同意'),
+                      TextSpan(
+                        text: '《服务协议》',
+                        style: const TextStyle(color: _red),
+                      ),
+                      const TextSpan(text: '、'),
+                      TextSpan(
+                        text: '《隐私政策》',
+                        style: const TextStyle(color: _red),
+                      ),
+                      const TextSpan(text: '和'),
+                      TextSpan(
+                        text: '《儿童个人信息保护规则》',
+                        style: const TextStyle(color: _red),
+                      ),
+                    ],
                   ),
-                  children: [
-                    const TextSpan(text: '我已阅读并同意'),
-                    TextSpan(
-                      text: '《服务协议》',
-                      style: const TextStyle(color: _red),
-                    ),
-                    const TextSpan(text: '、'),
-                    TextSpan(
-                      text: '《隐私政策》',
-                      style: const TextStyle(color: _red),
-                    ),
-                    const TextSpan(text: '和'),
-                    TextSpan(
-                      text: '《儿童个人信息保护规则》',
-                      style: const TextStyle(color: _red),
-                    ),
-                  ],
                 ),
               ),
             ),
@@ -683,6 +788,8 @@ class _CloudBackupScreenState extends ConsumerState<CloudBackupScreen> {
     // 记录按账号归属：退出后立刻刷新为游客视图，不再显示账号数据
     ref.invalidate(todayEntriesProvider);
     ref.invalidate(yearEntriesProvider);
+    ref.invalidate(monthDataProvider);
+    ref.invalidate(dayEntriesForProvider);
     if (!mounted) return;
     setState(() {
       _emailCtrl.clear();
@@ -691,10 +798,191 @@ class _CloudBackupScreenState extends ConsumerState<CloudBackupScreen> {
     });
   }
 
+  /// 解绑邮箱：至少保留一种登录方式（服务端 last_credential 拦截）
+  Future<void> _onUnbindEmail() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('解绑邮箱'),
+        content: const Text('解绑后将无法再用该邮箱登录，需要改用其他已绑定的登录方式。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('解绑', style: TextStyle(color: _red)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    final storage = await ref.read(localStorageProvider.future);
+    final token = storage.syncToken;
+    if (token == null || token.isEmpty) return;
+    setState(() => _busy = true);
+    try {
+      await SyncApi.unbindProvider(token, 'email');
+      // 本机也别再显示这个邮箱了，会话本身继续有效
+      await storage.clearAccountEmail();
+      ref.invalidate(cloudBackupStateProvider);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('已解绑邮箱')));
+    } catch (e) {
+      if (!mounted) return;
+      final message = e is SyncApiException
+          ? (e.code == 'last_credential'
+                ? '至少保留一种登录方式，请先绑定其他登录方式'
+                : e.message)
+          : '无法连接服务器';
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('解绑失败：$message')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// 登录成功后询问「是否把本机游客记录并入当前账号」。
+  /// 游客数据属于这台手机：默认只拉云端，用户确认才并入并上行。
+  /// 返回实际并入条数（0 = 未并入）。
+  Future<int> _askMergeGuestData(LocalStorage storage) async {
+    final count = await storage.countGuestEntries();
+    if (count <= 0 || !mounted) return 0;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        title: Text(
+          '本机有 $count 条未登录时的记录',
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+        ),
+        content: Text(
+          '是否把这 $count 条记录并入当前账号？\n\n'
+          '并入后会显示在账号里并同步到云端；选择「暂不并入」则继续保留在'
+          '本机游客模式，退出登录后仍然可以看到。'
+          '${_registerMode ? '\n\n新账号建议带入，可作为这个账号的初始数据。' : ''}',
+          style: const TextStyle(fontSize: 13, height: 1.6),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text(
+              '暂不并入',
+              style: TextStyle(color: _textSecondary),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(
+              '并入此账号',
+              style: TextStyle(color: _pink, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return 0;
+    final merged = await SyncService.mergeGuestData(storage);
+    if (!mounted) return merged;
+    // 归属变化：按新 owner 重载首页/统计，并补推刚并入的记录
+    ref.invalidate(todayEntriesProvider);
+    ref.invalidate(yearEntriesProvider);
+    ref.invalidate(monthDataProvider);
+    ref.invalidate(dayEntriesForProvider);
+    ref.invalidate(cloudBackupStateProvider);
+    await ref.read(todayEntriesProvider.notifier).loaded;
+    unawaited(SyncService.syncNow(storage));
+    return merged;
+  }
+
+  /// 注销账号：二次确认 + 密码校验，云端数据删除后回到本地模式
+  Future<void> _onDeleteAccount() async {
+    final email = ref.read(cloudBackupStateProvider).valueOrNull?.email ?? '';
+    final pwdCtrl = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('注销账号'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '注销后云端账号与全部饮水记录、积分、会员权益将被永久删除，且无法恢复。本机数据会回到注销前的游客状态。',
+              style: TextStyle(fontSize: 13, height: 1.5),
+            ),
+            if (email.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              TextField(
+                controller: pwdCtrl,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  hintText: '输入登录密码以确认',
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('永久注销', style: TextStyle(color: _red)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) {
+      pwdCtrl.dispose();
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      final storage = await ref.read(localStorageProvider.future);
+      await SyncService.deleteAccount(storage, password: pwdCtrl.text);
+      // 账号已不存在：清掉本地会员状态并回到游客视图
+      await ref.read(membershipProvider.notifier).reset();
+      ref.invalidate(cloudBackupStateProvider);
+      ref.invalidate(profileProvider);
+      ref.invalidate(todayEntriesProvider);
+      ref.invalidate(yearEntriesProvider);
+      if (!mounted) return;
+      setState(() {
+        _emailCtrl.clear();
+        _pwdCtrl.clear();
+        _registerMode = false;
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('账号已注销，已回到本地模式')));
+    } catch (e) {
+      if (!mounted) return;
+      final message = e is SyncApiException ? e.message : '无法连接服务器';
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('注销失败：$message')));
+    } finally {
+      pwdCtrl.dispose();
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Widget _buildDataSyncCard(CloudBackupState? state) {
     final pending = state?.pendingCount ?? 0;
     final connected = state?.isLoggedIn ?? false;
     final last = state?.lastBackupAt;
+    final lastError = state?.lastError;
     final String status;
     if (!connected) {
       status = '登录后自动同步';
@@ -702,6 +990,8 @@ class _CloudBackupScreenState extends ConsumerState<CloudBackupScreen> {
       status = '已关闭';
     } else if (_syncing) {
       status = '同步中…';
+    } else if (lastError != null) {
+      status = '上次同步失败：$lastError';
     } else if (pending > 0) {
       status = '待同步 $pending 条';
     } else if (last != null) {
@@ -712,6 +1002,7 @@ class _CloudBackupScreenState extends ConsumerState<CloudBackupScreen> {
     } else {
       status = '已开启';
     }
+    final showError = connected && _autoSync && !_syncing && lastError != null;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 14, 14, 14),
@@ -738,9 +1029,13 @@ class _CloudBackupScreenState extends ConsumerState<CloudBackupScreen> {
                 const SizedBox(height: 3),
                 Text(
                   status,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 12,
-                    color: pending > 0 && connected && _autoSync
+                    color: showError
+                        ? _red
+                        : pending > 0 && connected && _autoSync
                         ? _pink
                         : _textSecondary,
                   ),
@@ -777,6 +1072,9 @@ class _CloudBackupScreenState extends ConsumerState<CloudBackupScreen> {
       // 拉下来的历史数据要立刻回显：刷新首页与统计缓存
       ref.invalidate(todayEntriesProvider);
       ref.invalidate(yearEntriesProvider);
+      ref.invalidate(monthDataProvider);
+      ref.invalidate(dayEntriesForProvider);
+      await ref.read(todayEntriesProvider.notifier).loaded;
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -842,10 +1140,13 @@ class _CloudBackupScreenState extends ConsumerState<CloudBackupScreen> {
     final storage = await ref.read(localStorageProvider.future);
     await storage.setAccountNickname(name);
     if (storage.hasAccountSession) {
+      // 先标记本地已改：上行失败时由下一轮同步补推，避免被服务端旧昵称覆盖
+      await storage.markNicknameDirty();
       try {
         await SyncApi.updateNickname(storage.syncToken!, name);
+        await storage.clearNicknameDirty();
       } catch (_) {
-        // 离线时仅改本地，服务端下次联网不影响本地展示
+        // 离线时保留 dirty 标记，联网后自动补推
       }
     }
     ref.invalidate(cloudBackupStateProvider);

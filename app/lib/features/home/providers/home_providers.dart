@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/analytics/analytics.dart';
 import '../../../core/health/health_sync_service.dart';
+import '../../../core/settings/account_settings.dart';
 import '../../../core/sync/profile_sync.dart';
 import '../../../core/sound/sound_service.dart';
 import '../../../core/storage/providers.dart';
@@ -35,7 +36,9 @@ Future<void> pushHomeWidget(Ref ref) async {
 }
 
 /// PRD §2.1 用户档案
-final profileProvider = StateNotifierProvider<ProfileNotifier, UserProfile?>((ref) {
+final profileProvider = StateNotifierProvider<ProfileNotifier, UserProfile?>((
+  ref,
+) {
   return ProfileNotifier(ref);
 });
 
@@ -72,11 +75,14 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
   }
 }
 
-/// 单位偏好（首次启动在欢迎页选择）
+/// 单位偏好（首次启动在欢迎页选择，之后跟随账号上云）
 final preferredUnitProvider =
     StateNotifierProvider<PreferredUnitNotifier, PreferredUnit>((ref) {
-  return PreferredUnitNotifier(ref);
-});
+      // 会话切换 / 云端偏好更新后，按新归属账号的单位重新加载
+      ref.watch(sessionEpochProvider);
+      ref.watch(accountSettingsRevisionProvider);
+      return PreferredUnitNotifier(ref);
+    });
 
 class PreferredUnitNotifier extends StateNotifier<PreferredUnit> {
   PreferredUnitNotifier(this.ref) : super(PreferredUnit.ml) {
@@ -86,16 +92,23 @@ class PreferredUnitNotifier extends StateNotifier<PreferredUnit> {
 
   Future<void> _load() async {
     final storage = await ref.read(localStorageProvider.future);
-    final raw = storage.loadPreferredUnit();
+    final raw = storage
+        .readAccountSetting(AccountSettingKeys.preferredUnit)
+        ?.toString();
     state = raw == 'oz' ? PreferredUnit.oz : PreferredUnit.ml;
     UnitFormat.unit = state;
   }
 
   Future<void> select(PreferredUnit unit) async {
     final storage = await ref.read(localStorageProvider.future);
-    await storage.savePreferredUnit(unit.name);
+    await storage.writeAccountSetting(
+      AccountSettingKeys.preferredUnit,
+      unit.name,
+    );
     state = unit;
     UnitFormat.unit = unit;
+    // 账号级偏好改动：联网时立即上行，其他设备与后台口径随之同步
+    unawaited(SyncService.autoSync(storage));
   }
 }
 
@@ -119,11 +132,12 @@ final goalCrossedProvider = StateProvider<int>((ref) => 0);
 final sessionEpochProvider = StateProvider<int>((ref) => 0);
 
 /// PRD §2.3 当日饮水记录
-final todayEntriesProvider = StateNotifierProvider<TodayEntriesNotifier, List<DrinkEntry>>((ref) {
-  // 会话切换（登录/退出/顶号）后自动按新归属重新加载
-  ref.watch(sessionEpochProvider);
-  return TodayEntriesNotifier(ref);
-});
+final todayEntriesProvider =
+    StateNotifierProvider<TodayEntriesNotifier, List<DrinkEntry>>((ref) {
+      // 会话切换（登录/退出/顶号）后自动按新归属重新加载
+      ref.watch(sessionEpochProvider);
+      return TodayEntriesNotifier(ref);
+    });
 
 class TodayEntriesNotifier extends StateNotifier<List<DrinkEntry>> {
   TodayEntriesNotifier(this.ref) : super(const []) {
@@ -135,15 +149,23 @@ class TodayEntriesNotifier extends StateNotifier<List<DrinkEntry>> {
   late final Future<void> loaded;
 
   Future<void> _load() async {
-    try {
-      final storage = await ref.read(localStorageProvider.future);
-      // 「今天」= 逻辑日：重置时刻（默认 00:00）之前仍算昨天
-      final list = await storage.loadEntriesForDay(LogicalDay.today());
-      if (!mounted) return;
-      state = list;
-    } catch (e) {
-      // 查询失败时保留上一次成功的列表，避免首页数字瞬间归零
-      debugPrint('[home] load today entries failed: $e');
+    // 首次失败（登录瞬间的库迁移/锁冲突等偶发错误）自动重试一次，
+    // 否则错误被吞掉后列表会一直停在空值，直到下次手动触发
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        final storage = await ref.read(localStorageProvider.future);
+        // 「今天」= 逻辑日：重置时刻（默认 00:00）之前仍算昨天
+        final list = await storage.loadEntriesForDay(LogicalDay.today());
+        if (!mounted) return;
+        state = list;
+        return;
+      } catch (e) {
+        // 查询失败时保留上一次成功的列表，避免首页数字瞬间归零
+        debugPrint('[home] load today entries failed ($attempt): $e');
+        if (attempt == 0 && mounted) {
+          await Future<void>.delayed(const Duration(milliseconds: 400));
+        }
+      }
     }
   }
 
@@ -154,23 +176,31 @@ class TodayEntriesNotifier extends StateNotifier<List<DrinkEntry>> {
     final beforeMl = HydrationCalculator.sumEffective(state);
     await storage.insertDrinkEntry(entry);
     await _load();
+    // 本地写入后立刻让「待同步 N 条」刷新（同步完成时还会再刷一次）
+    ref.read(syncRevisionProvider.notifier).state++;
     // 健康同步开启时，把这条新记录立刻写进健康 App（失败只记日志）
     unawaited(HealthSyncService.afterEntryAdded(storage));
     // 云同步：开启无感同步时把本地记录推到服务端（离线则留待下次启动/回前台）
     unawaited(SyncService.autoSync(storage));
     final afterMl = HydrationCalculator.sumEffective(state);
     // 漏斗辅助指标：有真实打卡行为的用户数（含游客，服务端按 actor 去重）
-    Analytics.track(
-      'checkin',
-      props: {
-        'volumeMl': entry.volumeMl,
-        'effectiveMl': entry.effectiveMl,
-        'beverage': entry.beverageId,
-      },
-    );
+    // 补录历史日期不算「今天打卡」，否则回填旧记录会虚增当日活跃
+    if (entry.belongsToDay(LogicalDay.today())) {
+      Analytics.track(
+        'checkin',
+        props: {
+          'volumeMl': entry.volumeMl,
+          'effectiveMl': entry.effectiveMl,
+          'beverage': entry.beverageId,
+        },
+      );
+    }
     // 只有「真实加水后跨过目标」才庆祝：
     // 删除记录、回前台重载、数据抖动都不会触发（避免误播音效/误点亮）
-    if (celebrate && beforeMl < goalMl && afterMl >= goalMl && afterMl > beforeMl) {
+    if (celebrate &&
+        beforeMl < goalMl &&
+        afterMl >= goalMl &&
+        afterMl > beforeMl) {
       ref.read(goalCrossedProvider.notifier).state++;
       unawaited(SoundService.goalReached());
     }
@@ -182,12 +212,35 @@ class TodayEntriesNotifier extends StateNotifier<List<DrinkEntry>> {
   Future<void> refresh() => _load();
 
   Future<void> remove(String clientId) async {
+    // 删除前取快照：删除后本地已查不到这条，埋点/指标需要原始数值
+    DrinkEntry? removed;
+    for (final e in state) {
+      if (e.clientId == clientId) {
+        removed = e;
+        break;
+      }
+    }
     final storage = await ref.read(localStorageProvider.future);
     await storage.softDeleteEntry(clientId);
     await _load();
+    // 删除同样会产生待上行的墓碑，立即刷新待同步提示
+    ref.read(syncRevisionProvider.notifier).state++;
     // 健康同步开启时，把已导出的样本从健康 App 撤掉
     unawaited(HealthSyncService.afterEntryRemoved(storage));
     unawaited(SyncService.autoSync(storage));
+    // 删除是与打卡相反的修正行为，单独上报（不计入 checkin 漏斗），
+    // 用于观察误录率：删得多的用户往往是把「补录」当「打卡」
+    if (removed != null) {
+      Analytics.track(
+        'entry_remove',
+        props: {
+          'volumeMl': removed.volumeMl,
+          'effectiveMl': removed.effectiveMl,
+          'beverage': removed.beverageId,
+          'sameDay': removed.belongsToDay(LogicalDay.today()) ? 1 : 0,
+        },
+      );
+    }
     unawaited(pushHomeWidget(ref));
   }
 }

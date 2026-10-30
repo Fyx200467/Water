@@ -1,9 +1,11 @@
-import 'dart:convert';
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/settings/account_settings.dart';
 import '../../../core/storage/providers.dart';
+import '../../../core/sync/sync_service.dart';
 import '../home/providers/home_providers.dart';
 import 'character_data.dart';
 
@@ -27,8 +29,7 @@ class CharacterCollectionState {
   final int totalMl;
 
   /// 下一个点亮里程碑（历史总量达到即再点亮一个）
-  int get nextMilestoneMl =>
-      collectedIds.length * collectMilestoneStepMl;
+  int get nextMilestoneMl => collectedIds.length * collectMilestoneStepMl;
 }
 
 /// 角色收集状态管理：持久化点亮集合，饮水总量跨过里程碑时随机点亮
@@ -39,20 +40,16 @@ class CharacterCollectionNotifier
   }
 
   final Ref ref;
-  static const _kCollectedKey = 'character_collected_ids';
 
   Set<String> _collected = {'alpaca'};
 
   Future<void> _load() async {
     final storage = await ref.read(localStorageProvider.future);
-    final raw = storage.prefs.getString(_kCollectedKey);
-    if (raw != null && raw.isNotEmpty) {
-      try {
-        final list = (jsonDecode(raw) as List).cast<String>();
-        _collected = {...list, 'alpaca'};
-      } catch (_) {
-        _collected = {'alpaca'};
-      }
+    final raw = storage.readAccountSetting(
+      AccountSettingKeys.characterCollected,
+    );
+    if (raw is List && raw.isNotEmpty) {
+      _collected = {...raw.map((e) => e.toString()), 'alpaca'};
     }
     await refreshTotals();
   }
@@ -85,25 +82,34 @@ class CharacterCollectionNotifier
         _collected.add(pick);
         appliedMilestones++;
       }
-      await storage.prefs.setString(
-        _kCollectedKey,
-        jsonEncode(_collected.toList()),
+      await storage.writeAccountSetting(
+        AccountSettingKeys.characterCollected,
+        _collected.toList(),
       );
+      // 收集进度是账号资产：联网立即上行（云端按并集合并）
+      unawaited(SyncService.autoSync(storage));
     }
 
     if (!mounted) return;
-    state = AsyncData(CharacterCollectionState(
-      collectedIds: Set.unmodifiable(_collected),
-      totalMl: totalMl,
-    ));
+    state = AsyncData(
+      CharacterCollectionState(
+        collectedIds: Set.unmodifiable(_collected),
+        totalMl: totalMl,
+      ),
+    );
   }
 }
 
 /// 角色收集 provider；新增/删除/补录饮水后自动重算并触发里程碑点亮
 final characterCollectionProvider =
-    StateNotifierProvider<CharacterCollectionNotifier,
-        AsyncValue<CharacterCollectionState>>((ref) {
-  final notifier = CharacterCollectionNotifier(ref);
-  ref.listen(todayEntriesProvider, (_, __) => notifier.refreshTotals());
-  return notifier;
-});
+    StateNotifierProvider<
+      CharacterCollectionNotifier,
+      AsyncValue<CharacterCollectionState>
+    >((ref) {
+      // 会话切换 / 云端偏好更新：按新归属账号的角色收集进度重载
+      ref.watch(sessionEpochProvider);
+      ref.watch(accountSettingsRevisionProvider);
+      final notifier = CharacterCollectionNotifier(ref);
+      ref.listen(todayEntriesProvider, (_, __) => notifier.refreshTotals());
+      return notifier;
+    });
