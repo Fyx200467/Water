@@ -14,6 +14,7 @@ import '../../shared/models/preferred_unit.dart';
 import '../../shared/widgets/sparkles_text.dart';
 import '../settings/widget_settings_screen.dart';
 import '../characters/character_art.dart';
+import '../characters/character_collection_provider.dart';
 import '../characters/current_character_provider.dart';
 import '../drink/providers/beverage_catalog_provider.dart';
 import '../drink/providers/custom_beverage_provider.dart';
@@ -227,11 +228,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       if (lockedDropped > 0) {
         if (mounted) {
           ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-            SnackBar(
-              content: Text(
-                '有 $lockedDropped 次小组件饮水属于会员专属饮品，未记录',
-              ),
-            ),
+            SnackBar(content: Text('有 $lockedDropped 次小组件饮水属于会员专属饮品，未记录')),
           );
         }
         // 桌面数字已按原生快速路径累加，丢弃后要推一次真实数据矫正
@@ -332,6 +329,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final progress = ref.watch(dailyProgressProvider);
     final checkin = ref.watch(checkinDaysProvider);
     final currentChar = ref.watch(effectiveCurrentCharacterProvider);
+    // 保持收集进度常驻监听：喝水跨过 2000ml 里程碑即随机点亮角色
+    ref.watch(characterCollectionProvider);
     // 单位切换后首页数字需要立即按新单位重绘
     ref.watch(preferredUnitProvider);
 
@@ -427,25 +426,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                               child: Container(
                                 key: _animalKey,
                                 // 液面过渡：返回首页后液体从旧液位慢慢
-                                  // 涨到新液位（1.1s easeOut，非跳变）
-                                  child: _DeferredTween(
-                                    end: progress.progress.clamp(0.0, 1.0),
-                                    duration: const Duration(
-                                      milliseconds: 1100,
-                                    ),
-                                    curve: Curves.easeOutCubic,
-                                    builder: (_, v) => AnimalSilhouette(
-                                      animalId: currentChar,
-                                      fillRatio: v,
-                                      accentColor: _brandCyan,
-                                      solidFillColor: _brandCyan,
-                                      size: 280,
-                                      // 点亮态显示全彩插画，否则剪影+液体填充
-                                      fullArt: isLit,
-                                    ),
+                                // 涨到新液位（1.1s easeOut，非跳变）
+                                child: _DeferredTween(
+                                  end: progress.progress.clamp(0.0, 1.0),
+                                  duration: const Duration(milliseconds: 1100),
+                                  curve: Curves.easeOutCubic,
+                                  builder: (_, v) => AnimalSilhouette(
+                                    animalId: currentChar,
+                                    fillRatio: v,
+                                    accentColor: _brandCyan,
+                                    solidFillColor: _brandCyan,
+                                    size: 280,
+                                    // 点亮态显示全彩插画，否则剪影+液体填充
+                                    fullArt: isLit,
                                   ),
                                 ),
                               ),
+                            ),
                           ),
                           const SizedBox(height: 8),
                           // 2.5 完成态庆祝横幅「告诉我的朋友！」（celebrateDay 开关控制显隐；
@@ -1079,9 +1076,7 @@ class _CelebrateBanner extends StatelessWidget {
 
   void _openReview(BuildContext context) {
     Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => DailyReviewScreen(animalId: animalId),
-      ),
+      MaterialPageRoute(builder: (_) => DailyReviewScreen(animalId: animalId)),
     );
   }
 

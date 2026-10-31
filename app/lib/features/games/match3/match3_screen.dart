@@ -90,7 +90,10 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
         .where((b) => b.id != 'water_pure')
         .toList();
     final seen = <String>{};
-    final uniq = [for (final b in others) if (seen.add(b.id)) b]..shuffle(_rnd);
+    final uniq = [
+      for (final b in others)
+        if (seen.add(b.id)) b,
+    ]..shuffle(_rnd);
     return [water, ...uniq.take(_kindSlots - 1)];
   }
 
@@ -134,8 +137,8 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
   Set<int> _randomCell() => {_rnd.nextInt(_rows) * _cols + _rnd.nextInt(_cols)};
 
   List<List<int>> _kinds() => [
-        for (final row in _grid) [for (final t in row) t?.kind ?? -1],
-      ];
+    for (final row in _grid) [for (final t in row) t?.kind ?? -1],
+  ];
 
   void _swapTiles(_Tile a, _Tile b) {
     final ar = a.r, ac = a.c;
@@ -288,7 +291,7 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
     final tiles = [
       for (final row in _grid)
         for (final t in row)
-          if (t != null) t
+          if (t != null) t,
     ];
     var guard = 0;
     while (guard++ < 60) {
@@ -296,7 +299,8 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
       for (var i = 0; i < tiles.length; i++) {
         tiles[i].kind = kinds[i];
       }
-      if (_rules.findMatches(_kinds()).isEmpty && _rules.hasPossibleMove(_kinds())) {
+      if (_rules.findMatches(_kinds()).isEmpty &&
+          _rules.hasPossibleMove(_kinds())) {
         return;
       }
     }
@@ -317,10 +321,12 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
     // 积分是账号权益：游客不计分，结算只提示登录后可获得
     final isGuest = !storage.hasAccountSession;
     final earned = (won && !isGuest)
-        ? await ref.read(pointsProvider.notifier).earn(
-              source: 'match3',
-              amount: _score ~/ PointsNotifier.scorePerPoint,
-            )
+        ? await ref
+              .read(pointsProvider.notifier)
+              .earn(
+                source: 'match3',
+                amount: _score ~/ PointsNotifier.scorePerPoint,
+              )
         : 0;
     if (!mounted) return;
     final reachedCap = won && !isGuest && earned == 0;
@@ -329,9 +335,7 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
       barrierDismissible: false,
       builder: (ctx) => Dialog(
         backgroundColor: Colors.white,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(24),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(24, 26, 24, 20),
           child: Column(
@@ -358,15 +362,10 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
               Text(
                 won
                     ? (isGuest
-                        ? '登录后才能获得积分，游客不计分'
-                        : (reachedCap
-                            ? '今日积分已达上限，明天再来～'
-                            : '获得 $earned 积分'))
+                          ? '登录后才能获得积分，游客不计分'
+                          : (reachedCap ? '今日积分已达上限，明天再来～' : '获得 $earned 积分'))
                     : '目标 $_targetScore 分，再试一次吧',
-                style: const TextStyle(
-                  color: Color(0xFF8E8E93),
-                  fontSize: 13,
-                ),
+                style: const TextStyle(color: Color(0xFF8E8E93), fontSize: 13),
               ),
               const SizedBox(height: 20),
               Row(
@@ -452,23 +451,27 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
             onPanUpdate: (d) => _dragAcc += d.delta,
             onPanEnd: (_) => _onDragEnd(t),
             onPanCancel: () => _dragAcc = Offset.zero,
-            child: Container(
-              margin: EdgeInsets.all(cell * 0.055),
-              decoration: BoxDecoration(
-                color: selected ? const Color(0xFFE4F7FC) : Colors.white,
-                borderRadius: BorderRadius.circular(cell * 0.26),
-                border: selected
-                    ? Border.all(color: _brandCyan, width: 2)
-                    : Border.all(color: const Color(0xFFEFEFF3)),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x0A000000),
-                    blurRadius: 6,
-                    offset: Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Center(child: _drinkIcon(beverage, cell * 0.6)),
+            // 格子不铺底色，饮品图标直接落在棋盘上；
+            // 选中时只在这一格加浅青高亮描边，避免整盘白块显得笨重
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              curve: Curves.easeOut,
+              margin: EdgeInsets.all(cell * 0.03),
+              decoration: selected
+                  ? BoxDecoration(
+                      color: const Color(0xFFE4F7FC),
+                      borderRadius: BorderRadius.circular(cell * 0.26),
+                      border: Border.all(color: _brandCyan, width: 2),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x334DB8D8),
+                          blurRadius: 10,
+                          offset: Offset(0, 3),
+                        ),
+                      ],
+                    )
+                  : null,
+              child: Center(child: _drinkIcon(beverage, cell * 0.68)),
             ),
           ),
         ),
@@ -517,113 +520,188 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F7FA),
-      body: SafeArea(
-        child: Column(
-          children: [
-            // 顶栏：返回 / 标题 / 重开（与饮品管理页同款浅灰圆钮）
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
-              child: Row(
-                children: [
-                  _CircleButton(
-                    onTap: () => Navigator.of(context).pop(),
-                    child: const Icon(Icons.arrow_back_ios_new,
-                        size: 18, color: Color(0xFF3C3C43)),
-                  ),
-                  const Spacer(),
-                  _CircleButton(
-                    onTap: _busy ? () {} : _startGame,
-                    child: const Icon(Icons.refresh_rounded,
-                        size: 18, color: Color(0xFF3C3C43)),
-                  ),
-                ],
-              ),
-            ),
-            // 信息区 + 棋盘 + 提示作为一个整体居中：信息下移、更贴近棋盘
-            Expanded(
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
+      // 顶部到中部的淡青渐层：让白色棋盘和透明图标有柔和的衬托
+      body: DecoratedBox(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFEEF9FD), Color(0xFFF7F7FA)],
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              // 顶栏：返回 / 标题 / 重开（与饮品管理页同款浅灰圆钮）
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+                child: Row(
                   children: [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 24),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: _hudChip('得分', '$_score'),
-                          ),
-                          Expanded(
-                            child: _hudChip('剩余步数', '$_moves',
-                                color: _brandCyan),
-                          ),
-                          Expanded(
-                            child: _hudChip('积分', '${points.balance}',
-                                color: const Color(0xFFF2A93B),
-                                onTap: () => Navigator.of(context).push(
-                                      MaterialPageRoute(
-                                        builder: (_) => const PointsScreen(),
-                                      ),
-                                    )),
-                          ),
-                        ],
+                    _CircleButton(
+                      onTap: () => Navigator.of(context).pop(),
+                      child: const Icon(
+                        Icons.arrow_back_ios_new,
+                        size: 18,
+                        color: Color(0xFF3C3C43),
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 28),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: LinearProgressIndicator(
-                          value: progress,
-                          minHeight: 14,
-                          backgroundColor: const Color(0xFFEDEDF2),
-                          valueColor: const AlwaysStoppedAnimation(_brandCyan),
-                        ),
+                    const Spacer(),
+                    const Text(
+                      '饮品消消乐',
+                      style: TextStyle(
+                        color: Color(0xFF3C3C43),
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.5,
                       ),
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      '目标 $_targetScore 分',
-                      style: const TextStyle(
-                          color: Color(0xFF9B9BA1), fontSize: 12),
-                    ),
-                    // 信息区与棋盘之间的呼吸感
-                    const SizedBox(height: 32),
-                    LayoutBuilder(
-                      builder: (ctx, c) {
-                        final cell = math.min(
-                          (c.maxWidth - 40) / _cols,
-                          math.min((c.maxHeight - 60) / _rows, 54.0),
-                        );
-                        return Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            SizedBox(
-                              width: cell * _cols,
-                              height: cell * _rows,
-                              child: Stack(
-                                children: [
-                                  for (final row in _grid)
-                                    for (final t in row)
-                                      if (t != null) _buildTile(t, cell),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 26),
-                            const Text(
-                              '点选或滑动相邻饮品交换位置，凑成三个以上即可消除',
-                              style: TextStyle(
-                                  color: Color(0xFF9B9BA1), fontSize: 12),
-                            ),
-                          ],
-                        );
-                      },
+                    const Spacer(),
+                    _CircleButton(
+                      onTap: _busy ? () {} : _startGame,
+                      child: const Icon(
+                        Icons.refresh_rounded,
+                        size: 18,
+                        color: Color(0xFF3C3C43),
+                      ),
                     ),
                   ],
                 ),
               ),
-            ),
-          ],
+              // 信息区 + 棋盘 + 提示作为一个整体居中：信息下移、更贴近棋盘
+              Expanded(
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 12,
+                            horizontal: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.92),
+                            borderRadius: BorderRadius.circular(18),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0x0F000000),
+                                blurRadius: 14,
+                                offset: Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(child: _hudChip('得分', '$_score')),
+                              Expanded(
+                                child: _hudChip(
+                                  '剩余步数',
+                                  '$_moves',
+                                  color: _brandCyan,
+                                ),
+                              ),
+                              Expanded(
+                                child: _hudChip(
+                                  '积分',
+                                  '${points.balance}',
+                                  color: const Color(0xFFF2A93B),
+                                  onTap: () => Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => const PointsScreen(),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 28),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: LinearProgressIndicator(
+                            value: progress,
+                            minHeight: 14,
+                            backgroundColor: const Color(0xFFEDEDF2),
+                            valueColor: const AlwaysStoppedAnimation(
+                              _brandCyan,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '目标 $_targetScore 分',
+                        style: const TextStyle(
+                          color: Color(0xFF9B9BA1),
+                          fontSize: 12,
+                        ),
+                      ),
+                      // 信息区与棋盘之间的呼吸感
+                      const SizedBox(height: 32),
+                      LayoutBuilder(
+                        builder: (ctx, c) {
+                          final cell = math.min(
+                            (c.maxWidth - 40 - 24) / _cols,
+                            math.min((c.maxHeight - 80 - 24) / _rows, 54.0),
+                          );
+                          return Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              // 棋盘子：白到浅青的柔光面板，无格底色的图标更清爽
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                    colors: [Colors.white, Color(0xFFF0FAFE)],
+                                  ),
+                                  borderRadius: BorderRadius.circular(24),
+                                  border: Border.all(
+                                    color: const Color(0xFFE1F2F8),
+                                  ),
+                                  boxShadow: const [
+                                    BoxShadow(
+                                      color: Color(0x1A4DB8D8),
+                                      blurRadius: 22,
+                                      offset: Offset(0, 10),
+                                    ),
+                                  ],
+                                ),
+                                child: SizedBox(
+                                  width: cell * _cols,
+                                  height: cell * _rows,
+                                  child: Stack(
+                                    children: [
+                                      for (final row in _grid)
+                                        for (final t in row)
+                                          if (t != null) _buildTile(t, cell),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 26),
+                              const Text(
+                                '点选或滑动相邻饮品交换位置，凑成三个以上即可消除',
+                                style: TextStyle(
+                                  color: Color(0xFF9B9BA1),
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -645,11 +723,7 @@ class _CircleButton extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         customBorder: const CircleBorder(),
-        child: SizedBox(
-          width: 42,
-          height: 42,
-          child: Center(child: child),
-        ),
+        child: SizedBox(width: 42, height: 42, child: Center(child: child)),
       ),
     );
   }

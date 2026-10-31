@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../characters/character_art.dart';
 import '../../shared/models/preferred_unit.dart';
@@ -77,9 +78,7 @@ class PosterView extends StatelessWidget {
   static const _cyan = Color(0xFF45B7D8);
 
   String _weekday() {
-    const names = [
-      '星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日',
-    ];
+    const names = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'];
     return names[DateTime.now().weekday - 1];
   }
 
@@ -146,7 +145,11 @@ class PosterView extends StatelessWidget {
           Expanded(
             child: ColorFiltered(
               colorFilter: const ColorFilter.mode(_cyan, BlendMode.srcIn),
-              child: CharacterArt(animalId: animalId, unlocked: false, size: 300),
+              child: CharacterArt(
+                animalId: animalId,
+                unlocked: false,
+                size: 300,
+              ),
             ),
           ),
           // 目标量行：青色水杯 + 「ml 2000」（左侧彩色小羊驼已按需求移除）
@@ -164,11 +167,13 @@ class PosterView extends StatelessWidget {
                   ),
                   children: [
                     TextSpan(
-                        text: '${UnitFormat.unit.symbol}\n',
-                        style: const TextStyle(fontSize: 15)),
+                      text: '${UnitFormat.unit.symbol}\n',
+                      style: const TextStyle(fontSize: 15),
+                    ),
                     TextSpan(
-                        text: UnitFormat.number(goalMl),
-                        style: const TextStyle(fontSize: 34)),
+                      text: UnitFormat.number(goalMl),
+                      style: const TextStyle(fontSize: 34),
+                    ),
                   ],
                 ),
               ),
@@ -202,9 +207,11 @@ class SharePosterScreen extends ConsumerWidget {
     try {
       await ShareImage.capture(
         context: context,
-        fileName: 'dun_dun_poster_'
+        fileName:
+            'dun_dun_poster_'
             '${DateTime.now().millisecondsSinceEpoch}.png',
-        text: '我在吨吨达成了今日 ${UnitFormat.volume(goalMl)} 饮水目标！'
+        text:
+            '我在吨吨达成了今日 ${UnitFormat.volume(goalMl)} 饮水目标！'
             '保持充足的水分，拥有快乐的心情！ @吨吨_app',
         pixelRatio: 4,
         builder: (_) => SizedBox(
@@ -215,9 +222,9 @@ class SharePosterScreen extends ConsumerWidget {
       );
     } catch (_) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('分享失败，请稍后重试')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('分享失败，请稍后重试')));
     }
   }
 
@@ -254,10 +261,7 @@ class SharePosterScreen extends ConsumerWidget {
                         child: SizedBox(
                           width: 250,
                           height: 470,
-                          child: PosterView(
-                            animalId: animalId,
-                            goalMl: goal,
-                          ),
+                          child: PosterView(animalId: animalId, goalMl: goal),
                         ),
                       ),
                     ),
@@ -282,10 +286,10 @@ class SharePosterScreen extends ConsumerWidget {
                           color: Color(0xFF07C160),
                           shape: BoxShape.circle,
                         ),
-                        child: const Icon(
-                          Icons.chat_bubble_rounded,
-                          color: Colors.white,
-                          size: 20,
+                        child: SvgPicture.asset(
+                          'assets/icons/login/wechat.svg',
+                          width: 22,
+                          height: 22,
                         ),
                       ),
                       label: '微信',
@@ -302,16 +306,10 @@ class SharePosterScreen extends ConsumerWidget {
                           color: Color(0xFF12B7F5),
                           shape: BoxShape.circle,
                         ),
-                        child: const Center(
-                          child: Text(
-                            'Q',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 22,
-                              fontWeight: FontWeight.w800,
-                              height: 1.0,
-                            ),
-                          ),
+                        child: SvgPicture.asset(
+                          'assets/icons/login/qq.svg',
+                          width: 22,
+                          height: 22,
                         ),
                       ),
                       label: 'QQ',

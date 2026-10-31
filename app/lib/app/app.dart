@@ -17,7 +17,7 @@ import '../core/sync/profile_sync.dart';
 import '../core/sync/session_watch.dart';
 import '../core/sync/sync_api.dart';
 import '../core/sync/sync_service.dart';
-import '../features/home/tips_deck.dart';
+import '../features/challenges/challenge_service.dart';
 import '../features/characters/character_catalog.dart';
 import '../features/drink/providers/beverage_catalog_provider.dart';
 import '../features/drink/providers/custom_beverage_provider.dart';
@@ -123,9 +123,9 @@ class _WaterLlamaAppState extends ConsumerState<WaterLlamaApp>
     Timer(const Duration(seconds: 2), () {
       if (mounted) _syncCharacters();
     });
-    // 冷启动：首页贴士卡与后台目录对齐（后台未配置时保留内置卡池）
+    // 冷启动：挑战目录与后台对齐（后台新增/下架挑战无需重启 App）
     Timer(const Duration(seconds: 2), () {
-      if (mounted) unawaited(TipStore.sync());
+      if (mounted) ref.invalidate(challengesCatalogProvider);
     });
     // 前台常驻：角色目录定时与后台对齐，后台改分类 / 权益 / 角色后无需
     // 重启或切后台即可生效（后台无推送，用轻量轮询实现「实时同步」）
@@ -136,7 +136,8 @@ class _WaterLlamaAppState extends ConsumerState<WaterLlamaApp>
       unawaited(_syncCharacters());
       // 饮品目录同样定时对齐：后台改图标 / 排序 / 新增后最多 30 秒生效
       unawaited(_syncBeverages());
-      unawaited(TipStore.sync());
+      // 挑战目录同样轻量轮询：后台发布/下架挑战最多 30 秒生效
+      ref.invalidate(challengesCatalogProvider);
       // 会员状态 / 审核结果轮询：后台通过或拒绝后 30 秒内即可在 App 内看到
       unawaited(_pollMembership());
       // 账号资料（头像 / 饮水目标）对齐，跨设备修改最多 30 秒同步

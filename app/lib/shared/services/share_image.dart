@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -55,6 +56,69 @@ class ShareImage {
     } finally {
       entry.remove();
     }
+  }
+
+  /// 滚动截长图：把当前视图从头到尾逐屏截图，纵向拼接成一张长图后分享
+  ///
+  /// [viewportKey] 必须挂在包住整个滚动视图的 RepaintBoundary 上。
+  /// 截图期间会临时滚动页面，结束后恢复原位置；页面极长时自动降低
+  /// 导出倍率，避免超大位图占用内存。
+  static Future<void> shareScrollable({
+    required BuildContext context,
+    required ScrollController controller,
+    required GlobalKey viewportKey,
+    required String fileName,
+    String? text,
+  }) async {
+    if (!controller.hasClients) throw StateError('no_scroll');
+    final boundary =
+        viewportKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+    if (boundary == null) throw StateError('boundary_missing');
+    final size = boundary.size;
+    final maxScroll = controller.position.maxScrollExtent;
+    // 长图总高（逻辑像素）与导出倍率：短页面 2x，超长列表自动降级
+    final totalLogical = maxScroll + size.height;
+    var ratio = 2.0;
+    const maxPixels = 40.0 * 1000 * 1000;
+    if (size.width * totalLogical * ratio * ratio > maxPixels) {
+      ratio = math.sqrt(maxPixels / (size.width * totalLogical)).clamp(1.0, 2.0);
+    }
+    final originalOffset = controller.offset;
+    final frames = <ui.Image>[];
+    final offsets = <double>[];
+    try {
+      var offset = 0.0;
+      while (frames.length < 120) {
+        controller.jumpTo(offset);
+        await WidgetsBinding.instance.endOfFrame;
+        await Future<void>.delayed(const Duration(milliseconds: 80));
+        frames.add(await boundary.toImage(pixelRatio: ratio));
+        offsets.add(offset);
+        if (offset >= maxScroll - 0.5) break;
+        offset = math.min(maxScroll, offset + size.height);
+      }
+    } finally {
+      controller.jumpTo(originalOffset);
+    }
+    final outW = (size.width * ratio).round();
+    final outH = (totalLogical * ratio).round();
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(
+      recorder,
+      Rect.fromLTWH(0, 0, outW.toDouble(), outH.toDouble()),
+    );
+    for (var i = 0; i < frames.length; i++) {
+      canvas.drawImage(frames[i], Offset(0, offsets[i] * ratio), Paint());
+      frames[i].dispose();
+    }
+    final picture = recorder.endRecording();
+    final stitched = await picture.toImage(outW, outH);
+    picture.dispose();
+    final data = await stitched.toByteData(format: ui.ImageByteFormat.png);
+    stitched.dispose();
+    final bytes = data?.buffer.asUint8List();
+    if (bytes == null) throw StateError('encode_failed');
+    await _share(bytes, fileName: fileName, text: text);
   }
 
   /// 分享已经写好的 PNG 字节（临时文件方式，微信/QQ 可直接读取）

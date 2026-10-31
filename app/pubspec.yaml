@@ -77,7 +77,6 @@ flutter:
     - assets/images/characters/
     - assets/images/icons/
     - assets/images/containers/
-    - assets/images/tips/
     - assets/icons/menu/
     - assets/icons/home/
     - assets/icons/login/

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -138,6 +139,12 @@ class ContainerIconStore {
         (acc, chunk) => acc..addAll(chunk),
       );
       if (bytes.isEmpty) return false;
+      // 服务端已做权威校验，这里再兜一层：体积异常或含危险节点直接丢弃，
+      // 保留本地旧图标，避免损坏/恶意文件进入渲染
+      if (bytes.length > 128 * 1024 || !_looksSafeSvg(bytes)) {
+        debugPrint('[Icons] rejected unsafe svg: $url');
+        return false;
+      }
       final tmp = File('${file.path}.tmp');
       await tmp.writeAsBytes(bytes, flush: true);
       await tmp.rename(file.path);
@@ -147,6 +154,31 @@ class ContainerIconStore {
       return false;
     } finally {
       client.close(force: true);
+    }
+  }
+
+  /// SVG 兜底检查：必须是单个 svg 根、无脚本/外链/动画等危险内容
+  static bool _looksSafeSvg(List<int> bytes) {
+    try {
+      final text = utf8.decode(bytes, allowMalformed: true).toLowerCase();
+      if (!text.contains('<svg')) return false;
+      if (text.contains('<!doctype') || text.contains('<!entity')) {
+        return false;
+      }
+      if (text.contains('<script') ||
+          text.contains('<foreignobject') ||
+          text.contains('<image') ||
+          text.contains('<animate')) {
+        return false;
+      }
+      final hrefs = RegExp('href\\s*=\\s*["\']([^"\']*)').allMatches(text);
+      for (final m in hrefs) {
+        final value = m.group(1) ?? '';
+        if (!value.startsWith('#')) return false;
+      }
+      return true;
+    } catch (_) {
+      return false;
     }
   }
 

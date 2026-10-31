@@ -12,10 +12,10 @@ import 'character_catalog.dart';
 /// 当前选中角色（首页液体填充用）
 ///
 /// 业务规则（PRD §2.3）：
-/// - 默认值 'alpaca'
+/// - 默认值 'sheep'（游客首次使用即点亮绵羊）
 /// - 持久化到账号级偏好，App 重启 / 换设备后保持上次选择
 class CurrentCharacterNotifier extends StateNotifier<String> {
-  CurrentCharacterNotifier(this.ref) : super('alpaca') {
+  CurrentCharacterNotifier(this.ref) : super('sheep') {
     _load();
   }
 
@@ -51,7 +51,7 @@ final currentCharacterProvider =
       return CurrentCharacterNotifier(ref);
     });
 
-/// 实际生效的填充角色：非会员时若选中的是会员专属角色，回退到默认羊驼。
+/// 实际生效的填充角色：非会员时若选中的是会员专属角色，回退到默认绵羊。
 ///
 /// 退出登录 / 账号被挤下线后会员权益立即失效，首页不会继续展示
 /// 上一个会员账号使用的专属角色。
@@ -59,6 +59,6 @@ final effectiveCurrentCharacterProvider = Provider<String>((ref) {
   final selected = ref.watch(currentCharacterProvider);
   if (ref.watch(membershipProvider).isMember) return selected;
   final catalog = ref.watch(characterCatalogProvider).asData?.value;
-  if (catalog != null && catalog.isMemberOnly(selected)) return 'alpaca';
+  if (catalog != null && catalog.isMemberOnly(selected)) return 'sheep';
   return selected;
 });

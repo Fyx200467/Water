@@ -145,6 +145,7 @@ class PointsNotifier extends StateNotifier<PointsState> {
     required String source,
     required int amount,
     int dailyCap = matchGameDailyCap,
+    bool ignoreDailyCap = false,
   }) async {
     await loaded;
     final storage = await ref.read(localStorageProvider.future);
@@ -153,7 +154,8 @@ class PointsNotifier extends StateNotifier<PointsState> {
     if (amount <= 0) return 0;
     final key = _todayKey();
     final earnedToday = state.dayKey == key ? state.todayEarned : 0;
-    final remain = (dailyCap - earnedToday).clamp(0, dailyCap);
+    // 挑战奖励属于一次性大额奖励，不占用每日上限
+    final remain = ignoreDailyCap ? amount : (dailyCap - earnedToday).clamp(0, dailyCap);
     final granted = amount.clamp(0, remain);
     if (granted <= 0) {
       // 已达上限：仍刷新日期键，避免次日误判

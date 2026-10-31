@@ -25,7 +25,6 @@ import '../onboarding/widgets/animal_silhouette.dart';
 import '../settings/settings_flags.dart';
 import '../settings/widget_settings_screen.dart';
 import 'providers/stats_providers.dart';
-import 'widgets/share_stats_card.dart';
 
 // 品牌色规范
 const Color _kCyan = Color(0xFF4DB8D8);
@@ -121,6 +120,14 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
   /// 补录写入中（防重复点击导致同一条记录入库多次）
   bool _backfilling = false;
 
+  /// 分享长图用：三个视图各自的滚动控制器与截图边界
+  final ScrollController _calendarCtrl = ScrollController();
+  final ScrollController _trendCtrl = ScrollController();
+  final ScrollController _listCtrl = ScrollController();
+  final GlobalKey _calendarCaptureKey = GlobalKey();
+  final GlobalKey _trendCaptureKey = GlobalKey();
+  final GlobalKey _listCaptureKey = GlobalKey();
+
   @override
   void initState() {
     super.initState();
@@ -132,6 +139,9 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
   @override
   void dispose() {
     _viewPageController.dispose();
+    _calendarCtrl.dispose();
+    _trendCtrl.dispose();
+    _listCtrl.dispose();
     super.dispose();
   }
 
@@ -167,9 +177,12 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                 },
                 children: [
                   // 0. 日期视图
-                  SingleChildScrollView(
-                    padding:
-                        EdgeInsets.only(top: topInset + 60, bottom: 120),
+                  RepaintBoundary(
+                    key: _calendarCaptureKey,
+                    child: SingleChildScrollView(
+                      controller: _calendarCtrl,
+                      padding:
+                          EdgeInsets.only(top: topInset + 60, bottom: 120),
                     child: Column(
                       children: [
                         // 1. 顶部大徽章（始终显示今天的数据：% 与 签到天数 每 2 秒交替）
@@ -209,16 +222,24 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                           ),
                         ),
                       ],
+                      ),
                     ),
                   ),
                   // 1. 趋势视图：天/周/月柱形图统计卡（含饮品筛选）
-                  SingleChildScrollView(
-                    padding:
-                        EdgeInsets.only(top: topInset + 60, bottom: 120),
-                    child: _buildStatsCard(),
+                  RepaintBoundary(
+                    key: _trendCaptureKey,
+                    child: SingleChildScrollView(
+                      controller: _trendCtrl,
+                      padding:
+                          EdgeInsets.only(top: topInset + 60, bottom: 120),
+                      child: _buildStatsCard(),
+                    ),
                   ),
                   // 2. 列表视图
-                  _buildListView(),
+                  RepaintBoundary(
+                    key: _listCaptureKey,
+                    child: _buildListView(),
+                  ),
                 ],
               ),
             ),
@@ -284,56 +305,39 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     );
   }
 
-  // ---------------- 战绩图片分享（免费，跟随当前视图） ----------------
+  // ---------------- 分享长图（当前视图整页） ----------------
 
-  /// 按当前视图生成竖版战绩卡（日期=当月 / 趋势=本周 / 列表=本月），
-  /// 截图后调起系统分享面板；卡片不含昵称头像等个人信息。
+  /// 当前视图对应的滚动控制器 / 截图边界
+  ScrollController get _shareController => switch (_viewTab) {
+        0 => _calendarCtrl,
+        1 => _trendCtrl,
+        _ => _listCtrl,
+      };
+
+  GlobalKey get _shareCaptureKey => switch (_viewTab) {
+        0 => _calendarCaptureKey,
+        1 => _trendCaptureKey,
+        _ => _listCaptureKey,
+      };
+
+  /// 把当前视图从头滚到尾逐屏截图并拼成一张长图，再调起分享面板
   Future<void> _shareStats() async {
-    final today = LogicalDay.today();
-    final List<DayTotal> days;
-    final String title;
-    final String subtitle;
-    if (_viewTab == 1) {
-      days = await ref.read(last7DaysProvider.future);
-      title = '我的本周战绩';
-      subtitle = '${_monthDay(days.first.day)} - ${_monthDay(days.last.day)}';
-    } else {
-      final month = _viewTab == 0
-          ? _calMonth
-          : DateTime(today.year, today.month, 1);
-      final map = await ref.read(monthDataProvider(month).future);
-      days = map.values.toList()..sort((a, b) => a.day.compareTo(b.day));
-      title = '我的清晰${month.month}月';
-      subtitle = '${month.year} 年 ${month.month} 月';
-    }
-    if (!mounted) return;
-    final total = days.fold<int>(0, (s, d) => s + d.effectiveMl);
-    if (total <= 0) {
+    final ctrl = _shareController;
+    final key = _shareCaptureKey;
+    if (!ctrl.hasClients || key.currentContext == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('暂无可分享的记录')),
+        const SnackBar(content: Text('页面还在加载，请稍后再试')),
       );
       return;
     }
-    final activeDays = days.where((d) => d.count > 0).length;
-    final completeDays = days.where((d) => d.complete).length;
-    final streak = ref.read(checkinDaysProvider).valueOrNull ?? 0;
     try {
-      await ShareImage.capture(
+      await ShareImage.shareScrollable(
         context: context,
-        fileName: 'dun_dun_stats_${DateTime.now().millisecondsSinceEpoch}.png',
+        controller: ctrl,
+        viewportKey: key,
+        fileName: 'dun_dun_history_'
+            '${DateTime.now().millisecondsSinceEpoch}.png',
         text: '吨吨 · 我的饮水记录',
-        builder: (_) => StatsShareCard(
-          title: title,
-          subtitle: subtitle,
-          totalText: UnitFormat.volume(total, compact: true),
-          avgText: UnitFormat.volume(
-            activeDays == 0 ? 0 : total ~/ activeDays,
-            compact: true,
-          ),
-          completeDays: completeDays,
-          streakDays: streak,
-          days: days,
-        ),
       );
     } catch (_) {
       if (!mounted) return;
@@ -342,8 +346,6 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
       );
     }
   }
-
-  String _monthDay(DateTime d) => '${d.month}月${d.day}日';
 
   // ---------------- 底部悬浮视图切换 ----------------
 
@@ -480,6 +482,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
 
         if (days.isEmpty) {
           return ListView(
+            controller: _listCtrl,
             padding: EdgeInsets.only(top: topInset + 60, bottom: 120),
             children: const [
               SizedBox(height: 140),
@@ -559,6 +562,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
         });
 
         return ListView(
+          controller: _listCtrl,
           padding: EdgeInsets.fromLTRB(36, topInset + 60, 36, 120),
           children: children,
         );

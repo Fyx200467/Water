@@ -166,15 +166,12 @@
   .avatar-preview img { max-width: 260px; max-height: 260px; border-radius: 12px; }
   .empty { padding: 40px; text-align: center; color: var(--gray); font-size: 13px; }
   .pager { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; font-size: 12px; color: var(--gray); align-items: center; }
-  /* 容器图标库：表格里的图标缩略图（点击放大） */
+  /* 容器图标库：表格里的图标缩略图（统一剪影色，无底色方块） */
   .icon-thumb {
     display: inline-flex; align-items: center; justify-content: center;
-    width: 48px; height: 48px; border-radius: 10px; background: #f5f6f8;
+    width: 48px; height: 48px;
   }
-  .icon-thumb img {
-    width: 40px; height: 40px; object-fit: contain;
-    filter: drop-shadow(0 0 1px rgba(0,0,0,.45));
-  }
+  .icon-thumb i { display: block; width: 40px; height: 40px; background: #4a4a4a; }
   .icon-fname {
     font-size: 12px; color: #4b5563;
     font-family: ui-monospace, Consolas, monospace;
@@ -188,6 +185,35 @@
   .icon-tile img { object-fit: contain; }
   /* 饮品图标：去掉承载背景，点击放大查看 */
   .icon-btn { border: 0; background: transparent; padding: 0; display: inline-flex; cursor: zoom-in; }
+  /* 容器图标上传卡片：选文件 → 预览 → 确认上传 */
+  .cu-pick { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+  .cu-list { display: flex; flex-direction: column; gap: 10px; max-height: 380px; overflow: auto; }
+  .cu-row {
+    display: flex; align-items: center; gap: 14px;
+    border: 1px solid var(--line); border-radius: 14px; padding: 12px;
+  }
+  .cu-thumb {
+    width: 84px; height: 84px; flex: 0 0 auto; border-radius: 12px; background: #f5f6f8;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .cu-thumb img {
+    width: 66px; height: 66px; object-fit: contain;
+    filter: drop-shadow(0 0 1px rgba(0,0,0,.4));
+  }
+  .cu-meta { flex: 1; min-width: 0; }
+  .cu-name {
+    font-size: 13px; color: #4b5563; word-break: break-all;
+    font-family: ui-monospace, Consolas, monospace;
+  }
+  .cu-sub { font-size: 11px; color: var(--gray); margin-top: 2px; }
+  .cu-status { font-size: 12px; margin-top: 5px; }
+  .cu-status.ok { color: #1f9254; }
+  .cu-status.bad { color: var(--danger); }
+  .cu-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+  .cu-del {
+    border: 0; background: #f1f2f5; color: var(--gray);
+    width: 26px; height: 26px; border-radius: 8px; flex: 0 0 auto;
+  }
 
   /* ---------------- 弹窗 ---------------- */
   #modalMask {
@@ -201,6 +227,12 @@
   .modal h3 { margin: 0 0 16px; font-size: 18px; }
   .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .form-grid .full { grid-column: 1 / -1; }
+  .form-grid textarea {
+    width: 100%; box-sizing: border-box; font-family: inherit; font-size: 13px;
+    padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px;
+    background: #fff; color: var(--ink); outline: none; resize: vertical;
+  }
+  .form-grid textarea:focus { border-color: var(--accent); }
   .form-grid > div > label,
   .bev-hero-meta > div > label {
     display: block; font-size: 12px; color: var(--gray); margin-bottom: 6px;
@@ -307,8 +339,8 @@
 
   /* ---------------- 数据看板 ---------------- */
   .kpi-grid {
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(176px, 1fr));
-    gap: 14px; margin-bottom: 16px;
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px; margin-bottom: 18px;
   }
   .kpi {
     background: var(--card); border-radius: 16px; padding: 15px 16px 14px;
@@ -322,7 +354,7 @@
   .kpi-value em { font-style: normal; font-size: 13px; font-weight: 600; color: var(--gray); margin-left: 3px; }
   .kpi-sub { font-size: 12px; color: var(--gray); margin-top: 8px; }
   .kpi-sub b { color: #1d8dad; font-weight: 600; }
-  .chart-grid { display: grid; grid-template-columns: 1.45fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }
   .chart-card {
     background: var(--card); border-radius: 16px; padding: 16px 18px 8px;
     box-shadow: 0 6px 22px rgba(31,36,48,.05); min-width: 0;
@@ -388,7 +420,7 @@
     background: #fff; display: flex; align-items: center; justify-content: center;
   }
   .icon-pick.selected { border-color: var(--accent); }
-  .icon-pick img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 0 1px rgba(0,0,0,.45)); }
+  .icon-pick .pick-sil { display: block; width: 36px; height: 36px; background: #4a4a4a; }
 
   #toast {
     position: fixed; left: 50%; bottom: 30px; transform: translateX(-50%) translateY(20px);
@@ -396,9 +428,510 @@
     font-size: 13px; opacity: 0; pointer-events: none; transition: all .22s; z-index: 60;
   }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* ============================================================
+     视觉升级层：柔和浅蓝底 + 白色浮层卡片 + 圆角胶囊控件
+     参考三张 SaaS 后台：左侧留白导航、大圆角面板、轻阴影、青蓝点缀
+     ============================================================ */
+  :root {
+    --bg: #edf4fb;
+    --card: #ffffff;
+    --ink: #17293d;
+    --gray: #7a8ca3;
+    --line: #e6eef6;
+    --accent: #35afd9;
+    --accent-2: #5ac8fa;
+    --accent-deep: #0e7c9e;
+    --accent-soft: #eaf7fc;
+    --danger: #e5484d;
+    --gold: #c9942e;
+    --nav: #ffffff;
+    --ring: 0 0 0 4px rgba(53, 175, 217, .14);
+    --shadow-lg: 0 22px 50px rgba(28, 73, 112, .12);
+    --shadow-md: 0 12px 30px rgba(28, 73, 112, .09);
+    --shadow-sm: 0 6px 16px rgba(28, 73, 112, .08);
+  }
+  html { -webkit-font-smoothing: antialiased; scrollbar-gutter: stable; }
+  body {
+    background:
+      radial-gradient(1100px 620px at 6% -10%, rgba(120, 205, 241, .30), transparent 62%),
+      radial-gradient(900px 540px at 94% 2%, rgba(163, 186, 255, .26), transparent 64%),
+      linear-gradient(165deg, #f3f9fd 0%, #edf3fa 46%, #f7fbfe 100%);
+    background-attachment: fixed;
+    letter-spacing: .1px;
+  }
+  body::before {
+    content: "";
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background-image: radial-gradient(rgba(116, 158, 190, .10) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+  #app, .login-wrap { position: relative; z-index: 1; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: #cfdfec; border-radius: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  /* ---------- 基础控件 ---------- */
+  input, select, textarea {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fbfdff;
+    transition: border-color .15s, box-shadow .15s, background .15s;
+  }
+  input:hover, select:hover { background: #fff; }
+  input:focus, select:focus, textarea:focus {
+    border-color: var(--accent);
+    background: #fff;
+    box-shadow: var(--ring);
+  }
+  .btn {
+    border-radius: 12px;
+    padding: 10px 18px;
+    font-weight: 600;
+    letter-spacing: .2px;
+    color: #fff;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+    box-shadow: 0 8px 18px rgba(53, 175, 217, .26);
+    transition: transform .15s, box-shadow .15s, background .15s;
+  }
+  .btn:hover { transform: translateY(-1px); box-shadow: 0 12px 24px rgba(53, 175, 217, .32); }
+  .btn:active { transform: translateY(0); box-shadow: 0 6px 14px rgba(53, 175, 217, .22); }
+  .btn.ghost {
+    background: #fff;
+    color: #3d5468;
+    border: 1px solid var(--line);
+    box-shadow: var(--shadow-sm);
+  }
+  .btn.ghost:hover { border-color: #cfe6f2; color: var(--accent-deep); box-shadow: var(--shadow-md); }
+  .btn.danger { background: #fff0f0; color: var(--danger); box-shadow: none; border: 1px solid #f8d6d7; }
+  .btn.danger:hover { background: #ffe7e8; box-shadow: var(--shadow-sm); }
+  .btn.sm { border-radius: 10px; padding: 6px 12px; }
+
+  /* ---------- 登录 ---------- */
+  .login-wrap {
+    background: transparent;
+    padding: 24px;
+  }
+  .login-card {
+    width: 420px;
+    max-width: calc(100vw - 32px);
+    border-radius: 28px;
+    padding: 36px 32px 30px;
+    background: rgba(255, 255, 255, .92);
+    border: 1px solid rgba(255, 255, 255, .9);
+    box-shadow: var(--shadow-lg);
+    backdrop-filter: blur(16px);
+  }
+  .login-card::before {
+    content: "吨";
+    display: flex; align-items: center; justify-content: center;
+    width: 50px; height: 50px; border-radius: 16px; margin-bottom: 20px;
+    color: #fff; font-size: 23px; font-weight: 800;
+    background: linear-gradient(140deg, #41b9e2, #73d2f7 60%, #9be4ff);
+    box-shadow: 0 12px 24px rgba(65, 185, 226, .35);
+  }
+  .login-card h1 { font-size: 25px; letter-spacing: -.4px; }
+  .login-card p.sub { color: var(--gray); line-height: 1.7; }
+  .login-card .btn { border-radius: 14px; padding: 12px 18px; margin-top: 12px; }
+  .login-err { padding-left: 2px; }
+
+  /* ---------- 应用外壳 ---------- */
+  #app {
+    gap: 18px;
+    padding: 18px;
+    max-width: 1680px;
+    margin: 0 auto;
+  }
+  aside {
+    width: 234px;
+    flex: 0 0 234px;
+    top: 18px;
+    height: calc(100vh - 36px);
+    padding: 20px 14px 14px;
+    border-radius: 26px;
+    color: var(--ink);
+    background: linear-gradient(180deg, rgba(255, 255, 255, .94), rgba(255, 255, 255, .76));
+    border: 1px solid rgba(255, 255, 255, .95);
+    box-shadow: var(--shadow-md);
+    backdrop-filter: blur(18px);
+    overflow: auto;
+    scrollbar-width: none;
+  }
+  aside::-webkit-scrollbar { width: 0; display: none; }
+  .brand {
+    display: flex; align-items: center; gap: 12px;
+    padding: 2px 8px 20px;
+    color: var(--ink);
+  }
+  .brand-mark {
+    width: 42px; height: 42px; flex: none;
+    border-radius: 14px;
+    background: linear-gradient(140deg, #41b9e2, #7cd7f8);
+    color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 10px 20px rgba(65, 185, 226, .32);
+  }
+  .brand-mark svg { width: 24px; height: 24px; }
+  .brand-text b { display: block; font-size: 19px; font-weight: 800; letter-spacing: .3px; line-height: 1.1; }
+  .brand-text b span { color: var(--accent); }
+  .brand-text small {
+    display: block; margin-top: 3px; padding: 0;
+    color: #93a5b9; font-size: 10.5px; font-weight: 500;
+    letter-spacing: .6px; text-transform: uppercase;
+  }
+  .nav-list { display: flex; flex-direction: column; }
+  .nav-label {
+    font-size: 10.5px; font-weight: 600; letter-spacing: 1.4px;
+    color: #a9b8c9; padding: 0 12px; margin: 14px 0 6px;
+  }
+  .nav-label:first-child { margin-top: 2px; }
+  .nav-btn {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; margin-bottom: 3px;
+    padding: 10px 12px;
+    border-radius: 13px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: #5b7086;
+    font-size: 13.5px; font-weight: 500;
+    transition: background .15s, color .15s, box-shadow .15s, transform .15s;
+  }
+  .nav-btn .nav-ico {
+    width: 18px; height: 18px; flex: none;
+    fill: none; stroke: currentColor; stroke-width: 1.7;
+    stroke-linecap: round; stroke-linejoin: round; opacity: .92;
+  }
+  .nav-btn:hover { background: rgba(53, 175, 217, .08); color: var(--accent-deep); transform: translateX(1px); }
+  .nav-btn.active {
+    background: #fff;
+    color: var(--accent-deep);
+    font-weight: 600;
+    border-color: rgba(53, 175, 217, .16);
+    box-shadow: 0 8px 18px rgba(46, 127, 164, .14);
+  }
+  .nav-btn.active .nav-ico { opacity: 1; }
+  .nav-foot {
+    margin-top: auto; padding: 10px;
+    border-radius: 18px;
+    background: linear-gradient(180deg, #f7fbff, #eef7fd);
+    border: 1px solid #e7f1f9;
+  }
+  .nav-user { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .nav-avatar {
+    width: 34px; height: 34px; flex: none; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 700; color: #fff;
+    background: linear-gradient(140deg, #57c4ea, #8fd9ff);
+    box-shadow: 0 6px 14px rgba(57, 160, 200, .28);
+  }
+  .nav-user-meta { min-width: 0; }
+  .nav-user-meta #whoami {
+    margin: 0 0 2px; font-size: 11.5px; font-weight: 600; color: #334c62;
+    word-break: break-all; line-height: 1.3;
+  }
+  .nav-user-meta span { font-size: 10.5px; color: #94a6b9; }
+  .nav-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 9px; }
+  .nav-ghost {
+    border: 1px solid #dfeaf4; background: #fff; color: #5a7086;
+    padding: 7px 6px; border-radius: 9px;
+    font-size: 11px; font-weight: 600;
+    transition: color .15s, border-color .15s, box-shadow .15s;
+  }
+  .nav-ghost:hover { color: var(--accent-deep); border-color: #bfe1ef; box-shadow: var(--shadow-sm); }
+
+  main {
+    padding: 26px 30px 38px;
+    border-radius: 28px;
+    background: rgba(255, 255, 255, .60);
+    border: 1px solid rgba(255, 255, 255, .92);
+    box-shadow: var(--shadow-md);
+    backdrop-filter: blur(14px);
+    min-height: calc(100vh - 36px);
+    /* 表格再宽也不撑大主面板，避免切换页面时整页宽度跳变 */
+    min-width: 0;
+  }
+  header.page { align-items: center; margin-bottom: 20px; }
+  .page-heading h1 {
+    margin: 0; font-size: 26px; font-weight: 800;
+    letter-spacing: -.5px; color: #152a41;
+  }
+  .page-sub {
+    margin-top: 6px; font-size: 12.5px; color: var(--gray); letter-spacing: .2px;
+  }
+  /* 提示文字：纯文本样式，不做胶囊容器，避免被误认为可点击按钮 */
+  .api-hint {
+    font-size: 12px; line-height: 1.7;
+    color: #8397ab; max-width: 100%;
+  }
+  .toolbar { gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+  .toolbar select, .toolbar input { border-radius: 12px; }
+
+  /* ---------- 自定义下拉框（统一原生 select 在各平台的样式差异） ---------- */
+  .dd { position: relative; width: 100%; min-width: 0; }
+  .toolbar .dd, .day-nav .dd { width: auto; min-width: 138px; max-width: 280px; }
+  .dd-native {
+    position: absolute; width: 1px; height: 1px; margin: 0;
+    opacity: 0; pointer-events: none; border: 0;
+  }
+  .dd-btn {
+    width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 9px 12px; min-height: 38px;
+    border-radius: 12px; border: 1px solid var(--line); background: #fbfdff;
+    color: var(--ink); font-size: 13px; text-align: left;
+    transition: border-color .15s, box-shadow .15s, background .15s;
+  }
+  .dd-btn:hover { background: #fff; border-color: #cfe6f2; }
+  .dd.open .dd-btn {
+    background: #fff; border-color: var(--accent); box-shadow: var(--ring);
+  }
+  .dd-btn:disabled { opacity: .6; cursor: default; }
+  .dd-label {
+    flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .dd-caret {
+    width: 15px; height: 15px; flex: none;
+    fill: none; stroke: #8ea3b8; stroke-width: 2;
+    stroke-linecap: round; stroke-linejoin: round;
+    transition: transform .18s, stroke .18s;
+  }
+  .dd.open .dd-caret { transform: rotate(180deg); stroke: var(--accent-deep); }
+  /* 选项面板挂到 body 上，避免被弹窗 / 卡片的滚动区域裁切 */
+  .dd-menu {
+    position: fixed; z-index: 80;
+    padding: 6px; border-radius: 14px;
+    background: rgba(255, 255, 255, .99);
+    border: 1px solid #e3eef7;
+    box-shadow: 0 18px 44px rgba(18, 55, 88, .18);
+    overflow: auto; overscroll-behavior: contain;
+    animation: ddIn .14s ease-out;
+  }
+  @keyframes ddIn {
+    from { opacity: 0; transform: translateY(-4px) scale(.985); }
+    to { opacity: 1; transform: none; }
+  }
+  .dd-opt {
+    display: block; width: 100%; text-align: left;
+    border: 0; background: transparent; color: #33475c;
+    padding: 8px 10px; border-radius: 10px; font-size: 13px;
+    transition: background .12s, color .12s;
+  }
+  .dd-opt:hover { background: #f1f9fd; color: var(--accent-deep); }
+  .dd-opt.selected { background: #e9f7fd; color: var(--accent-deep); font-weight: 600; }
+
+  /* ---------- 卡片与表格 ---------- */
+  .card {
+    border-radius: 22px;
+    background: rgba(255, 255, 255, .92);
+    border: 1px solid rgba(228, 239, 248, .95);
+    box-shadow: var(--shadow-md);
+    /* 宽表格在卡片内部横向滚动，不撑破整页布局 */
+    overflow-x: auto;
+  }
+  table { font-size: 13px; }
+  th {
+    padding: 13px 18px;
+    background: #f6fafd;
+    color: #8a9cb1;
+    font-size: 11.5px; font-weight: 600; letter-spacing: .4px;
+    border-bottom: 1px solid #edf3f9;
+  }
+  td {
+    padding: 13px 18px;
+    border-bottom: 1px solid #f1f6fa;
+    color: #2b4056;
+  }
+  tr:hover td { background: #f8fcfe; }
+  .empty { color: #93a4b7; }
+  .tag {
+    display: inline-flex; align-items: center;
+    padding: 3px 10px; border-radius: 999px;
+    font-size: 11px; font-weight: 600; letter-spacing: .2px;
+  }
+  .tag.on { background: #e7f8fd; color: #0c7f9f; }
+  .tag.off { background: #f2f5f9; color: #8d9cae; }
+  .tag.gold { background: #fdf3dd; color: #b9821e; }
+  .tag.paid { background: #e8f8ee; color: #1c9257; }
+  .tag.pending { background: #fff4dd; color: #b07d19; }
+  .tag.cancelled, .tag.refunded { background: #f2f5f9; color: #8d9cae; }
+  .tag.rejected { background: #ffeded; color: #d94a4f; }
+  .row-actions { gap: 7px; }
+  .pager { margin-top: 16px; }
+  .user-avatar { background: #eef6fc; color: #6e8ba3; }
+  .swatch { border-radius: 5px; }
+  .icon-fname { color: #5b6f84; }
+  .cu-row {
+    border-radius: 16px; border: 1px solid #e9f1f8;
+    background: #fbfdff;
+    transition: box-shadow .15s, border-color .15s, transform .15s;
+  }
+  .cu-row:hover { border-color: #d3e8f3; box-shadow: var(--shadow-sm); transform: translateY(-1px); }
+  .cu-thumb { background: #f2f8fc; border-radius: 14px; }
+  .cu-del { border-radius: 9px; background: #f4f7fa; }
+
+  /* ---------- 弹窗 ---------- */
+  #modalMask, #pickerMask {
+    background: rgba(16, 36, 58, .34);
+    backdrop-filter: blur(6px) saturate(115%);
+    animation: maskIn .18s ease-out;
+  }
+  @keyframes maskIn { from { opacity: 0; } to { opacity: 1; } }
+  .modal {
+    border-radius: 26px;
+    padding: 24px 26px 20px;
+    background: linear-gradient(180deg, #ffffff, #fdfefe 55%, #fbfdff);
+    border: 1px solid rgba(255, 255, 255, .95);
+    box-shadow: 0 32px 76px rgba(14, 44, 74, .24), inset 0 1px 0 rgba(255, 255, 255, .9);
+    animation: modalIn .2s cubic-bezier(.2, .8, .3, 1);
+  }
+  @keyframes modalIn {
+    from { opacity: 0; transform: translateY(10px) scale(.975); }
+    to { opacity: 1; transform: none; }
+  }
+  .modal h3 {
+    display: flex; align-items: center; gap: 10px;
+    margin: 0 0 18px; padding-bottom: 16px;
+    font-size: 19px; font-weight: 800; letter-spacing: -.3px; color: #17293d;
+    border-bottom: 1px solid #edf4fa;
+  }
+  .modal h3::before {
+    content: ""; flex: none;
+    width: 4px; height: 17px; border-radius: 999px;
+    background: linear-gradient(180deg, #41b9e2, #7cd7f8);
+  }
+  .modal-foot {
+    position: sticky; bottom: 0;
+    margin: 24px -26px -20px;
+    padding: 14px 26px 18px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, .55), #fff 45%);
+    border-top: 1px solid #eef5fb;
+    backdrop-filter: blur(8px);
+  }
+  .modal-err:empty { display: none; }
+  .modal-err:not(:empty) {
+    padding: 9px 12px; border-radius: 10px;
+    background: #fff2f2; border: 1px solid #f9dadb;
+  }
+  .form-grid > div > label { color: #63798f; letter-spacing: .2px; }
+  .modal.picker { border-radius: 22px; }
+  .icon-pick-grid { background: #f3f8fc; border-radius: 16px; }
+  .icon-pick { background: #fff; border-radius: 12px; }
+  .icon-pick.selected { border-color: var(--accent); box-shadow: var(--ring); }
+  .form-grid textarea { border-radius: 12px; background: #fbfdff; }
+  .check input { accent-color: var(--accent); }
+  .bcheck {
+    border-radius: 12px; background: #fbfdff; border-color: #e9f1f8;
+  }
+  .bcheck:has(input:checked) {
+    border-color: #a9dcef; background: #ecf9fd;
+  }
+  .day-card {
+    border-radius: 20px; border-color: #e8f1f8;
+    background: linear-gradient(180deg, #ffffff, #fbfdff);
+    box-shadow: var(--shadow-sm);
+  }
+  .day-nav button { border-radius: 10px; background: #fff; }
+  .metric {
+    border-radius: 14px;
+    background: linear-gradient(180deg, #f5fafe, #eff7fc);
+    border: 1px solid #ebf3f9;
+  }
+  .metric-value { color: #1b3147; }
+  .day-detail .card { border-color: #ebf3f9; box-shadow: none; }
+  .bev-hero {
+    border-radius: 20px;
+    background: linear-gradient(120deg, #eff9fe, #e6f4fb);
+    border: 1px solid #dceef8;
+  }
+  .bev-section { border-top-color: #edf3f9; }
+  .palette-custom input[type="color"] { border-radius: 10px; }
+  .pdot.selected { border-color: var(--accent-deep); }
+  .char-preview {
+    background: linear-gradient(160deg, #f2f9fd, #eaf4fb);
+    border-radius: 18px;
+  }
+  .char-thumb:hover { box-shadow: 0 0 0 2px var(--accent), 0 8px 20px rgba(31, 100, 140, .18); }
+  .nutri-line { color: #8a9cb1; }
+
+  /* ---------- 数据看板 ---------- */
+  .kpi {
+    position: relative; overflow: hidden;
+    border-radius: 22px;
+    padding: 18px 18px 16px;
+    background: linear-gradient(160deg, #ffffff 0%, #f6fbff 100%);
+    border: 1px solid #e7f1f9;
+    box-shadow: var(--shadow-md);
+  }
+  .kpi::after {
+    content: "";
+    position: absolute; right: -26px; top: -26px;
+    width: 96px; height: 96px; border-radius: 50%;
+    background: radial-gradient(circle at 32% 32%, rgba(92, 200, 250, .30), transparent 68%);
+    pointer-events: none;
+  }
+  .kpi:nth-child(4n+2)::after { background: radial-gradient(circle at 32% 32%, rgba(144, 161, 255, .26), transparent 68%); }
+  .kpi:nth-child(4n+3)::after { background: radial-gradient(circle at 32% 32%, rgba(108, 220, 196, .26), transparent 68%); }
+  .kpi:nth-child(4n+4)::after { background: radial-gradient(circle at 32% 32%, rgba(255, 198, 120, .24), transparent 68%); }
+  .kpi-label { font-size: 11.5px; color: #8699ae; letter-spacing: .3px; }
+  .kpi-value { font-size: 28px; font-weight: 800; color: #14293f; letter-spacing: -1px; }
+  .kpi-value em { color: #90a1b4; font-weight: 600; }
+  .kpi-sub { color: #93a4b7; }
+  .kpi-sub b { color: var(--accent-deep); }
+  .chart-card {
+    border-radius: 22px;
+    padding: 18px 20px 12px;
+    background: rgba(255, 255, 255, .94);
+    border: 1px solid #e7f1f9;
+    box-shadow: var(--shadow-md);
+    min-width: 0;
+  }
+  .chart-head h3 { font-size: 14.5px; font-weight: 700; color: #22384e; }
+  .chart-head .legend { color: #94a6b9; }
+  .chart-svg { display: block; width: 100%; height: auto; }
+  .stat-bar { background: #eff5fa; border-radius: 999px; height: 7px; }
+  .stat-bar > span { border-radius: 999px; }
+  .funnel-track { background: #eff5fa; border-radius: 9px; height: 20px; }
+  .funnel-track > span { background: linear-gradient(90deg, #3cb2dc, #7ad1f6 60%, #a7b9ff); border-radius: 9px; }
+  .funnel-extra b { color: var(--accent-deep); }
+  .dash-note { color: #8fa1b5; }
+
+  #toast {
+    background: rgba(19, 38, 58, .94);
+    border: 1px solid rgba(255, 255, 255, .10);
+    box-shadow: 0 16px 40px rgba(12, 32, 52, .30);
+    padding: 11px 20px; border-radius: 999px;
+  }
+
+  @media (max-width: 1500px) {
+    .chart-grid { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 1024px) {
+    #app { padding: 12px; gap: 12px; }
+    aside { width: 206px; flex-basis: 206px; top: 12px; height: calc(100vh - 24px); }
+    main { padding: 20px 18px 30px; border-radius: 22px; }
+    .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
 </style>
 </head>
 <body>
+
+<!-- 图标 sprite：侧栏线性图标统一取用 -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-dashboard" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.6"/></symbol>
+  <symbol id="i-beverage" viewBox="0 0 24 24"><path d="M6 4.5h12l-1.4 14a2 2 0 0 1-2 1.8h-5.2a2 2 0 0 1-2-1.8Z"/><path d="M7.2 10.5h9.6"/></symbol>
+  <symbol id="i-category" viewBox="0 0 24 24"><path d="M20.5 13.3l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.5 7.5a2 2 0 0 1 0 2.8Z"/><circle cx="7.6" cy="7.6" r="1.2"/></symbol>
+  <symbol id="i-icons" viewBox="0 0 24 24"><circle cx="7.2" cy="7.2" r="3.4"/><rect x="13.4" y="13.4" width="7" height="7" rx="1.8"/><path d="M17.4 4l3.4 6h-6.8Z"/></symbol>
+  <symbol id="i-character" viewBox="0 0 24 24"><circle cx="8" cy="7.5" r="2"/><circle cx="16" cy="7.5" r="2"/><circle cx="5" cy="13" r="1.7"/><circle cx="19" cy="13" r="1.7"/><path d="M8.2 13.2c1.3-1.4 2.4-2 3.8-2s2.5.6 3.8 2c1.1 1.2.9 3.2-.5 3.9-1.3.6-2.2-.3-3.3-.3s-2 .9-3.3.3c-1.4-.7-1.6-2.7-.5-3.9Z"/></symbol>
+  <symbol id="i-charcat" viewBox="0 0 24 24"><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2Z"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8.5" r="3"/><path d="M3.5 19c.4-3 2.7-4.5 5.5-4.5s5.1 1.5 5.5 4.5"/><path d="M15.5 6.2a3 3 0 0 1 0 5.8"/><path d="M17.5 19c-.2-2-.9-3.4-2-4.3 2.7-.4 4.8 1.2 5 4.3"/></symbol>
+  <symbol id="i-plan" viewBox="0 0 24 24"><rect x="3" y="5.5" width="18" height="13" rx="2.4"/><path d="M3 10h18"/><path d="M7 15h3"/></symbol>
+  <symbol id="i-order" viewBox="0 0 24 24"><path d="M6 3.5h12v17l-3-2-3 2-3-2-3 2Z"/><path d="M9 8h6M9 12h6"/></symbol>
+  <symbol id="i-challenge" viewBox="0 0 24 24"><path d="M8 4h8v5a4 4 0 0 1-8 0Z"/><path d="M8 5H4.5v2A3.5 3.5 0 0 0 8 10.5M16 5h3.5v2a3.5 3.5 0 0 1-3.5 3.5"/><path d="M12 13v4M8.5 20h7"/></symbol>
+  <symbol id="i-release" viewBox="0 0 24 24"><path d="M12 15c-1.5-1.5-2-4-1-6.5C12.5 5 15.5 3.5 19 3.5c0 3.5-1.5 6.5-5 8-2.5 1-5 .5-6.5-1Z"/><circle cx="14.5" cy="8" r="1.3"/><path d="M9 12l-3.5 1L7 9.5M12 15l-1 3.5L8.5 17"/></symbol>
+  <symbol id="i-feedback" viewBox="0 0 24 24"><path d="M4 5.5h16v10H9l-5 4Z"/><path d="M8 9.5h8M8 12.5h5"/></symbol>
+  <symbol id="i-error" viewBox="0 0 24 24"><path d="M12 4l8.5 15h-17Z"/><path d="M12 9.5v4"/><circle cx="12" cy="16.2" r=".9"/></symbol>
+</svg>
 
 <!-- 登录 -->
 <div id="loginView" class="login-wrap">
@@ -429,29 +962,54 @@
 <!-- 主界面 -->
 <div id="app" class="hidden">
   <aside>
-    <div class="brand">吨吨<span>.</span><small>WaterLlama Admin</small></div>
-    <button class="nav-btn" data-tab="dashboard">数据看板</button>
-    <button class="nav-btn" data-tab="beverages">饮品库</button>
-    <button class="nav-btn" data-tab="categories">饮品分类</button>
-    <button class="nav-btn" data-tab="icons">容器图标库</button>
-    <button class="nav-btn" data-tab="characters">角色库</button>
-    <button class="nav-btn" data-tab="charcats">角色分类</button>
-    <button class="nav-btn" data-tab="users">用户列表</button>
-    <button class="nav-btn" data-tab="plans">会员套餐</button>
-    <button class="nav-btn" data-tab="orders">订单查询</button>
-    <button class="nav-btn" data-tab="tips">贴士卡</button>
-    <button class="nav-btn" data-tab="releases">版本发布</button>
-    <button class="nav-btn" data-tab="feedback">用户反馈</button>
-    <button class="nav-btn" data-tab="errors">异常上报</button>
+    <div class="brand">
+      <div class="brand-mark">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2c3.3 3.7 5.7 6.7 5.7 9.6a5.7 5.7 0 0 1-11.4 0c0-2.9 2.4-5.9 5.7-9.6Z" fill="currentColor"/></svg>
+      </div>
+      <div class="brand-text">
+        <b>吨吨<span>.</span></b>
+        <small>WaterLlama Admin</small>
+      </div>
+    </div>
+    <nav class="nav-list">
+      <div class="nav-label">概览</div>
+      <button class="nav-btn" data-tab="dashboard"><svg class="nav-ico"><use href="#i-dashboard"/></svg><span>数据看板</span></button>
+      <div class="nav-label">内容管理</div>
+      <button class="nav-btn" data-tab="beverages"><svg class="nav-ico"><use href="#i-beverage"/></svg><span>饮品库</span></button>
+      <button class="nav-btn" data-tab="categories"><svg class="nav-ico"><use href="#i-category"/></svg><span>饮品分类</span></button>
+      <button class="nav-btn" data-tab="icons"><svg class="nav-ico"><use href="#i-icons"/></svg><span>容器图标库</span></button>
+      <button class="nav-btn" data-tab="characters"><svg class="nav-ico"><use href="#i-character"/></svg><span>角色库</span></button>
+      <button class="nav-btn" data-tab="charcats"><svg class="nav-ico"><use href="#i-charcat"/></svg><span>角色分类</span></button>
+      <div class="nav-label">用户与交易</div>
+      <button class="nav-btn" data-tab="users"><svg class="nav-ico"><use href="#i-users"/></svg><span>用户列表</span></button>
+      <button class="nav-btn" data-tab="plans"><svg class="nav-ico"><use href="#i-plan"/></svg><span>会员套餐</span></button>
+      <button class="nav-btn" data-tab="orders"><svg class="nav-ico"><use href="#i-order"/></svg><span>订单查询</span></button>
+      <div class="nav-label">运营</div>
+      <button class="nav-btn" data-tab="challenges"><svg class="nav-ico"><use href="#i-challenge"/></svg><span>挑战卡</span></button>
+      <button class="nav-btn" data-tab="releases"><svg class="nav-ico"><use href="#i-release"/></svg><span>版本发布</span></button>
+      <button class="nav-btn" data-tab="feedback"><svg class="nav-ico"><use href="#i-feedback"/></svg><span>用户反馈</span></button>
+      <button class="nav-btn" data-tab="errors"><svg class="nav-ico"><use href="#i-error"/></svg><span>异常上报</span></button>
+    </nav>
     <div class="nav-foot">
-      <div id="whoami" style="margin-bottom:8px;word-break:break-all;"></div>
-      <button id="accountBtn" style="margin-bottom:6px;">账号安全</button>
-      <button id="logoutBtn">退出登录</button>
+      <div class="nav-user">
+        <div class="nav-avatar">A</div>
+        <div class="nav-user-meta">
+          <div id="whoami" title="当前登录账号"></div>
+          <span>管理员</span>
+        </div>
+      </div>
+      <div class="nav-actions">
+        <button id="accountBtn" class="nav-ghost">账号安全</button>
+        <button id="logoutBtn" class="nav-ghost">退出登录</button>
+      </div>
     </div>
   </aside>
   <main>
     <header class="page">
-      <h1 id="pageTitle">饮品库</h1>
+      <div class="page-heading">
+        <h1 id="pageTitle">饮品库</h1>
+        <div class="page-sub">饮品、角色与会员数据的一站式管理</div>
+      </div>
       <div class="api-hint" id="apiHint"></div>
     </header>
     <div id="view"></div>
@@ -564,17 +1122,150 @@
     return assetOrigin() + (u.charAt(0) === "/" ? u : "/" + u);
   }
 
-  async function uploadAsset(file, dir, keepName) {
+  /// SVG 预检（服务端还会再做权威校验，这里只为即时给出明确报错）
+  /// 返回错误文案，通过则返回 null
+  async function validateSvgFile(file, opts) {
+    var o = opts || {};
+    var label = o.label || "图标";
+    var maxBytes = o.maxBytes || 64 * 1024;
+    var maxPaths = o.maxPaths || 120;
+    var maxNodes = o.maxNodes || 400;
+    var requireSquare = o.requireSquare !== false;
+    if (file.size > maxBytes) {
+      return label + "文件不能超过 " + Math.round(maxBytes / 1024) + "KB";
+    }
+    var text = await file.text();
+    var lower = text.toLowerCase();
+    if (!lower.trim()) return label + "内容为空";
+    var denies = [
+      ["<!entity", "不允许实体声明"],
+      ["<script", "不允许 script 标签"],
+      ["<foreignobject", "不允许 foreignObject"],
+      ["<image", "不允许位图或外链图片"],
+      ["<animate", "不允许动画标签"],
+      ["<filter", "不允许滤镜标签"],
+      ["@import", "不允许 CSS @import"]
+    ];
+    for (var i = 0; i < denies.length; i++) {
+      if (lower.indexOf(denies[i][0]) >= 0) return denies[i][1];
+    }
+    if (/\son(?:load|click|error|mouseover|focus|begin|end)\s*=/.test(lower)) {
+      return "不允许事件属性";
+    }
+    var hrefRe = /href\s*=\s*["']([^"']*)["']/g, hm;
+    while ((hm = hrefRe.exec(lower))) {
+      if (hm[1].charAt(0) !== "#") return "不允许引用外部资源";
+    }
+    if (/url\s*\(\s*["']?(?:http:|https:|\/\/|data:)/.test(lower)) {
+      return "不允许引用外部资源";
+    }
+    var doc = null;
+    try { doc = new DOMParser().parseFromString(text, "image/svg+xml"); } catch (_) {}
+    if (!doc || doc.getElementsByTagName("parsererror").length ||
+        (doc.documentElement && doc.documentElement.nodeName.toLowerCase() !== "svg")) {
+      return "不是合法的 SVG 文件";
+    }
+    var root = doc.documentElement;
+    var vb = root.getAttribute("viewBox");
+    var w = Number(root.getAttribute("width") || 0);
+    var h = Number(root.getAttribute("height") || 0);
+    var nums = vb ? vb.trim().split(/[\s,]+/).map(Number)
+                  : (w > 0 && h > 0 ? [0, 0, w, h] : null);
+    if (!nums || nums.length !== 4 || nums.some(function (n) { return !isFinite(n); })) {
+      return '缺少有效 viewBox（建议 viewBox="0 0 100 100"）';
+    }
+    var vbw = nums[2], vbh = nums[3];
+    if (vbw <= 0 || vbh <= 0 || vbw > 4096 || vbh > 4096) {
+      return "viewBox 尺寸不合法（宽高 1–4096）";
+    }
+    var ratio = vbw / vbh;
+    if (requireSquare) {
+      if (ratio < 0.8 || ratio > 1.25) {
+        return "容器图标需要近似正方形画布（宽高比 0.8–1.25）";
+      }
+    } else if (ratio < 0.2 || ratio > 5) {
+      return "画布宽高比需在 0.2–5 之间";
+    }
+    if (doc.getElementsByTagName("path").length > maxPaths) {
+      return "路径数量过多（最多 " + maxPaths + " 条）";
+    }
+    if (doc.getElementsByTagName("*").length > maxNodes) {
+      return "SVG 元素过多（最多 " + maxNodes + " 个）";
+    }
+    return null;
+  }
+
+  /// 容器图标预检：额外要求规范文件名
+  async function validateContainerSvgFile(file) {
+    var name = String(file.name || "");
+    if (!/^[a-z0-9][a-z0-9_-]{0,31}\.svg$/i.test(name)) {
+      return "文件名需为小写字母/数字/下划线/中划线（最多 32 个字符），扩展名 .svg";
+    }
+    return validateSvgFile(file, {
+      label: "图标",
+      maxBytes: 64 * 1024,
+      maxPaths: 120,
+      maxNodes: 400,
+      requireSquare: true,
+    });
+  }
+
+  /// 读取本地图片的宽高（同时校验能否正常解码）
+  function readImageSize(url) {
+    return new Promise(function (resolve) {
+      var img = new Image();
+      img.onload = function () {
+        resolve({ ok: true, width: img.naturalWidth, height: img.naturalHeight });
+      };
+      img.onerror = function () { resolve({ ok: false }); };
+      img.src = url;
+    });
+  }
+
+  /// 角色素材预检：SVG 按角色规则校验，位图确认可解码且尺寸不超限
+  async function validateCharacterAssetFile(file, objectUrl) {
+    var m = /\.([a-z0-9]+)$/i.exec(file.name || "");
+    var ext = m ? m[1].toLowerCase() : "";
+    if (["svg", "png", "jpg", "jpeg", "webp"].indexOf(ext) < 0) {
+      return "仅支持 SVG / PNG / JPG / WEBP";
+    }
+    if (!file.size) return "文件为空";
+    if (ext === "svg") {
+      return validateSvgFile(file, {
+        label: "角色素材",
+        maxBytes: 1024 * 1024,
+        maxPaths: 1200,
+        maxNodes: 3000,
+        requireSquare: false,
+      });
+    }
+    if (file.size > 3 * 1024 * 1024) return "图片不能超过 3MB";
+    var ownUrl = objectUrl || URL.createObjectURL(file);
+    var dim = await readImageSize(ownUrl);
+    if (!objectUrl) URL.revokeObjectURL(ownUrl);
+    if (!dim.ok) return "图片无法解码，文件内容与扩展名可能不一致";
+    if (dim.width > 4096 || dim.height > 4096) {
+      return "图片尺寸过大（宽高最多 4096px）";
+    }
+    return null;
+  }
+
+  async function uploadAsset(file, dir, keepName, overwrite) {
     var m = /\.([a-z0-9]+)$/i.exec(file.name || "");
     var ext = m ? m[1].toLowerCase() : "svg";
     if (["svg", "png", "jpg", "jpeg", "webp"].indexOf(ext) < 0) {
       throw new Error("仅支持 SVG / PNG / JPG / WEBP");
     }
+    if (!file.size) throw new Error("文件为空");
     if (file.size > 3 * 1024 * 1024) throw new Error("文件不能超过 3MB");
+    if (dir === "preset/characters" && ext === "svg" && file.size > 1024 * 1024) {
+      throw new Error("角色 SVG 不能超过 1MB");
+    }
     var q = "?ext=" + encodeURIComponent(ext);
     if (dir) q += "&dir=" + encodeURIComponent(dir);
     // 容器图标保留原文件名：App 以文件名作为容器 id，删除/覆盖都按它对应
     if (keepName) q += "&name=" + encodeURIComponent(file.name || "");
+    if (overwrite) q += "&overwrite=1";
     var res = await fetch(state.api + "/admin/assets" + q, {
       method: "POST",
       headers: {
@@ -666,6 +1357,8 @@
     $("app").classList.remove("hidden");
     $("apiHint").textContent = state.api;
     renderWho();
+    // 仅登录进入时给一次加载占位；之后所有刷新均静默
+    $("view").innerHTML = '<div class="card"><div class="empty">加载中…</div></div>';
     switchTab(state.tab);
   }
 
@@ -726,7 +1419,7 @@
     users: "用户列表",
     plans: "会员套餐",
     orders: "订单查询",
-    tips: "贴士卡",
+    challenges: "挑战卡",
     releases: "版本发布",
     feedback: "用户反馈",
     errors: "异常上报",
@@ -739,11 +1432,14 @@
     document.querySelectorAll(".nav-btn").forEach(function (b) {
       b.classList.toggle("active", b.dataset.tab === tab);
     });
-    render();
+    // 静默切换：新页面数据就绪前保留旧内容，避免先闪一下「加载中」
+    render({ silent: true });
   }
 
   async function render(opts) {
-    var silent = !!(opts && opts.silent);
+    // 全局默认静默刷新：所有切换 / 筛选 / 刷新 / 翻页都先保留当前内容，
+    // 新数据就绪后再整体替换，避免每次都闪一下「加载中」
+    var silent = !(opts && opts.loading);
     var view = $("view");
     if (!silent) view.innerHTML = '<div class="card"><div class="empty">加载中…</div></div>';
     try {
@@ -755,7 +1451,7 @@
       else if (state.tab === "charcats") await renderCharCats();
       else if (state.tab === "users") await renderUsers();
       else if (state.tab === "plans") await renderPlans();
-      else if (state.tab === "tips") await renderTips();
+      else if (state.tab === "challenges") await renderChallenges();
       else if (state.tab === "releases") await renderReleases();
       else if (state.tab === "feedback") await renderFeedback();
       else if (state.tab === "errors") await renderErrors();
@@ -827,7 +1523,7 @@
   /// 通用趋势图：多序列折线，或单序列柱状；纯内联 SVG，自适应容器宽度
   function trendChart(labels, series, opt) {
     opt = opt || {};
-    var W = 780;
+    var W = 700;
     var H = opt.height || 200;
     var L = 44, R = 10, T = 14, B = 24;
     var iw = W - L - R, ih = H - T - B;
@@ -849,16 +1545,16 @@
       var val = max * g / 4;
       var y = yAt(val);
       out += '<line x1="' + L + '" y1="' + y + '" x2="' + (W - R) + '" y2="' + y +
-        '" stroke="#eef0f3" stroke-width="1" />';
-      out += '<text x="' + (L - 8) + '" y="' + (y + 3.5) +
-        '" text-anchor="end" font-size="10" fill="#9aa0aa">' +
+        '" stroke="#e1eaf3" stroke-width="1" />';
+      out += '<text x="' + (L - 8) + '" y="' + (y + 4) +
+        '" text-anchor="end" font-size="11.5" fill="#5d7288">' +
         esc(opt.tick ? opt.tick(val) : fmtInt(Math.round(val))) + "</text>";
     }
     var every = Math.ceil(labels.length / 6);
     labels.forEach(function (lb, i) {
       if (i % every !== 0 && i !== labels.length - 1) return;
       out += '<text x="' + xAt(i) + '" y="' + (H - 6) +
-        '" text-anchor="middle" font-size="10" fill="#9aa0aa">' + esc(lb) + "</text>";
+        '" text-anchor="middle" font-size="11" fill="#6b8098">' + esc(lb) + "</text>";
     });
 
     if (opt.bar) {
@@ -1203,7 +1899,7 @@
       el.onclick = function () {
         state.beverageCategory = el.dataset.bcat;
         state.page = 1;
-        render();
+        render({ silent: true });
       };
     });
     document.querySelectorAll("[data-preview]").forEach(function (el) {
@@ -1582,11 +2278,20 @@
     var list = rows.filter(function (a) {
       return a.name.indexOf("preset/containers/") === 0;
     });
-    var body = list.map(function (a) {
+    // 序号按入库时间升序：最早入库的在前，新上传（含同名覆盖）排在最后
+    list.sort(function (a, b) {
+      return (Date.parse(a.updatedAt || "") || 0) - (Date.parse(b.updatedAt || "") || 0);
+    });
+    var body = list.map(function (a, i) {
       var base = String(a.name).split("/").pop();
+      var url = esc(assetUrl(a.url));
+      // 统一用 #4a4a4a 剪影显示：mask 只取图标轮廓，忽略源文件填色
+      var maskStyle = "-webkit-mask:url('" + url + "') center/contain no-repeat;" +
+        "mask:url('" + url + "') center/contain no-repeat;";
       return [
+        '<span style="color:var(--gray);font-variant-numeric:tabular-nums;">' + (i + 1) + "</span>",
         '<button type="button" class="icon-btn" data-preview-icon="' + esc(a.name) + '" title="点击放大查看">' +
-          '<span class="icon-thumb"><img src="' + esc(assetUrl(a.url)) + '" alt="" /></span></button>',
+          '<span class="icon-thumb"><i style="' + maskStyle + '"></i></span></button>',
         '<span class="icon-fname" title="' + esc(a.url) + '">' + esc(base) + "</span>",
         '<div class="row-actions">' +
           '<button class="btn ghost sm" data-copy="' + esc(a.url) + '">复制地址</button>' +
@@ -1598,26 +2303,17 @@
       '<div class="toolbar"><span class="api-hint">共 ' + list.length +
         " 个容器图标，App 联网后会自动与本地图标库对齐（文件名即容器 id）</span>" +
       '<div class="grow"></div>' +
-      '<label class="btn" style="margin:0;cursor:pointer;">上传容器图标' +
-        '<input id="containerUpload" type="file" multiple accept=".svg" style="display:none;" />' +
-      "</label></div>" +
+      '<button class="btn" id="containerUploadBtn">上传容器图标</button></div>' +
       (body.length
-        ? tableWrap(["图标", "文件名", "操作"], body) +
+        ? tableWrap(["序号", "图标", "文件名", "操作"], body) +
           '<div class="api-hint" style="margin-top:10px;">点图标可放大查看</div>'
         : '<div class="card"><div class="empty">容器图标库为空，点击右上「上传容器图标」</div></div>');
-    $("containerUpload").onchange = async function () {
-      var files = Array.prototype.slice.call(this.files || []);
-      this.value = "";
-      var ok = 0;
-      for (var i = 0; i < files.length; i++) {
-        try {
-          await uploadAsset(files[i], "preset/containers", true);
-          ok += 1;
-        } catch (err) {
-          toast(files[i].name + "：" + (err.message || "上传失败"));
-        }
-      }
-      if (ok) { toast("已上传 " + ok + " 个容器图标"); render(); }
+    $("containerUploadBtn").onclick = function () {
+      var existing = {};
+      list.forEach(function (a) {
+        existing[String(a.name).split("/").pop().toLowerCase()] = true;
+      });
+      openContainerUpload(existing);
     };
     document.querySelectorAll("[data-preview-icon]").forEach(function (el) {
       el.onclick = function () {
@@ -1633,14 +2329,134 @@
     });
   }
 
+  /// 上传容器图标：先弹卡片选文件 → 预览 + 预检 → 确认后上传
+  /// existing：图标库现有文件名（小写），用于同名覆盖提示
+  function openContainerUpload(existing) {
+    var queue = []; // { file, url, error }
+
+    function revokeAll() {
+      queue.forEach(function (f) { URL.revokeObjectURL(f.url); });
+    }
+
+    function renderQueue() {
+      var box = $("cuList");
+      if (!box) return;
+      if (!queue.length) {
+        box.innerHTML = '<div class="empty" style="padding:24px;">还没有选择文件，点击上方「选择 SVG 文件」</div>';
+      } else {
+        box.innerHTML = queue.map(function (f, i) {
+          var name = String(f.file.name || "");
+          var dup = existing[name.toLowerCase()];
+          return '<div class="cu-row">' +
+            '<span class="cu-thumb"><img src="' + esc(f.url) + '" alt="" /></span>' +
+            '<div class="cu-meta">' +
+              '<div class="cu-name">' + esc(name) + "</div>" +
+              '<div class="cu-sub">' + (f.file.size / 1024).toFixed(1) + " KB</div>" +
+              (f.error
+                ? '<div class="cu-status bad">' + esc(f.error) + "</div>"
+                : '<div class="cu-status ok">校验通过，可用于 App 容器图标</div>') +
+              (dup ? '<div class="cu-tags"><span class="tag gold">同名图标已存在 · 上传后将覆盖</span></div>' : "") +
+            "</div>" +
+            '<button type="button" class="cu-del" data-cu-del="' + i + '" title="移除">✕</button>' +
+          "</div>";
+        }).join("");
+        box.querySelectorAll("[data-cu-del]").forEach(function (el) {
+          el.onclick = function () {
+            var idx = Number(el.dataset.cuDel);
+            if (queue[idx]) URL.revokeObjectURL(queue[idx].url);
+            queue.splice(idx, 1);
+            renderQueue();
+          };
+        });
+      }
+      var save = $("modalSave");
+      if (save) save.disabled = !queue.some(function (f) { return !f.error; });
+    }
+
+    var bodyHtml =
+      '<div class="cu-pick">' +
+        '<label class="btn ghost" style="margin:0;cursor:pointer;">选择 SVG 文件' +
+          '<input id="cuInput" type="file" accept=".svg" multiple style="display:none;" />' +
+        "</label>" +
+        '<span class="api-hint">单色 SVG 剪影，文件名（小写字母/数字/下划线，≤32 字符）即容器 id，上限 64KB</span>' +
+      "</div>" +
+      '<div class="cu-list" id="cuList"></div>' +
+      '<div class="api-hint" style="margin-top:10px;">选择后会立即预览图标并做格式校验；校验不通过的文件不会被上传</div>';
+
+    async function doUpload() {
+      var items = queue.filter(function (f) { return !f.error; });
+      if (!items.length) throw new Error("没有可上传的文件");
+      var dups = items.filter(function (f) { return existing[String(f.file.name).toLowerCase()]; });
+      if (dups.length) {
+        var names = dups.map(function (f) { return f.file.name; }).join("、");
+        if (!confirm("以下同名图标已存在，覆盖后所有用户都会看到新图标：\n" + names + "\n\n确定覆盖吗？")) {
+          throw new Error("已取消覆盖");
+        }
+      }
+      for (var i = 0; i < items.length; i++) {
+        var f = items[i];
+        var overwrite = !!existing[String(f.file.name).toLowerCase()];
+        await uploadAsset(f.file, "preset/containers", true, overwrite);
+        existing[String(f.file.name).toLowerCase()] = true;
+      }
+      toast("已上传 " + items.length + " 个容器图标");
+      revokeAll();
+      queue = [];
+      closeModal();
+      render();
+    }
+
+    openModal("上传容器图标", bodyHtml, doUpload);
+
+    var save = $("modalSave");
+    save.textContent = "上传";
+    save.disabled = true;
+    // 覆盖 openModal 的默认保存逻辑：按钮文案与上传语义一致
+    save.onclick = async function () {
+      $("modalErr").textContent = "";
+      save.disabled = true;
+      save.textContent = "上传中…";
+      try {
+        await doUpload();
+      } catch (err) {
+        $("modalErr").textContent = err.message || "上传失败";
+        save.disabled = !queue.some(function (f) { return !f.error; });
+        save.textContent = "上传";
+      }
+    };
+    $("modalCancel").onclick = function () { revokeAll(); closeModal(); };
+    renderQueue();
+
+    $("cuInput").onchange = async function () {
+      var files = Array.prototype.slice.call(this.files || []);
+      this.value = "";
+      for (var i = 0; i < files.length; i++) {
+        var f = files[i];
+        var lowerName = String(f.name || "").toLowerCase();
+        if (queue.some(function (q) { return String(q.file.name).toLowerCase() === lowerName; })) {
+          toast("已选择同名文件：" + f.name);
+          continue;
+        }
+        var item = { file: f, url: URL.createObjectURL(f), error: null };
+        queue.push(item);
+        renderQueue();
+        item.error = await validateContainerSvgFile(f);
+        renderQueue();
+      }
+    };
+  }
+
   /// 容器图标放大查看
   function previewContainerIcon(a) {
     var base = String(a.name).split("/").pop();
+    var url = esc(assetUrl(a.url));
+    // 预览同样使用 #4a4a4a 剪影，避免和图标库列表颜色不一致
+    var maskStyle = "-webkit-mask:url('" + url + "') center/contain no-repeat;" +
+      "mask:url('" + url + "') center/contain no-repeat;";
     openModal(
       "图标预览 · " + base,
       '<div style="display:flex;flex-direction:column;align-items:center;gap:14px;padding:12px 0 6px;">' +
-        '<img src="' + esc(assetUrl(a.url)) + '" alt="" ' +
-          'style="width:240px;height:240px;object-fit:contain;filter:drop-shadow(0 0 1px rgba(0,0,0,.45));" />' +
+        '<span style="display:block;width:240px;height:240px;background:#4a4a4a;' + maskStyle + '"></span>' +
         '<div class="api-hint">' + esc(a.url) + "</div>" +
       "</div>",
       async function () {}
@@ -1766,7 +2582,7 @@
       el.onclick = function () {
         state.charCategory = el.dataset.cat;
         state.page = 1;
-        render();
+        render({ silent: true });
       };
     });
     document.querySelectorAll("[data-up]").forEach(function (el) {
@@ -1965,14 +2781,20 @@
         '<div class="full"><label>分类</label><select id="c_category">' + catOpts + "</select>" +
           '<div class="api-hint" id="c_member_hint" style="margin-top:6px;"></div></div>' +
         '<div class="full"><label>素材地址 (assetUrl)</label>' +
-          '<input id="c_asset" value="' + esc(item.assetUrl) + '" placeholder="https://…/llama.png" />' +
-          '<div style="display:flex;gap:8px;align-items:center;margin-top:8px;">' +
-            '<button class="btn ghost sm" type="button" id="c_pick">选择本地文件上传</button>' +
-            '<span class="api-hint" id="c_pick_hint">支持 SVG / PNG / JPG / WEBP，上传后自动填入地址</span>' +
+          '<div style="display:flex;gap:10px;align-items:flex-start;">' +
+            '<div style="flex:1;min-width:0;">' +
+              '<input id="c_asset" value="' + esc(item.assetUrl) + '" placeholder="https://…/llama.png" />' +
+              '<div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">' +
+                '<button class="btn ghost sm" type="button" id="c_pick">选择本地文件上传</button>' +
+                '<span class="api-hint" id="c_pick_hint">支持 SVG（≤1MB）/ PNG / JPG / WEBP（≤3MB），上传前可先预览校验</span>' +
+              "</div>" +
+              '<input id="c_pick_file" type="file" accept=".svg,.png,.jpg,.jpeg,.webp" style="display:none;" />' +
+              '<div class="cu-list" id="c_up"></div>' +
+            "</div>" +
+            '<div id="c_asset_preview" style="width:64px;height:64px;border-radius:12px;background:#f5f7fa;display:flex;align-items:center;justify-content:center;flex:none;overflow:hidden;">' +
+              challengeAssetPreview(item.assetUrl) + "</div>" +
           "</div>" +
-          '<input id="c_pick_file" type="file" accept=".svg,.png,.jpg,.jpeg,.webp" style="display:none;" />' +
         "</div>" +
-        '<div class="full"><label>缩略图地址 (thumbnailUrl)</label><input id="c_thumb" value="' + esc(item.thumbnailUrl || "") + '" /></div>' +
         '<div><label>排序</label><input id="c_sort" value="' + (isEdit ? "当前第 " + editPos + " 位（用列表里的 ↑ ↓ 调整）" : "新增后排在分类末尾") +
           '" readonly style="opacity:.6;" /></div>' +
         '<div class="check"><input id="c_pub" type="checkbox"' + (item.isPublished ? " checked" : "") + ' /><label style="margin:0">发布到客户端</label></div>' +
@@ -1984,7 +2806,6 @@
           name: $("c_name").value.trim(),
           categoryCode: categoryCode,
           assetUrl: $("c_asset").value.trim(),
-          thumbnailUrl: $("c_thumb").value.trim() || null,
           // 排序不接受手填：编辑且分类不变时保持原位，其余情况排到该分类末尾
           sort: isEdit && categoryCode === (item.categoryCode || "daily")
             ? Number(item.sort)
@@ -2015,24 +2836,74 @@
     $("c_category").onchange = syncCatHint;
     syncCatHint();
 
-    // 弹窗内上传：自动填入素材地址，code / 名称留空时用文件名回填
-    $("c_pick").onclick = function () { $("c_pick_file").click(); };
-    $("c_pick_file").onchange = async function () {
-      var f = this.files && this.files[0];
-      if (!f) return;
+    // 弹窗内上传：先选文件预览 + 校验，确认后再上传并回填地址
+    var up = null; // { file, url, error, uploaded }
+    function syncAssetPreview() {
+      var box = $("c_asset_preview");
+      if (box) box.innerHTML = challengeAssetPreview($("c_asset").value.trim());
+    }
+    function renderUp() {
+      var box = $("c_up");
+      if (!box) return;
+      if (!up) { box.innerHTML = ""; return; }
+      box.innerHTML = '<div class="cu-row" style="margin-top:10px;">' +
+        '<span class="cu-thumb"><img src="' + esc(up.url) + '" alt="" /></span>' +
+        '<div class="cu-meta">' +
+          '<div class="cu-name">' + esc(up.file.name || "") + "</div>" +
+          '<div class="cu-sub">' + (up.file.size / 1024).toFixed(1) + " KB</div>" +
+          (up.error
+            ? '<div class="cu-status bad">' + esc(up.error) + "</div>"
+            : up.uploaded
+              ? '<div class="cu-status ok">已上传，素材地址已填入</div>'
+              : '<div class="cu-status ok">校验通过，可用于 App 角色素材</div>') +
+          (!up.error && !up.uploaded
+            ? '<div class="cu-tags"><button type="button" class="btn sm" id="c_up_do">上传</button></div>'
+            : "") +
+        "</div>" +
+        '<button type="button" class="cu-del" id="c_up_del" title="移除">✕</button>' +
+      "</div>";
+      var doBtn = $("c_up_do");
+      if (doBtn) doBtn.onclick = function () { uploadUp(); };
+      var del = $("c_up_del");
+      if (del) del.onclick = function () {
+        if (up && up.url) URL.revokeObjectURL(up.url);
+        up = null;
+        renderUp();
+      };
+    }
+    async function uploadUp() {
+      if (!up || up.error || up.uploaded) return;
+      var file = up.file;
+      $("c_up_do").disabled = true;
+      $("c_up_do").textContent = "上传中…";
       try {
-        var url = await uploadAsset(f, "preset/characters", true);
+        var url = await uploadAsset(file, "preset/characters", true);
+        up.uploaded = true;
         $("c_asset").value = url;
-        var base = String(f.name || "").replace(/\.[^.]+$/, "");
+        var base = String(file.name || "").replace(/\.[^.]+$/, "");
         if (!$("c_code").value.trim()) {
           $("c_code").value = base.replace(/[^a-zA-Z0-9_-]/g, "_");
         }
         if (!$("c_name").value.trim()) $("c_name").value = base;
         $("c_pick_hint").textContent = "已上传：" + url;
+        syncAssetPreview();
+        renderUp();
       } catch (err) {
         toast(err.message || "上传失败");
+        renderUp();
       }
+    }
+    $("c_asset").oninput = syncAssetPreview;
+    $("c_pick").onclick = function () { $("c_pick_file").click(); };
+    $("c_pick_file").onchange = async function () {
+      var f = this.files && this.files[0];
       this.value = "";
+      if (!f) return;
+      if (up && up.url) URL.revokeObjectURL(up.url);
+      up = { file: f, url: URL.createObjectURL(f), error: null, uploaded: false };
+      renderUp();
+      up.error = await validateCharacterAssetFile(f, up.url);
+      renderUp();
     };
   }
 
@@ -2088,8 +2959,8 @@
     var rows = await api(qs);
     state.rows = Array.isArray(rows) ? rows : [];
     var body = state.rows.map(function (u) {
-      // 头像按相对地址拼到 API 域名；没有头像时用昵称首字占位
-      var avatarSrc = u.avatarUrl ? state.api + u.avatarUrl : "";
+      // 头像存的是根路径相对地址（/static/avatars/xxx），必须用素材根域名拼接
+      var avatarSrc = u.avatarUrl ? assetUrl(u.avatarUrl) : "";
       var avatar = avatarSrc
         ? '<img class="user-avatar" src="' + esc(avatarSrc) + '" data-avatar="' + esc(avatarSrc) + '" alt="" />'
         : '<span class="user-avatar">' + esc((u.nickname || "?").slice(0, 1)) + "</span>";
@@ -2427,80 +3298,106 @@
     );
   }
 
-  /* ---------------- 贴士卡 ---------------- */
-  var TIP_GROUPS = [
-    ["hydration", "进水量"],
-    ["lifehacks", "生活小窍门"],
-    ["drinks", "美味饮品"],
-    ["health", "健康益处"],
-    ["general", "通用"],
+  /* ---------------- 挑战卡 ---------------- */
+  // 内置插画以安装包路径下发（assets/images/characters/xxx.svg），后台预览时
+  // 映射到服务器同名预设角色；后台上传的图片则存放在 /static/challenges。
+  var CHALLENGE_ASSET_PREFIX = "assets/images/characters/";
+  var BEVERAGE_CATEGORY_NAMES = [
+    "water", "tea", "coffee", "milk", "milkTea", "juice", "soda", "soup", "alcohol",
   ];
 
-  function tipGroupName(code) {
-    for (var i = 0; i < TIP_GROUPS.length; i++) {
-      if (TIP_GROUPS[i][0] === code) return TIP_GROUPS[i][1];
+  function challengeAssetPreview(asset) {
+    if (!asset) return '<span class="tag off">无插画</span>';
+    var src = asset;
+    if (asset.indexOf(CHALLENGE_ASSET_PREFIX) === 0) {
+      src = "/static/preset/characters/" + asset.slice(CHALLENGE_ASSET_PREFIX.length);
+    } else if (asset.charAt(0) !== "/" && !/^https?:\/\//i.test(asset)) {
+      return '<span class="tag">' + esc(asset) + "</span>";
     }
-    return code;
+    return '<img src="' + esc(assetUrl(src)) + '" alt="" title="' + esc(asset) +
+      '" style="width:40px;height:40px;object-fit:contain;border-radius:9px;background:#f5f7fa;vertical-align:middle;" />';
   }
 
-  async function renderTips() {
-    var rows = await api("/admin/tips");
+  function splitCsv(text) {
+    return String(text || "")
+      .split(/[,，]/)
+      .map(function (s) { return s.trim(); })
+      .filter(function (s) { return s; });
+  }
+
+  // 好处：每行 `emoji|文案`，未写分隔符时整行按文案处理
+  function parseBenefitsText(text) {
+    var out = [];
+    String(text || "").split(/\r?\n/).forEach(function (line) {
+      line = line.trim();
+      if (!line) return;
+      var idx = line.indexOf("|");
+      var emoji = idx >= 0 ? line.slice(0, idx).trim() : "";
+      var body = idx >= 0 ? line.slice(idx + 1).trim() : line;
+      if (body) out.push([emoji, body]);
+    });
+    return out;
+  }
+
+  async function renderChallenges() {
+    var res = await Promise.all([
+      api("/admin/challenges"),
+      api("/characters?pageSize=100"),
+      api("/character-categories"),
+    ]);
+    var rows = res[0];
+    state.challengeChars = res[1];
+    state.challengeCats = res[2];
     state.rows = rows;
     var body = rows.length
       ? tableWrap(
-          ["分组", "文案", "配色", "插画", "排序", "状态", "操作"],
+          ["角色插画", "标题", "天数", "奖励积分", "排序", "状态", "操作"],
           rows.map(function (r) {
-            var swatch =
-              '<span style="display:inline-block;width:34px;height:20px;border-radius:6px;border:1px solid var(--line);background:' +
-              esc(r.bgColor || "#eaf7fb") + ";color:" + esc(r.fgColor || "#3bb3db") +
-              ';font-size:10px;line-height:20px;text-align:center;">Aa</span>';
             return [
-              esc(tipGroupName(r.groupCode)),
-              esc(r.title),
-              swatch,
-              r.imageUrl
-                ? '<a href="' + esc(assetUrl(r.imageUrl)) + '" target="_blank" style="color:var(--accent);">查看</a>'
-                : '<span class="tag off">纯色</span>',
+              challengeAssetPreview(r.asset),
+              "<b>" + esc(r.title).replace(/\n/g, "<br>") + "</b>",
+              esc(r.days) + " 天",
+              esc(r.rewardPoints) + " 积分",
               esc(r.sort),
-              r.isPublished ? '<span class="tag on">展示中</span>' : '<span class="tag off">已隐藏</span>',
-              '<button class="btn sm ghost" data-tip="' + esc(r.id) + '">编辑</button> ' +
-                '<button class="btn sm ' + (r.isPublished ? "danger" : "ghost") + '" data-toggle-tip="' + esc(r.id) + '">' +
-                (r.isPublished ? "隐藏" : "展示") + "</button> " +
-                '<button class="btn sm danger" data-del-tip="' + esc(r.id) + '">删除</button>',
+              r.isPublished ? '<span class="tag on">已上架</span>' : '<span class="tag off">已下架</span>',
+              '<button class="btn sm ghost" data-challenge="' + esc(r.id) + '">编辑</button> ' +
+                '<button class="btn sm ' + (r.isPublished ? "danger" : "") + '" data-toggle-challenge="' + esc(r.id) + '">' +
+                (r.isPublished ? "下架" : "上架") + "</button> " +
+                '<button class="btn sm danger" data-del-challenge="' + esc(r.id) + '">删除</button>',
             ];
           })
         )
-      : '<div class="card"><div class="empty">还没有配置贴士卡，App 会使用安装包内置的 27 张卡</div></div>';
+      : '<div class="card"><div class="empty">还没有挑战卡，App 端将展示空目录</div></div>';
     $("view").innerHTML =
       '<div class="toolbar">' +
-        '<span class="api-hint">保存后 App 30 秒内自动同步；全部隐藏或为空时回退到内置卡池</span>' +
+        '<span class="api-hint">App 通过 /v1/catalog/challenges 拉取，仅下发已上架挑战；挑战卡角色直接取自「角色库」</span>' +
         '<div class="grow"></div>' +
-        '<button class="btn" id="addTip">新增贴士卡</button>' +
+        '<button class="btn" id="addChallenge">新增挑战卡</button>' +
       "</div>" + body;
-    $("addTip").onclick = function () { tipModal(null); };
-    document.querySelectorAll("[data-tip]").forEach(function (el) {
+    $("addChallenge").onclick = function () { challengeModal(null); };
+    document.querySelectorAll("[data-challenge]").forEach(function (el) {
       el.onclick = function () {
-        tipModal(state.rows.find(function (x) { return x.id === el.dataset.tip; }));
+        challengeModal(state.rows.find(function (x) { return x.id === el.dataset.challenge; }));
       };
     });
-    document.querySelectorAll("[data-toggle-tip]").forEach(function (el) {
+    document.querySelectorAll("[data-toggle-challenge]").forEach(function (el) {
       el.onclick = async function () {
-        var row = state.rows.find(function (x) { return x.id === el.dataset.toggleTip; });
+        var row = state.rows.find(function (x) { return x.id === el.dataset.toggleChallenge; });
         try {
-          await api("/admin/tips/" + row.id, {
+          await api("/admin/challenges/" + row.id, {
             method: "PATCH",
             body: JSON.stringify({ isPublished: !row.isPublished }),
           });
-          toast(row.isPublished ? "已隐藏" : "已展示");
+          toast(row.isPublished ? "已下架" : "已上架");
           render();
         } catch (err) { toast(err.message); }
       };
     });
-    document.querySelectorAll("[data-del-tip]").forEach(function (el) {
+    document.querySelectorAll("[data-del-challenge]").forEach(function (el) {
       el.onclick = async function () {
-        if (!confirm("删除这张贴士卡？App 会在一分钟内移出卡池。")) return;
+        if (!confirm("删除这张挑战卡？App 拉取后将不再展示。")) return;
         try {
-          await api("/admin/tips/" + el.dataset.delTip, { method: "DELETE" });
+          await api("/admin/challenges/" + el.dataset.delChallenge, { method: "DELETE" });
           toast("已删除");
           render();
         } catch (err) { toast(err.message); }
@@ -2508,61 +3405,120 @@
     });
   }
 
-  function tipModal(row) {
+  function challengeModal(row) {
     var isEdit = !!row;
-    var options = TIP_GROUPS.map(function (g) {
-      return '<option value="' + g[0] + '"' +
-        (isEdit && row.groupCode === g[0] ? " selected" : "") + ">" + g[1] + "</option>";
-    }).join("");
+    var item = row || {};
+    var bg = item.bgColor || "#6D4C38";
+    var benefits = isEdit
+      ? (item.benefits || []).map(function (b) {
+          return (b[0] || "") + "|" + (b[1] || "");
+        }).join("\n")
+      : "";
+    // 挑战卡角色直接取自角色库，避免再单独上传一套插画
+    var catNames = {};
+    (state.challengeCats || []).forEach(function (c) { catNames[c.code] = c.name || c.code; });
+    var charOpts = (state.challengeChars || [])
+      .filter(function (c) { return c.assetUrl; })
+      .map(function (c) {
+        var label = (c.name || c.code) + "（" + (catNames[c.categoryCode] || c.categoryCode) + "）" +
+          (c.memberOnly ? " · 会员" : "");
+        return '<option value="' + esc(c.assetUrl) + '"' +
+          (c.assetUrl === item.asset ? " selected" : "") + ">" + esc(label) + "</option>";
+      })
+      .join("");
+    if (!charOpts) charOpts = '<option value="">角色库暂无角色，请先在「角色库」添加</option>';
+    if (item.asset && !(state.challengeChars || []).some(function (c) {
+      return c.assetUrl === item.asset;
+    })) {
+      charOpts = '<option value="' + esc(item.asset) + '" selected>当前插画（非角色库素材）</option>' + charOpts;
+    }
     openModal(
-      isEdit ? "编辑贴士卡" : "新增贴士卡",
+      isEdit ? "编辑挑战卡" : "新增挑战卡",
       '<div class="form-grid">' +
-        '<div><label>分组（决定在「查看全部」中的位置）</label><select id="t_group">' + options + "</select></div>" +
-        '<div><label>状态</label><select id="t_pub">' +
-          '<option value="1"' + (!isEdit || row.isPublished ? " selected" : "") + ">展示</option>" +
-          '<option value="0"' + (isEdit && !row.isPublished ? " selected" : "") + ">隐藏</option>" +
-        "</select></div>" +
-        '<div class="full"><label>文案（建议 20 字以内）</label><input id="t_title" maxlength="120" value="' +
-          (isEdit ? esc(row.title) : "") + '" /></div>' +
-        '<div><label>背景色</label><input id="t_bg" type="color" value="' +
-          (isEdit && row.bgColor ? esc(row.bgColor) : "#EAF7FB") + '" style="height:38px;padding:3px;" /></div>' +
-        '<div><label>文字色</label><input id="t_fg" type="color" value="' +
-          (isEdit && row.fgColor ? esc(row.fgColor) : "#3BB3DB") + '" style="height:38px;padding:3px;" /></div>' +
-        '<div class="full"><label>插画地址（选填，留空显示纯色底）</label>' +
+        '<div class="full"><label>标题（支持换行，App 按两行排版）</label><textarea id="c_title" rows="2" placeholder="例如：向咖啡因说不的 / 卷尾猴">' +
+          esc(item.title || "") + "</textarea></div>" +
+        '<div class="full"><label>副标题</label><input id="c_subtitle" maxlength="120" value="' +
+          esc(item.subtitle || "") + '" /></div>' +
+        '<div><label>天数（1–60）</label><input id="c_days" type="number" min="1" max="60" value="' +
+          esc(item.days == null ? 10 : item.days) + '" /></div>' +
+        '<div><label>奖励积分（0–1000）</label><input id="c_reward" type="number" min="0" max="1000" value="' +
+          esc(item.rewardPoints == null ? 1000 : item.rewardPoints) + '" /></div>' +
+        '<div class="full"><label>背景色（色板取色或直接填写 #RRGGBB）</label>' +
           '<div style="display:flex;gap:8px;">' +
-            '<input id="t_img" placeholder="/static/xxx.png" value="' + (isEdit ? esc(row.imageUrl || "") : "") + '" />' +
-            '<label class="btn ghost" style="white-space:nowrap;line-height:22px;">上传<input id="t_file" type="file" accept="image/*" style="display:none;" /></label>' +
+            '<input id="c_bg" type="color" value="' + esc(bg) + '" style="width:56px;height:38px;padding:3px;flex:none;" />' +
+            '<input id="c_bg_text" placeholder="#6D4C38" value="' + esc(bg) + '" />' +
           "</div></div>" +
+        '<div class="full"><label>角色（取自角色库）</label>' +
+          '<div style="display:flex;gap:12px;align-items:center;">' +
+            '<select id="c_character" style="flex:1;">' + charOpts + "</select>" +
+            '<div id="c_char_preview" style="width:54px;height:54px;border-radius:12px;background:#f5f7fa;display:flex;align-items:center;justify-content:center;flex:none;overflow:hidden;">' +
+              challengeAssetPreview(item.asset) + "</div>" +
+          "</div>" +
+          '<div class="api-hint" style="margin-top:6px;">挑战卡只使用角色库里的角色；如需更换角色，请先到「角色库」上传或编辑。</div>' +
+        "</div>" +
+        '<div class="full"><label>介绍</label><textarea id="c_intro" rows="3" placeholder="挑战背景与目标">' +
+          esc(item.intro || "") + "</textarea></div>" +
+        '<div class="full"><label>好处（每行一条，格式 emoji|文案）</label><textarea id="c_benefits" rows="4" placeholder="🦉|改善睡眠质量">' +
+          esc(benefits) + "</textarea></div>" +
+        '<div class="full"><label>要做的事情</label><textarea id="c_todo" rows="3">' +
+          esc(item.todo || "") + "</textarea></div>" +
+        '<div><label>禁止饮品标签（逗号分隔）</label><input id="c_labels" placeholder="奶茶, 果汁" value="' +
+          esc((item.forbiddenLabels || []).join(", ")) + '" /></div>' +
+        '<div><label>禁止关键词（逗号分隔）</label><input id="c_keywords" placeholder="咖啡, 可乐" value="' +
+          esc((item.forbiddenKeywords || []).join(", ")) + '" /></div>' +
+        '<div class="full"><label>禁止分类（逗号分隔，BeverageCategory 英文名：' +
+          BEVERAGE_CATEGORY_NAMES.join(" / ") + "）</label>" +
+          '<input id="c_categories" placeholder="coffee, milkTea, alcohol" value="' +
+          esc((item.forbiddenCategories || []).join(", ")) + '" /></div>' +
+        '<div><label>排序（越小越靠前）</label><input id="c_sort" type="number" value="' +
+          (isEdit ? esc(item.sort) : "") + '" /></div>' +
+        '<div><label>状态</label><select id="c_pub">' +
+          '<option value="1"' + (!isEdit || item.isPublished ? " selected" : "") + ">上架</option>" +
+          '<option value="0"' + (isEdit && !item.isPublished ? " selected" : "") + ">下架</option>" +
+        "</select></div>" +
       "</div>",
       async function () {
-        var title = $("t_title").value.trim();
-        if (!title) throw new Error("文案不能为空");
+        var title = $("c_title").value.trim();
+        if (!title) throw new Error("标题不能为空");
+        if (!$("c_character").value.trim()) throw new Error("请选择角色库中的角色");
+        var bgText = $("c_bg_text").value.trim() || $("c_bg").value;
+        if (!/^#[0-9a-fA-F]{6}$/.test(bgText)) throw new Error("背景色需为 #RRGGBB");
         var dto = {
-          groupCode: $("t_group").value,
           title: title,
-          bgColor: $("t_bg").value,
-          fgColor: $("t_fg").value,
-          imageUrl: $("t_img").value.trim(),
-          isPublished: $("t_pub").value === "1",
+          subtitle: $("c_subtitle").value.trim(),
+          days: Math.min(60, Math.max(1, Number($("c_days").value) || 10)),
+          rewardPoints: Math.min(1000, Math.max(0, Number($("c_reward").value) || 0)),
+          bgColor: bgText,
+          asset: $("c_character").value.trim(),
+          intro: $("c_intro").value.trim(),
+          benefits: parseBenefitsText($("c_benefits").value),
+          todo: $("c_todo").value.trim(),
+          forbiddenLabels: splitCsv($("c_labels").value),
+          forbiddenKeywords: splitCsv($("c_keywords").value),
+          forbiddenCategories: splitCsv($("c_categories").value),
+          isPublished: $("c_pub").value === "1",
         };
+        // 排序留空时不传，新增由服务端排到末尾
+        var sortRaw = $("c_sort").value.trim();
+        if (sortRaw) dto.sort = Number(sortRaw) || 0;
         if (isEdit) {
-          await api("/admin/tips/" + row.id, { method: "PATCH", body: JSON.stringify(dto) });
+          await api("/admin/challenges/" + item.id, { method: "PATCH", body: JSON.stringify(dto) });
         } else {
-          await api("/admin/tips", { method: "POST", body: JSON.stringify(dto) });
+          await api("/admin/challenges", { method: "POST", body: JSON.stringify(dto) });
         }
         closeModal();
         toast(isEdit ? "已保存" : "已新增");
         render();
       }
     );
-    $("t_file").onchange = async function () {
-      var file = this.files && this.files[0];
-      if (!file) return;
-      try {
-        var saved = await uploadAsset(file, "tips");
-        $("t_img").value = saved;
-        toast("插画已上传");
-      } catch (err) { toast(err.message); }
+    $("modalBox").classList.add("wide");
+    // 色板与文本框双向同步，方便直接粘贴设计稿里的色值
+    $("c_bg").oninput = function () { $("c_bg_text").value = this.value.toUpperCase(); };
+    $("c_bg_text").oninput = function () {
+      if (/^#[0-9a-fA-F]{6}$/.test(this.value.trim())) $("c_bg").value = this.value.trim();
+    };
+    $("c_character").onchange = function () {
+      $("c_char_preview").innerHTML = challengeAssetPreview(this.value);
     };
   }
 
@@ -2785,11 +3741,17 @@
     var STATUS = { pending: "待确认", paid: "已确认", rejected: "已拒绝", cancelled: "已取消", refunded: "已退款" };
     var body = state.rows.map(function (o) {
       var st = o.status || "pending";
+      var isPoints = (o.source || "payment") === "points";
       return [
         '<span class="mono">' + esc(o.id) + "</span>",
         "<b>" + esc(o.user ? (o.user.nickname || o.user.email || o.user.id) : o.userId) + "</b>",
         esc(o.plan ? o.plan.name : o.planId),
-        "¥" + ((o.amountCents || 0) / 100).toFixed(2),
+        isPoints
+          ? '<span class="tag gold">-' + (o.pointsCost || 0) + " 积分</span>"
+          : "¥" + ((o.amountCents || 0) / 100).toFixed(2),
+        isPoints
+          ? '<span class="tag gold">积分兑换</span>'
+          : '<span class="tag on">付费</span>',
         '<span class="tag ' + esc(st) + '">' + esc(STATUS[st] || st) + "</span>",
         esc(fmtTime(o.createdAt)),
         esc(fmtTime(o.paidAt)),
@@ -2801,7 +3763,7 @@
     });
     $("view").innerHTML =
       '<div class="toolbar">' +
-        '<span class="api-hint">内测阶段无真实支付：用户提交开通申请后在此确认，确认即下发会员权益，App 自动刷新生效</span>' +
+        '<span class="api-hint">内测阶段无真实支付：用户提交开通申请后在此确认，确认即下发会员权益，App 自动刷新生效；积分兑换的订单由服务端自动记为「已确认」</span>' +
         '<div class="grow"></div>' +
         '<select id="orderStatus">' +
           '<option value="">全部状态</option>' +
@@ -2813,7 +3775,7 @@
         '<button class="btn ghost" id="queryOrders">查询</button>' +
         '<div class="grow"></div>' +
       "</div>" +
-      tableWrap(["订单号", "用户", "套餐", "金额", "状态", "创建时间", "支付时间", "操作"], body) +
+      tableWrap(["订单号", "用户", "套餐", "金额", "来源", "状态", "创建时间", "支付时间", "操作"], body) +
       pager();
     bindPager();
     $("queryOrders").onclick = function () {
@@ -2900,6 +3862,7 @@
   }
 
   function closeModal() {
+    closeDropdown();
     closeIconPicker();
     $("modalMask").classList.add("hidden");
     $("modalBox").classList.remove("wide");
@@ -2938,9 +3901,13 @@
       }
       grid.innerHTML = assets.map(function (a) {
         var on = currentUrl && currentUrl === a.url;
+        var url = esc(assetUrl(a.url));
+        // 与「容器图标库」保持一致：统一 #4a4a4a 剪影，去掉原图填色与方块底色
+        var maskStyle = "-webkit-mask:url('" + url + "') center/contain no-repeat;" +
+          "mask:url('" + url + "') center/contain no-repeat;";
         return '<button type="button" class="icon-pick' + (on ? " selected" : "") +
           '" data-pick="' + esc(a.url) + '" title="' + esc(String(a.name).split("/").pop()) + '">' +
-          '<img src="' + esc(assetUrl(a.url)) + '" alt="" /></button>';
+          '<span class="pick-sil" style="' + maskStyle + '"></span></button>';
       }).join("");
       grid.onclick = function (e) {
         var btn = e.target.closest("[data-pick]");
@@ -2953,9 +3920,122 @@
   }
 
   function closeIconPicker() {
+    closeDropdown();
     $("pickerMask").classList.add("hidden");
     $("pickerBox").innerHTML = "";
   }
+
+  /* ---------------- 自定义下拉框 ---------------- */
+  // 原生 select 展开后的选项列表由系统渲染、样式不可控，这里统一换成
+  // 「按钮 + 浮层选项」：原 select 仍留在 DOM 中，value 读写与 change 事件
+  // 行为完全不变，只替换外观。
+  var ddOpen = null;
+
+  function closeDropdown() {
+    if (!ddOpen) return;
+    var o = ddOpen;
+    ddOpen = null;
+    if (o.wrap) o.wrap.classList.remove("open");
+    if (o.menu && o.menu.parentNode) o.menu.parentNode.removeChild(o.menu);
+  }
+
+  function openDropdown(ctx) {
+    closeDropdown();
+    ctx.sync();
+    var sel = ctx.sel;
+    var menu = document.createElement("div");
+    menu.className = "dd-menu";
+    Array.prototype.forEach.call(sel.options, function (opt, i) {
+      var item = document.createElement("button");
+      item.type = "button";
+      item.className = "dd-opt" + (i === sel.selectedIndex ? " selected" : "");
+      item.textContent = opt.textContent;
+      item.disabled = opt.disabled;
+      item.onclick = function () {
+        closeDropdown();
+        if (sel.value !== opt.value) {
+          sel.value = opt.value;
+          sel.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+        ctx.sync();
+      };
+      menu.appendChild(item);
+    });
+    menu.onclick = function (e) { e.stopPropagation(); };
+    document.body.appendChild(menu);
+    ctx.menu = menu;
+    ctx.wrap.classList.add("open");
+    ddOpen = ctx;
+
+    var r = ctx.btn.getBoundingClientRect();
+    var width = Math.max(r.width, 172);
+    menu.style.width = width + "px";
+    menu.style.left = Math.min(Math.max(8, r.left), window.innerWidth - width - 8) + "px";
+    var natural = menu.offsetHeight;
+    var below = window.innerHeight - r.bottom - 10;
+    var above = r.top - 10;
+    // 下方空间不够时向上展开，避免被窗口底部截断
+    var openUp = below < Math.min(natural, 240) && above > below;
+    var maxH = Math.max(120, Math.min(natural, openUp ? above : below, 300));
+    menu.style.maxHeight = maxH + "px";
+    menu.style.top = openUp
+      ? Math.max(8, r.top - maxH - 6) + "px"
+      : (r.bottom + 6) + "px";
+  }
+
+  function enhanceSelect(sel) {
+    if (!sel || sel.dataset.dd === "1") return;
+    sel.dataset.dd = "1";
+    var wrap = document.createElement("div");
+    wrap.className = "dd";
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "dd-btn";
+    btn.innerHTML = '<span class="dd-label"></span>' +
+      '<svg class="dd-caret" viewBox="0 0 24 24" aria-hidden="true">' +
+      '<path d="M7 9.5 12 14.5 17 9.5"/></svg>';
+    var labelEl = btn.querySelector(".dd-label");
+    var ctx = {
+      sel: sel, wrap: wrap, btn: btn, menu: null,
+      sync: function () {
+        var opt = sel.options[sel.selectedIndex];
+        labelEl.textContent = opt ? opt.textContent : "";
+        btn.disabled = !!sel.disabled;
+      }
+    };
+    sel.parentNode.insertBefore(wrap, sel);
+    wrap.appendChild(btn);
+    wrap.appendChild(sel);
+    sel.classList.add("dd-native");
+    btn.onclick = function (e) {
+      e.stopPropagation();
+      if (ddOpen && ddOpen.sel === sel) closeDropdown();
+      else openDropdown(ctx);
+    };
+    sel.addEventListener("change", ctx.sync);
+    sel.addEventListener("mousedown", ctx.sync);
+    ctx.sync();
+  }
+
+  function enhanceSelects(root) {
+    (root || document).querySelectorAll("select").forEach(enhanceSelect);
+  }
+
+  // 页面与弹窗内容都是整体重绘的，用 MutationObserver 自动给新出现的
+  // select 加外壳，避免在每处 render 里逐个补调用
+  var ddPending = false;
+  var ddObserver = new MutationObserver(function () {
+    if (ddPending) return;
+    ddPending = true;
+    requestAnimationFrame(function () {
+      ddPending = false;
+      enhanceSelects(document);
+    });
+  });
+  ddObserver.observe(document.body, { childList: true, subtree: true });
+  document.addEventListener("click", function () { closeDropdown(); });
+  window.addEventListener("resize", closeDropdown);
+  window.addEventListener("scroll", closeDropdown, true);
 
   /* ---------------- 启动 ---------------- */
   $("loginForm").onsubmit = doLogin;
@@ -2972,6 +4052,7 @@
   setInterval(function () {
     if (!state.token) return;
     if (document.visibilityState !== "visible") return;
+    if (ddOpen) return;
     if (!$("modalMask").classList.contains("hidden")) return;
     if (!$("pickerMask").classList.contains("hidden")) return;
     var el = document.activeElement;

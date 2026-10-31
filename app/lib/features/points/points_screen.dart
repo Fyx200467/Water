@@ -220,6 +220,7 @@ class PointsScreen extends ConsumerWidget {
       return '兑换商品';
     }
     if (source == 'match3') return '消消乐奖励';
+    if (source == 'challenge') return '挑战奖励';
     return '积分变动';
   }
 }

@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 ///
 /// 资源位于 `assets/images/characters/<animalId>.svg`，由 iconfont 提供。
 /// 业务规则：
-/// - 默认只有羊驼卢娜是已解锁状态
-/// - 用户每日完成饮水目标后，可解锁一个新角色（次日点亮）
+/// - 默认只有绵羊是已解锁状态（游客首次使用即点亮）
+/// - 登录后每累计 2000ml 饮水，从全部未点亮角色中随机点亮一个
 class CharacterCategory {
   const CharacterCategory({
     required this.id,
@@ -222,8 +222,8 @@ final characterCategories = <CharacterCategory>[
   ),
 ];
 
-/// 默认已解锁的角色 ID（业务规则：只有羊驼卢娜默认点亮）
-const defaultUnlockedIds = <String>{'alpaca'};
+/// 默认已解锁的角色 ID（业务规则：只有绵羊默认点亮）
+const defaultUnlockedIds = <String>{'sheep'};
 
 /// 全部角色总数（用于"已收集 X 个，共 Y 个"）
 int get totalCharacterCount => characters.length;

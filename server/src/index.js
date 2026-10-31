@@ -86,20 +86,26 @@ function readJson(req) {
 }
 
 /// 读取原始二进制请求体（素材上传用）
+/// 超限时丢弃多余数据但继续读完请求，确保 413 提示能送达客户端
 function readRaw(req, limit = 3 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
+    let tooLarge = false;
     req.on('data', (chunk) => {
       size += chunk.length;
-      if (size > limit) {
-        reject(new Error('body_too_large'));
-        req.destroy();
-        return;
+      if (!tooLarge && size > limit) {
+        tooLarge = true;
+        chunks.length = 0;
       }
-      chunks.push(chunk);
+      if (!tooLarge) chunks.push(chunk);
+      // 远超声明的上限时直接断开，避免被恶意请求拖住
+      if (size > limit * 4) req.destroy();
     });
-    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('end', () => {
+      if (tooLarge) reject(new Error('body_too_large'));
+      else resolve(Buffer.concat(chunks));
+    });
     req.on('error', reject);
   });
 }
@@ -151,6 +157,221 @@ function serveStatic(res, pathname) {
 }
 
 const isIso = (v) => typeof v === 'string' && !Number.isNaN(Date.parse(v));
+
+// ==================== 容器图标 SVG 校验 ====================
+// 容器图标由后台维护、被全部 App 下载渲染，因此上传时必须做权威校验：
+// 拒绝脚本/外链/动画/滤镜/实体声明，要求近似正方形 viewBox，并返回
+// 净化后的内容（去掉根节点固定宽高、补全 viewBox），再落盘。
+const CONTAINER_SVG_MAX_BYTES = 64 * 1024;
+const CHARACTER_SVG_MAX_BYTES = 1024 * 1024;
+const CONTAINER_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
+
+function sanitizeSvg(buffer, options = {}) {
+  const o = {
+    maxBytes: options.maxBytes || CONTAINER_SVG_MAX_BYTES,
+    maxPaths: options.maxPaths || 120,
+    maxNodes: options.maxNodes || 400,
+    requireSquare: options.requireSquare !== false,
+    label: options.label || '图标',
+  };
+  if (buffer.length > o.maxBytes) {
+    return {
+      ok: false,
+      message: `${o.label}文件不能超过 ${Math.round(o.maxBytes / 1024)}KB`,
+    };
+  }
+  let text = buffer.toString('utf8').replace(/^\uFEFF/, '').trim();
+  if (!text) return { ok: false, message: `${o.label}内容为空` };
+
+  // 图标工具（iconfont / Figma 等）导出常带 XML 声明与 DOCTYPE（引用 SVG 1.1
+  // DTD），本身无危害：这里直接剥离；带内部子集（可定义实体）一律拒绝
+  text = text.replace(/^<\?xml[\s\S]*?\?>/i, '').trim();
+  if (/<!doctype/i.test(text)) {
+    if (/<!entity/i.test(text)) {
+      return { ok: false, message: '不允许实体声明' };
+    }
+    const start = text.search(/<!doctype/i);
+    const gt = text.indexOf('>', start);
+    const bracket = text.indexOf('[', start);
+    if (gt < 0 || (bracket >= 0 && bracket < gt)) {
+      return { ok: false, message: 'DOCTYPE 声明不合法' };
+    }
+    text = (text.slice(0, start) + text.slice(gt + 1)).trim();
+  }
+  const lower = text.toLowerCase();
+
+  const deny = [
+    ['<!entity', '不允许实体声明'],
+    ['<script', '不允许 script 标签'],
+    ['<foreignobject', '不允许 foreignObject'],
+    ['<image', '不允许位图或外链图片'],
+    ['<animate', '不允许动画标签'],
+    ['<filter', '不允许滤镜标签'],
+    ['@import', '不允许 CSS @import'],
+  ];
+  for (const [needle, message] of deny) {
+    if (lower.includes(needle)) return { ok: false, message };
+  }
+  if (/\son(?:load|click|error|mouseover|focus|begin|end)\s*=/.test(lower)) {
+    return { ok: false, message: '不允许事件属性' };
+  }
+  // href / xlink:href 只允许文档内锚点
+  const hrefs = [...lower.matchAll(/href\s*=\s*["']([^"']*)["']/g)];
+  for (const m of hrefs) {
+    if (!m[1].startsWith('#')) {
+      return { ok: false, message: '不允许引用外部资源' };
+    }
+  }
+  if (/url\s*\(\s*["']?(?:http:|https:|\/\/|data:)/.test(lower)) {
+    return { ok: false, message: '不允许引用外部资源' };
+  }
+
+  const svgCount = (lower.match(/<svg/g) || []).length;
+  if (svgCount !== 1) {
+    return { ok: false, message: '只支持单个根节点 <svg>' };
+  }
+  const pathCount = (lower.match(/<path/g) || []).length;
+  if (pathCount > o.maxPaths) {
+    return { ok: false, message: `路径数量过多（最多 ${o.maxPaths} 条）` };
+  }
+  const nodeCount = (lower.match(/</g) || []).length;
+  if (nodeCount > o.maxNodes) {
+    return { ok: false, message: `SVG 元素过多（最多 ${o.maxNodes} 个）` };
+  }
+
+  // viewBox：缺失时用根节点 width/height 推断
+  const vbMatch = text.match(/viewBox\s*=\s*["']([^"']+)["']/i);
+  let nums = vbMatch
+    ? vbMatch[1].trim().split(/[\s,]+/).map((n) => Number(n))
+    : null;
+  if (!nums) {
+    const wm = text.match(/width\s*=\s*["']([0-9.]+)(?:px)?["']/i);
+    const hm = text.match(/height\s*=\s*["']([0-9.]+)(?:px)?["']/i);
+    if (wm && hm) nums = [0, 0, Number(wm[1]), Number(hm[1])];
+  }
+  if (
+    !nums ||
+    nums.length !== 4 ||
+    nums.some((n) => !Number.isFinite(n))
+  ) {
+    return { ok: false, message: '缺少有效 viewBox（建议 viewBox="0 0 100 100"）' };
+  }
+  const vbW = nums[2];
+  const vbH = nums[3];
+  if (vbW <= 0 || vbH <= 0 || vbW > 4096 || vbH > 4096) {
+    return { ok: false, message: 'viewBox 尺寸不合法（宽高 1–4096）' };
+  }
+  const ratio = vbW / vbH;
+  if (o.requireSquare) {
+    if (ratio < 0.8 || ratio > 1.25) {
+      return { ok: false, message: '容器图标需要近似正方形画布（宽高比 0.8–1.25）' };
+    }
+  } else if (ratio < 0.2 || ratio > 5) {
+    return { ok: false, message: '画布宽高比需在 0.2–5 之间' };
+  }
+
+  const svgOpen = text.match(/<svg[^>]*>/i);
+  if (!svgOpen) return { ok: false, message: '不是合法的 SVG 文件' };
+  let open = svgOpen[0].replace(/\s(width|height)\s*=\s*["'][^"']*["']/gi, '');
+  const viewBox = nums.map((n) => String(n)).join(' ');
+  if (!/viewBox\s*=/i.test(open)) {
+    const selfClosing = open.endsWith('/>');
+    const body = selfClosing ? open.slice(0, -2) : open.slice(0, -1);
+    open = `${body.trimEnd()} viewBox="${viewBox}"${selfClosing ? '/>' : '>'}`;
+  }
+  const svg = text.replace(svgOpen[0], open);
+  return { ok: true, svg, viewBox };
+}
+
+function sanitizeContainerSvg(buffer) {
+  return sanitizeSvg(buffer, {
+    label: '图标',
+    maxBytes: CONTAINER_SVG_MAX_BYTES,
+    maxPaths: 120,
+    maxNodes: 400,
+    requireSquare: true,
+  });
+}
+
+function sanitizeCharacterSvg(buffer) {
+  return sanitizeSvg(buffer, {
+    label: '角色素材',
+    maxBytes: CHARACTER_SVG_MAX_BYTES,
+    maxPaths: 1200,
+    maxNodes: 3000,
+    requireSquare: false,
+  });
+}
+
+// 位图素材校验：文件头必须与扩展名一致，并读取 PNG/JPEG 尺寸防止超大图
+function validateRasterAsset(buffer, ext) {
+  const isPng =
+    buffer.length >= 8 &&
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47;
+  const isJpeg =
+    buffer.length >= 3 &&
+    buffer[0] === 0xff &&
+    buffer[1] === 0xd8 &&
+    buffer[2] === 0xff;
+  const isWebp =
+    buffer.length >= 12 &&
+    buffer.toString('ascii', 0, 4) === 'RIFF' &&
+    buffer.toString('ascii', 8, 12) === 'WEBP';
+  const want =
+    ext === 'png' ? 'png' : ext === 'jpg' || ext === 'jpeg' ? 'jpeg' : ext === 'webp' ? 'webp' : null;
+  const got = isPng ? 'png' : isJpeg ? 'jpeg' : isWebp ? 'webp' : null;
+  if (!want) return { ok: false, message: '不支持的文件类型' };
+  if (!got || got !== want) {
+    return {
+      ok: false,
+      message: `文件内容与扩展名不一致，请上传真实的 ${ext.toUpperCase()} 图片`,
+    };
+  }
+  let w = 0;
+  let h = 0;
+  if (isPng) {
+    if (buffer.length < 33) return { ok: false, message: 'PNG 文件不完整' };
+    w = buffer.readUInt32BE(16);
+    h = buffer.readUInt32BE(20);
+  } else if (isJpeg) {
+    let i = 2;
+    while (i + 8 < buffer.length) {
+      if (buffer[i] !== 0xff) {
+        i++;
+        continue;
+      }
+      const marker = buffer[i + 1];
+      if (marker === 0xd8 || marker === 0xd9 || (marker >= 0xd0 && marker <= 0xd7)) {
+        i += 2;
+        continue;
+      }
+      const len = buffer.readUInt16BE(i + 2);
+      if (len < 2) break;
+      const isSof =
+        (marker >= 0xc0 && marker <= 0xc3) ||
+        (marker >= 0xc5 && marker <= 0xc7) ||
+        (marker >= 0xc9 && marker <= 0xcb) ||
+        (marker >= 0xcd && marker <= 0xcf);
+      if (isSof) {
+        h = buffer.readUInt16BE(i + 5);
+        w = buffer.readUInt16BE(i + 7);
+        break;
+      }
+      i += 2 + len;
+    }
+    if (!w || !h) {
+      return { ok: false, message: '无法读取 JPEG 尺寸，文件可能已损坏' };
+    }
+  }
+  if (w && h && (w > 4096 || h > 4096)) {
+    return { ok: false, message: '图片尺寸过大（宽高最多 4096px）' };
+  }
+  return { ok: true, width: w, height: h };
+}
+
 
 // ==================== 登录限流 ====================
 // 单机内存计数：按「路由 + 来源 IP」限制 1 分钟内的尝试次数，防暴力破解与批量注册
@@ -284,9 +505,6 @@ const optInt = (v) => {
 const VOLUME_PRESETS = new Set(['water', 'regular']);
 const ANIMATIONS = new Set(['bubbles', 'micro', 'ice', 'rice', 'none']);
 
-// 贴士卡分组：与客户端 TipGroup 一一对应
-const TIP_GROUPS = new Set(['hydration', 'lifehacks', 'drinks', 'health', 'general']);
-
 // 客户端埋点白名单：只收关键漏斗事件，避免被当成通用日志表
 const ANALYTICS_EVENTS = new Set([
   'membership_view',
@@ -391,6 +609,61 @@ function mapCharacter(r) {
   };
 }
 
+/// 挑战卡的 JSON 数组字段：库里以 JSON 文本保存，读取时统一还原成数组
+function parseJsonArray(raw) {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw !== 'string' || !raw.trim()) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/// 后台提交的数组字段：过滤空值后序列化，避免脏数据写进 JSON 文本列
+const listJson = (v) =>
+  JSON.stringify(
+    Array.isArray(v)
+      ? v.map((x) => String(x ?? '').trim()).filter(Boolean)
+      : [],
+  );
+
+/// 好处段落：[[emoji, 文案], ...]，只保留成对的数据
+const benefitsJson = (v) =>
+  JSON.stringify(
+    Array.isArray(v)
+      ? v
+          .filter((item) => Array.isArray(item) && item.length >= 2)
+          .map(([emoji, text]) => [String(emoji ?? ''), String(text ?? '')])
+      : [],
+  );
+
+/// 挑战卡字段统一为 camelCase；admin 额外返回上下架状态与创建时间
+function mapChallenge(r, admin = false) {
+  const item = {
+    id: r.id,
+    title: r.title,
+    subtitle: r.subtitle,
+    bgColor: r.bg_color,
+    asset: r.asset,
+    intro: r.intro,
+    benefits: parseJsonArray(r.benefits),
+    todo: r.todo,
+    days: r.days,
+    rewardPoints: r.reward_points,
+    forbiddenLabels: parseJsonArray(r.forbidden_labels),
+    forbiddenKeywords: parseJsonArray(r.forbidden_keywords),
+    forbiddenCategories: parseJsonArray(r.forbidden_categories),
+    sort: r.sort,
+  };
+  if (admin) {
+    item.isPublished = toBool(r.is_published);
+    item.createdAt = r.created_at;
+  }
+  return item;
+}
+
 /// 订单支付成功后写入会员有效期：按时长顺延，0 天视为永久
 function grantMembership(userId, durationDays) {
   const user = db
@@ -431,7 +704,7 @@ function loadBenefitDict() {
 }
 
 /// 会员日兑换：1 天所需积分（与客户端 kMemberDayPoints 一致）
-const POINTS_PER_MEMBER_DAY = 60;
+const POINTS_PER_MEMBER_DAY = 100;
 
 /// 当前积分余额：只认流水求和，客户端不上行总额
 function pointsBalance(userId) {
@@ -813,26 +1086,14 @@ async function handle(req, res, url) {
     return send(res, 200, rows.map((r) => mapPlan(r, dict)));
   }
 
-  // 首页贴士卡目录（免鉴权）：空数组时客户端用内置卡池兜底
-  if (method === 'GET' && pathname === '/v1/catalog/tips') {
+  // 挑战卡目录（免鉴权）：只下发已上架挑战，App 按 sort 展示
+  if (method === 'GET' && pathname === '/v1/catalog/challenges') {
     const rows = db
       .prepare(
-        'SELECT * FROM tips WHERE is_published = 1 ORDER BY sort, created_at',
+        'SELECT * FROM challenges WHERE is_published = 1 ORDER BY sort, created_at',
       )
       .all();
-    return send(
-      res,
-      200,
-      rows.map((r) => ({
-        id: r.id,
-        groupCode: r.group_code,
-        title: r.title,
-        bgColor: r.bg_color,
-        fgColor: r.fg_color,
-        imageUrl: r.image_url,
-        sort: r.sort,
-      })),
-    );
+    return send(res, 200, { items: rows.map((r) => mapChallenge(r)) });
   }
 
   // 版本检查（免鉴权）：返回该平台最新启用的版本，客户端据此提示更新
@@ -1028,23 +1289,65 @@ async function handle(req, res, url) {
         : null;
       if (!ext) return fail(res, 400, 'invalid_ext', '仅支持 svg/png/jpg/webp');
 
+      // 目录可选：preset/containers（容器图标库，App 会同步）、preset/characters
+      // 以及 challenges（后台挑战卡插画）
+      const dirRaw = String(url.searchParams.get('dir') || '')
+        .replace(/^\/+|\/+$/g, '');
+      if (!['', 'preset/containers', 'preset/characters', 'challenges'].includes(dirRaw)) {
+        return fail(res, 400, 'invalid_dir', '非法目录');
+      }
+      // 容器图标会被全部 App 下载渲染：单独限大小、只收 SVG 并做内容校验；
+      // 角色素材同样做内容校验（SVG 净化 / 位图文件头与尺寸）
+      const isContainer = dirRaw === 'preset/containers';
+      const isCharacter = dirRaw === 'preset/characters';
+      if (isContainer && ext !== 'svg') {
+        return fail(res, 400, 'invalid_ext', '容器图标仅支持 SVG');
+      }
+      const isSvg = ext === 'svg';
+      const maxBytes = isContainer
+        ? CONTAINER_SVG_MAX_BYTES
+        : isCharacter && isSvg
+          ? CHARACTER_SVG_MAX_BYTES
+          : 3 * 1024 * 1024;
+
       let buffer;
       try {
-        buffer = await readRaw(req);
+        buffer = await readRaw(req, maxBytes);
       } catch {
-        return fail(res, 413, 'body_too_large', '文件超过 3MB');
+        const limitText = isContainer
+          ? '图标文件不能超过 64KB'
+          : isCharacter && isSvg
+            ? '角色 SVG 不能超过 1MB'
+            : '文件超过 3MB';
+        return fail(res, 413, 'body_too_large', limitText);
       }
       if (!buffer.length) return fail(res, 400, 'empty_body', '文件为空');
 
+      // 权威校验通过后写入净化版内容（位图仍保留原字节）
+      let svg = null;
+      if (isContainer) {
+        const checked = sanitizeContainerSvg(buffer);
+        if (!checked.ok) {
+          return fail(res, 400, 'invalid_svg', checked.message);
+        }
+        svg = checked.svg;
+      } else if (isCharacter) {
+        const checked = isSvg
+          ? sanitizeCharacterSvg(buffer)
+          : validateRasterAsset(buffer, ext);
+        if (!checked.ok) {
+          return fail(
+            res,
+            400,
+            isSvg ? 'invalid_svg' : 'invalid_image',
+            checked.message,
+          );
+        }
+        if (isSvg) svg = checked.svg;
+      }
+
       const name = `${crypto.randomUUID()}.${ext}`;
 
-      // 目录可选：preset/containers（容器图标库，App 会同步）、preset/characters
-      // 以及 tips（后台贴士卡插画）
-      const dirRaw = String(url.searchParams.get('dir') || '')
-        .replace(/^\/+|\/+$/g, '');
-      if (!['', 'preset/containers', 'preset/characters', 'tips'].includes(dirRaw)) {
-        return fail(res, 400, 'invalid_dir', '非法目录');
-      }
       // 保留原文件名（后台按图标文件名管理，App 以文件名作为容器 id）
       const nameRaw = String(url.searchParams.get('name') || '').trim();
       let fileName = name;
@@ -1061,9 +1364,37 @@ async function handle(req, res, url) {
         }
       }
 
+      if (isContainer) {
+        const base = fileName.replace(/\.svg$/i, '').toLowerCase();
+        if (!CONTAINER_NAME_RE.test(base)) {
+          return fail(
+            res,
+            400,
+            'invalid_name',
+            '图标文件名需为小写字母/数字/下划线/中划线，最多 32 个字符',
+          );
+        }
+        fileName = `${base}.svg`;
+        // 文件名即容器 id：同名会全局替换图标，必须显式确认覆盖
+        if (
+          existsSync(path.join(assetsDir, dirRaw, fileName)) &&
+          url.searchParams.get('overwrite') !== '1'
+        ) {
+          return fail(
+            res,
+            409,
+            'already_exists',
+            '同名图标已存在，覆盖会影响所有用户，请确认后重试',
+          );
+        }
+      }
+
       const targetDir = path.join(assetsDir, dirRaw);
       mkdirSync(targetDir, { recursive: true });
-      writeFileSync(path.join(targetDir, fileName), buffer);
+      writeFileSync(
+        path.join(targetDir, fileName),
+        svg === null ? buffer : Buffer.from(svg, 'utf8'),
+      );
       const rel = dirRaw ? `${dirRaw}/${fileName}` : fileName;
       return send(res, 200, { url: `/static/${rel}` });
     }
@@ -1871,6 +2202,8 @@ async function handle(req, res, url) {
           externalTxId: r.external_tx_id,
           createdAt: r.created_at,
           paidAt: r.paid_at,
+          source: r.source || 'payment',
+          pointsCost: Number(r.points_cost) || 0,
           user: {
             id: r.user_id,
             nickname: r.user_nickname,
@@ -2061,92 +2394,118 @@ async function handle(req, res, url) {
       return send(res, 200, { ok: true, status });
     }
 
-    // ---------- 贴士卡管理 ----------
-    if (pathname === '/v1/admin/tips' && method === 'GET') {
+    // ---------- 挑战卡管理 ----------
+    if (pathname === '/v1/admin/challenges' && method === 'GET') {
       const rows = db
-        .prepare('SELECT * FROM tips ORDER BY sort, created_at')
+        .prepare('SELECT * FROM challenges ORDER BY sort, created_at')
         .all();
-      return send(
-        res,
-        200,
-        rows.map((r) => ({
-          id: r.id,
-          groupCode: r.group_code,
-          title: r.title,
-          bgColor: r.bg_color,
-          fgColor: r.fg_color,
-          imageUrl: r.image_url,
-          sort: r.sort,
-          isPublished: toBool(r.is_published),
-          createdAt: r.created_at,
-        })),
-      );
+      return send(res, 200, rows.map((r) => mapChallenge(r, true)));
     }
 
-    if (pathname === '/v1/admin/tips' && method === 'POST') {
+    if (pathname === '/v1/admin/challenges' && method === 'POST') {
       const body = await readJson(req);
-      const groupCode = String(body.groupCode || '').trim();
-      const title = String(body.title || '').trim();
-      if (!TIP_GROUPS.has(groupCode)) {
-        return fail(res, 400, 'invalid_group', '贴士分组不合法');
-      }
+      const title = String(body.title ?? '').trim().slice(0, 200);
       if (!title) return fail(res, 400, 'invalid_title', '标题不能为空');
       const id = crypto.randomUUID();
-      const maxSort = db.prepare('SELECT COALESCE(MAX(sort), 0) AS n FROM tips').get().n;
+      const maxSort = db
+        .prepare('SELECT COALESCE(MAX(sort), 0) AS n FROM challenges')
+        .get().n;
+      // 天数 1..60、奖励 0..1000：防止误填导致客户端「立即完成」或负天数报错
+      const daysRaw = optInt(body.days);
+      const days = daysRaw === null ? 10 : Math.min(60, Math.max(1, daysRaw));
+      const rewardRaw = optInt(body.rewardPoints);
+      const rewardPoints =
+        rewardRaw === null ? 1000 : Math.min(1000, Math.max(0, rewardRaw));
+      const sort = optInt(body.sort);
+      const nextSort = sort === null ? maxSort + 1 : sort;
       db.prepare(
-        `INSERT INTO tips
-           (id, group_code, title, bg_color, fg_color, image_url, sort, is_published, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO challenges
+           (id, title, subtitle, bg_color, asset, intro, benefits, todo, days,
+            reward_points, forbidden_labels, forbidden_keywords, forbidden_categories,
+            sort, is_published, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
-        groupCode,
-        title.slice(0, 200),
-        String(body.bgColor || '').trim() || null,
-        String(body.fgColor || '').trim() || null,
-        String(body.imageUrl || '').trim() || null,
-        maxSort + 1,
+        title,
+        String(body.subtitle ?? '').trim() || null,
+        String(body.bgColor ?? '').trim() || null,
+        String(body.asset ?? '').trim() || null,
+        String(body.intro ?? '').trim() || null,
+        benefitsJson(body.benefits),
+        String(body.todo ?? '').trim() || null,
+        days,
+        rewardPoints,
+        listJson(body.forbiddenLabels),
+        listJson(body.forbiddenKeywords),
+        listJson(body.forbiddenCategories),
+        nextSort,
         body.isPublished === undefined ? 1 : boolInt(body.isPublished),
         nowIso(),
       );
-      return send(res, 201, { id, sort: maxSort + 1 });
+      return send(res, 201, { id, sort: nextSort });
     }
 
-    const tipMatch = pathname.match(/^\/v1\/admin\/tips\/([^/]+)$/);
-    if (tipMatch) {
-      const id = decodeURIComponent(tipMatch[1]);
-      const row = db.prepare('SELECT * FROM tips WHERE id = ?').get(id);
-      if (!row) return fail(res, 404, 'not_found', '贴士不存在');
+    const challengeMatch = pathname.match(/^\/v1\/admin\/challenges\/([^/]+)$/);
+    if (challengeMatch) {
+      const id = decodeURIComponent(challengeMatch[1]);
+      const row = db.prepare('SELECT * FROM challenges WHERE id = ?').get(id);
+      if (!row) return fail(res, 404, 'not_found', '挑战卡不存在');
       if (method === 'DELETE') {
-        db.prepare('DELETE FROM tips WHERE id = ?').run(id);
+        db.prepare('DELETE FROM challenges WHERE id = ?').run(id);
         return send(res, 200, { ok: true });
       }
       if (method === 'PATCH') {
         const body = await readJson(req);
-        if (body.groupCode !== undefined && !TIP_GROUPS.has(String(body.groupCode))) {
-          return fail(res, 400, 'invalid_group', '贴士分组不合法');
-        }
-        db.prepare(
-          `UPDATE tips
-              SET group_code = ?, title = ?, bg_color = ?, fg_color = ?,
-                  image_url = ?, sort = ?, is_published = ?
-            WHERE id = ?`,
-        ).run(
-          body.groupCode === undefined ? row.group_code : String(body.groupCode),
+        const title =
           body.title === undefined
             ? row.title
-            : String(body.title).trim().slice(0, 200) || row.title,
+            : String(body.title).trim().slice(0, 200);
+        if (!title) return fail(res, 400, 'invalid_title', '标题不能为空');
+        const daysRaw =
+          body.days === undefined ? row.days : optInt(body.days) ?? row.days;
+        const days = Math.min(60, Math.max(1, daysRaw));
+        const rewardRaw =
+          body.rewardPoints === undefined
+            ? row.reward_points
+            : optInt(body.rewardPoints) ?? row.reward_points;
+        const rewardPoints = Math.min(1000, Math.max(0, rewardRaw));
+        const sort =
+          body.sort === undefined ? row.sort : optInt(body.sort) ?? row.sort;
+        db.prepare(
+          `UPDATE challenges
+              SET title = ?, subtitle = ?, bg_color = ?, asset = ?, intro = ?,
+                  benefits = ?, todo = ?, days = ?, reward_points = ?,
+                  forbidden_labels = ?, forbidden_keywords = ?,
+                  forbidden_categories = ?, sort = ?, is_published = ?
+            WHERE id = ?`,
+        ).run(
+          title,
+          body.subtitle === undefined
+            ? row.subtitle
+            : String(body.subtitle).trim() || null,
           body.bgColor === undefined
             ? row.bg_color
             : String(body.bgColor).trim() || null,
-          body.fgColor === undefined
-            ? row.fg_color
-            : String(body.fgColor).trim() || null,
-          body.imageUrl === undefined
-            ? row.image_url
-            : String(body.imageUrl).trim() || null,
-          body.sort === undefined
-            ? row.sort
-            : Math.round(Number(body.sort)) || row.sort,
+          body.asset === undefined
+            ? row.asset
+            : String(body.asset).trim() || null,
+          body.intro === undefined
+            ? row.intro
+            : String(body.intro).trim() || null,
+          body.benefits === undefined ? row.benefits : benefitsJson(body.benefits),
+          body.todo === undefined ? row.todo : String(body.todo).trim() || null,
+          days,
+          rewardPoints,
+          body.forbiddenLabels === undefined
+            ? row.forbidden_labels
+            : listJson(body.forbiddenLabels),
+          body.forbiddenKeywords === undefined
+            ? row.forbidden_keywords
+            : listJson(body.forbiddenKeywords),
+          body.forbiddenCategories === undefined
+            ? row.forbidden_categories
+            : listJson(body.forbiddenCategories),
+          sort,
           body.isPublished === undefined
             ? row.is_published
             : boolInt(body.isPublished),
@@ -3132,7 +3491,9 @@ async function handle(req, res, url) {
               continue;
             }
           } else {
-            if (amount > EARN_EVENT_CAP) {
+            // 挑战奖励是一次性大额积分（10 天挑战 = 1000），单独放宽上限
+            const eventCap = source === 'challenge' ? 1000 : EARN_EVENT_CAP;
+            if (amount > eventCap) {
               skipped += 1;
               continue;
             }
@@ -3145,7 +3506,8 @@ async function handle(req, res, url) {
                     AND substr(occurred_at, 1, 10) = ?`,
               )
               .get(user.id, day).total;
-            if (earned + amount > EARN_DAILY_CAP) {
+            const dayCap = source === 'challenge' ? 2000 : EARN_DAILY_CAP;
+            if (earned + amount > dayCap) {
               skipped += 1;
               continue;
             }
@@ -3255,6 +3617,22 @@ async function handle(req, res, url) {
       db.prepare(
         'UPDATE users SET membership_expire_at = ?, membership_permanent = 0 WHERE id = ?',
       ).run(expireAt, user.id);
+      // 积分兑换也记为一条已支付订单，后台会员订单列表可见来源与消耗积分
+      db.prepare(
+        `INSERT INTO membership_orders
+           (id, user_id, plan_code, plan_name, duration_days, amount_cents,
+            status, external_tx_id, created_at, paid_at, source, points_cost)
+         VALUES (?, ?, 'points', ?, ?, 0, 'paid', ?, ?, ?, 'points', ?)`,
+      ).run(
+        crypto.randomUUID(),
+        user.id,
+        `积分兑换 ${days} 天会员`,
+        days,
+        `points_${crypto.randomUUID()}`,
+        nowIso(),
+        nowIso(),
+        cost,
+      );
       db.exec('COMMIT');
     } catch (err) {
       db.exec('ROLLBACK');

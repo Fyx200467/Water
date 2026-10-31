@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/sync/character_sync.dart';
 import 'character_art.dart';
 import 'character_catalog.dart';
+import 'character_collection_provider.dart';
 import 'character_data.dart';
 import 'current_character_provider.dart';
 import '../membership/membership_provider.dart';
@@ -15,7 +16,7 @@ import '../settings/widget_settings_screen.dart';
 
 /// 角色展示页：从底部滑出的独立全屏页面（不可拖拽关闭，只能点 X 返回）
 ///
-/// 头部固定（随机按钮 + 关闭 + 当前角色卡片），
+/// 头部固定（关闭按钮 + 当前角色卡片），
 /// 下方 12 个分类网格上下滚动，每个卡片用 CharacterArt 渲染：
 /// 已点亮显示彩色 SVG，未点亮显示灰色剪影（同张 SVG 用 ColorFilter 染灰）。
 class CharacterScreen extends ConsumerStatefulWidget {
@@ -46,12 +47,16 @@ class _CharacterScreenState extends ConsumerState<CharacterScreen> {
     final catalogData = catalog.asData?.value;
     // 当前角色为后台上传/云端下载素材时的本地 SVG 路径（内置素材为 null）
     final currentFilePath = catalogData?.uploadedFilePaths[currentChar];
-    // 全解锁模式：所有角色均可直接选用（便于测试随意切换填充角色；
-    // 正式版恢复为 characterCollectionProvider 的里程碑解锁集合）
-    final collected = catalogData?.allIds ?? characters.keys.toSet();
+    // 已点亮集合：会员全部点亮；非会员读取里程碑点亮集合（游客仅默认绵羊），
+    // 只保留当前目录里仍可见的角色
+    final allIds = catalogData?.allIds ?? characters.keys.toSet();
+    final isMember = ref.watch(membershipProvider).isMember;
+    final collection = ref.watch(characterCollectionProvider).asData?.value;
+    final collected = isMember
+        ? allIds
+        : (collection?.collectedIds ?? defaultUnlockedIds).intersection(allIds);
     // 会员权益：由后台配置——整组会员专属看分类 memberOnly，
     // 单个角色会员专属看 catalog.memberOnlyIds
-    final isMember = ref.watch(membershipProvider).isMember;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.dark.copyWith(
@@ -64,22 +69,19 @@ class _CharacterScreenState extends ConsumerState<CharacterScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // 1. 随机按钮 + X 关闭 + 当前角色卡片
+              // 1. X 关闭 + 当前角色卡片
               _HeaderBar(
                 currentChar: currentChar,
                 currentFilePath: currentFilePath,
                 collectedCount: collected.length,
                 displayNames: catalogData?.displayNames,
-                totalCount: collected.length,
+                totalCount: allIds.length,
               ),
               Expanded(
                 child: catalog.when(
-                  loading: () => const Center(
-                    child: CircularProgressIndicator(),
-                  ),
-                  error: (e, _) => Center(
-                    child: Text('角色目录加载失败：$e'),
-                  ),
+                  loading: () =>
+                      const Center(child: CircularProgressIndicator()),
+                  error: (e, _) => Center(child: Text('角色目录加载失败：$e')),
                   data: (state) => ListView(
                     padding: const EdgeInsets.only(top: 4, bottom: 32),
                     children: [
@@ -95,8 +97,8 @@ class _CharacterScreenState extends ConsumerState<CharacterScreen> {
                           locked: cat.memberOnly && !isMember,
                           onLockedTap: () => Navigator.of(context).push(
                             MaterialPageRoute(
-                              builder: (_) => const MembershipScreen(
-                                  feature: '全部动物角色'),
+                              builder: (_) =>
+                                  const MembershipScreen(feature: '全部动物角色'),
                             ),
                           ),
                           onTapCharacter: (id) {
@@ -105,9 +107,9 @@ class _CharacterScreenState extends ConsumerState<CharacterScreen> {
                                   .read(currentCharacterProvider.notifier)
                                   .select(id)
                                   .then((_) {
-                                // 切换角色即时同步桌面小组件（重渲染角色 PNG）
-                                syncWidgetFromSettings(ref.read);
-                              });
+                                    // 切换角色即时同步桌面小组件（重渲染角色 PNG）
+                                    syncWidgetFromSettings(ref.read);
+                                  });
                             } else {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
@@ -162,36 +164,10 @@ class _HeaderBar extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 1. 随机按钮 + X 关闭
+          // 1. X 关闭
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              InkWell(
-                onTap: () {},
-                borderRadius: BorderRadius.circular(20),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF2F2F7),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: const [
-                      Icon(Icons.refresh, size: 16, color: Color(0xFF1C1C1E)),
-                      SizedBox(width: 4),
-                      Text(
-                        '随机',
-                        style: TextStyle(
-                          color: Color(0xFF1C1C1E),
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
               InkWell(
                 onTap: () => Navigator.of(context).maybePop(),
                 borderRadius: BorderRadius.circular(15),
@@ -343,8 +319,7 @@ class _CategorySection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cat = category;
-    final collectedCount =
-        cat.characterIds.where(collectedIds.contains).length;
+    final collectedCount = cat.characterIds.where(collectedIds.contains).length;
     // 排序：已点亮（收集）的角色依次排到未点亮角色前面
     final orderedIds = [
       ...cat.characterIds.where(collectedIds.contains),
@@ -360,7 +335,10 @@ class _CategorySection extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: cat.color,
                   borderRadius: BorderRadius.circular(14),
@@ -458,9 +436,7 @@ class _CharacterGridCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // 当前选中的卡片用分类色描边强调，已解锁但未选中用浅描边
-    final border = selected
-        ? Border.all(color: color, width: 2.5)
-        : null;
+    final border = selected ? Border.all(color: color, width: 2.5) : null;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
@@ -494,8 +470,7 @@ class _CharacterGridCard extends StatelessWidget {
                     color: Color(0xFFE0A63C),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.lock,
-                      size: 11, color: Colors.white),
+                  child: const Icon(Icons.lock, size: 11, color: Colors.white),
                 ),
               ),
           ],

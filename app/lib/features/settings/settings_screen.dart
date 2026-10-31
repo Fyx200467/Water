@@ -18,7 +18,7 @@ import '../characters/character_screen.dart';
 import '../characters/current_character_provider.dart';
 import '../drink/providers/custom_beverage_provider.dart';
 import 'feedback_screen.dart';
-import '../home/challenge_sheet.dart' show challengeJoined;
+import '../challenges/challenge_service.dart' show challengeRevisionProvider;
 import '../home/providers/home_providers.dart';
 import '../membership/membership_provider.dart';
 import '../membership/membership_screen.dart';
@@ -44,10 +44,8 @@ import 'widget_settings_screen.dart';
 /// 5. 功能分组（饮料 / 小组件 / App图标）
 /// 6. 偏好分组（重置时间 / 卡路里 / 单位 / App声音动画 / 健康同步 / 手表）
 /// 7. 云备份
-/// 8. 语言 / 帮助与支持
-/// 9. 社区
-/// 10. "我们的网站" 推荐区
-/// 11. 底部 footer（条款和隐私 / 版本号）
+/// 8. 帮助与支持（语言 / 社区入口暂时隐藏）
+/// 9. 底部 footer（条款和隐私 / 版本号）
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
@@ -242,20 +240,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ]),
                 const SizedBox(height: 28),
 
-                // ---- 分组4：语言 / 帮助 ----
+                // ---- 分组4：帮助（语言 / 吨吨社区入口暂时隐藏） ----
                 _buildSection('', [
-                  _settingRow(
-                    iconAsset: 'language.svg',
-                    title: '语言',
-                    trailingText: '简体中文',
-                  ),
                   _settingRow(
                     iconAsset: 'help.svg',
                     title: '帮助与支持',
                     onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const FeedbackScreen(),
-                      ),
+                      MaterialPageRoute(builder: (_) => const FeedbackScreen()),
                     ),
                   ),
                 ]),
@@ -272,16 +263,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                 ]),
                 const SizedBox(height: 28),
-
-                // ---- 分组6：社区 ----
-                _buildSection('', [
-                  _settingRow(iconAsset: 'social.svg', title: '吨吨社区'),
-                ]),
-                const SizedBox(height: 32),
-
-                // ---- "我们的网站" 推荐区 ----
-                _buildOurAppsSection(),
-                const SizedBox(height: 24),
 
                 // ---- 底部 footer ----
                 _buildFooter(),
@@ -651,134 +632,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  // ==================== "我们的网站" 推荐区 ====================
-
-  Widget _buildOurAppsSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          '我们的网站',
-          style: TextStyle(
-            color: _textPrimary,
-            fontSize: 19,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        const SizedBox(height: 12),
-        Container(
-          padding: const EdgeInsets.all(14),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              // App 图标 + "新" 标签
-              Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Container(
-                    width: 64,
-                    height: 64,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: SvgPicture.asset(
-                      'assets/icons/menu/ai.svg',
-                      width: 40,
-                      height: 40,
-                    ),
-                  ),
-                  Positioned(
-                    top: -6,
-                    right: -6,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.black,
-                        borderRadius: BorderRadius.circular(5),
-                      ),
-                      child: const Text(
-                        '新',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      '鲲穹Ai工具箱',
-                      style: TextStyle(
-                        color: _textPrimary,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      '探索 AI 智能「懂你所言、答你所问、创你所需、解你所难、教你所学」',
-                      style: TextStyle(
-                        color: _textSecondary,
-                        fontSize: 12,
-                        height: 1.3,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              // "立即获取" 按钮
-              Align(
-                alignment: Alignment.center,
-                child: GestureDetector(
-                  onTap: () => _showSnack('功能开发中'),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF4CAF50),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: const Text(
-                      '立即获取',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
   // ==================== 底部 footer ====================
 
   Widget _buildFooter() {
     return Column(
       children: [
         TextButton(
-          onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const LegalScreen()),
-          ),
+          onPressed: () => Navigator.of(
+            context,
+          ).push(MaterialPageRoute(builder: (_) => const LegalScreen())),
           child: const Text(
             '条款和隐私',
             style: TextStyle(color: _textSecondary, fontSize: 12),
@@ -962,7 +824,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     // 已登录时清除数据会同时清掉会话：断开实时通道并复位账号权益
     SessionWatch.stop();
     await ref.read(membershipProvider.notifier).reset();
-    await ref.read(currentCharacterProvider.notifier).select('alpaca');
+    await ref.read(currentCharacterProvider.notifier).select('sheep');
 
     // 重置内存态（保留主题偏好）
     ref.invalidate(profileProvider);
@@ -979,7 +841,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     ref.invalidate(bestCheckinDaysProvider);
     // 静态单例内存缓存同步复位：设置标志 + 限时挑战参加状态
     SettingsFlags.instance.resetToDefaults();
-    challengeJoined.value = false;
+    // 挑战参加状态随数据一并清除：让挑战页重新按空状态计算
+    ref.read(challengeRevisionProvider.notifier).state++;
 
     // 同步桌面小组件：全部清零（此时 profile 已失效，目标显示回退由原生缺省处理）
     await syncWidgetFromSettings(

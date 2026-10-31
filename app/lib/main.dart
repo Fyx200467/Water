@@ -11,7 +11,7 @@ import 'core/crash/crash_reporter.dart';
 import 'core/sync/container_icon_sync.dart';
 import 'core/sync/character_sync.dart';
 import 'core/sync/sync_api.dart';
-import 'features/home/tips_deck.dart';
+
 import 'features/settings/settings_flags.dart';
 import 'features/settings/widget_background.dart';
 
@@ -50,7 +50,5 @@ Future<void> main() async {
   await ContainerIconStore.init();
   // 云端角色目录缓存：分类/角色列表与 SVG 素材同样离线优先
   await CharacterStore.init();
-  // 首页贴士卡：读回上次后台下发的卡池（后台未配置时用内置卡池）
-  await TipStore.init();
   runApp(const ProviderScope(child: WaterLlamaApp()));
 }

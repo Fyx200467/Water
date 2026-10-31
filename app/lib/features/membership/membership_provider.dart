@@ -14,7 +14,7 @@ class NotLoggedInError implements Exception {
 }
 
 /// 积分兑换会员：每天所需积分 + 一次只能兑换 1 天
-const int kMemberDayPoints = 60;
+const int kMemberDayPoints = 100;
 
 /// 套餐内绑定的单条会员权益（后台配置，随套餐下发）
 class PlanBenefit {

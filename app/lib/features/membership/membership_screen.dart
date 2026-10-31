@@ -408,7 +408,7 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
         ),
         const SizedBox(height: 6),
         Text(
-          m.isMember ? m.statusLabel : '解锁全部动物、饮品与专属小组件',
+          m.isMember ? m.statusLabel : '解锁全部动物、饮品',
           style: const TextStyle(color: _gray, fontSize: 13),
         ),
       ],

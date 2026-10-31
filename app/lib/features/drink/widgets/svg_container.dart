@@ -483,6 +483,8 @@ class _SvgContainerIconState extends State<SvgContainerIcon> {
           height: widget.size,
           fit: BoxFit.contain,
           placeholderBuilder: (_) => SizedBox.square(dimension: widget.size),
+          errorBuilder: (context, error, stack) =>
+              SizedBox.square(dimension: widget.size),
         );
       }
       // 失败回退：优先用已下载的本地文件，其次安装包内置资源
@@ -495,6 +497,8 @@ class _SvgContainerIconState extends State<SvgContainerIcon> {
           width: widget.size,
           height: widget.size,
           fit: BoxFit.contain,
+          errorBuilder: (context, error, stack) =>
+              SizedBox.square(dimension: widget.size),
         );
       }
       return SvgPicture.asset(
@@ -503,6 +507,8 @@ class _SvgContainerIconState extends State<SvgContainerIcon> {
         width: widget.size,
         height: widget.size,
         fit: BoxFit.contain,
+        errorBuilder: (context, error, stack) =>
+            SizedBox.square(dimension: widget.size),
       );
     }
     return CustomPaint(
