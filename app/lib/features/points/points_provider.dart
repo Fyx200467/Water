@@ -42,13 +42,26 @@ class PointsState {
 
   final int balance;
 
-  /// 今日已获得的积分（用于每日上限判定）
+  /// 今日已获得的积分（用于积分页展示今日收入）
   final int todayEarned;
 
   /// todayEarned 所属日期（yyyy-MM-dd），跨天自动归零
   final String dayKey;
 
   final List<PointsRecord> history;
+
+  /// 今天是否已领取过某个来源的奖励（按本机时区判断）
+  bool hasEarnedToday(String source) {
+    final now = DateTime.now();
+    return history.any(
+      (r) =>
+          r.source == source &&
+          r.amount > 0 &&
+          r.at.year == now.year &&
+          r.at.month == now.month &&
+          r.at.day == now.day,
+    );
+  }
 
   PointsState copyWith({
     int? balance,
@@ -79,9 +92,6 @@ class PointsNotifier extends StateNotifier<PointsState> {
   late final Future<void> loaded;
 
   static const int _maxHistory = 60;
-
-  /// 消消乐每日最多可得积分
-  static const int matchGameDailyCap = 20;
 
   /// 每多少分折算 1 积分
   static const int scorePerPoint = 1000;
@@ -140,12 +150,14 @@ class PointsNotifier extends StateNotifier<PointsState> {
     }
   }
 
-  /// 发放积分（按今日上限截断），返回实际到账数量
+  /// 发放积分（不限每日上限），返回实际到账数量
+  ///
+  /// [eventId] 用于每日任务（如签到）：同一天用同一个 eventId，
+  /// 服务端按 eventId 去重，避免多设备重复领取。
   Future<int> earn({
     required String source,
     required int amount,
-    int dailyCap = matchGameDailyCap,
-    bool ignoreDailyCap = false,
+    String? eventId,
   }) async {
     await loaded;
     final storage = await ref.read(localStorageProvider.future);
@@ -154,23 +166,12 @@ class PointsNotifier extends StateNotifier<PointsState> {
     if (amount <= 0) return 0;
     final key = _todayKey();
     final earnedToday = state.dayKey == key ? state.todayEarned : 0;
-    // 挑战奖励属于一次性大额奖励，不占用每日上限
-    final remain = ignoreDailyCap ? amount : (dailyCap - earnedToday).clamp(0, dailyCap);
-    final granted = amount.clamp(0, remain);
-    if (granted <= 0) {
-      // 已达上限：仍刷新日期键，避免次日误判
-      if (state.dayKey != key) {
-        state = state.copyWith(dayKey: key, todayEarned: 0);
-        await _persist();
-      }
-      return 0;
-    }
     state = state.copyWith(
-      balance: state.balance + granted,
-      todayEarned: earnedToday + granted,
+      balance: state.balance + amount,
+      todayEarned: earnedToday + amount,
       dayKey: key,
       history: [
-        PointsRecord(source: source, amount: granted, at: DateTime.now()),
+        PointsRecord(source: source, amount: amount, at: DateTime.now()),
         ...state.history,
       ].take(_maxHistory).toList(),
     );
@@ -178,13 +179,27 @@ class PointsNotifier extends StateNotifier<PointsState> {
 
     // 记一条待上行流水：离线累计，联网后按 eventId 去重补传
     await storage.addPendingPointEvent({
-      'eventId': _newEventId(),
+      'eventId': eventId ?? _newEventId(),
       'source': source,
-      'amount': granted,
+      'amount': amount,
       'occurredAt': DateTime.now().toUtc().toIso8601String(),
     });
     unawaited(SyncService.autoSync(storage));
-    return granted;
+    return amount;
+  }
+
+  /// 每日任务领取：今天已领过则返回 0；否则按「来源-日期」确定性 eventId 入账
+  Future<int> claimDaily({
+    required String source,
+    required int amount,
+  }) async {
+    await loaded;
+    if (state.hasEarnedToday(source)) return 0;
+    return earn(
+      source: source,
+      amount: amount,
+      eventId: '$source-${_todayKey()}',
+    );
   }
 }
 

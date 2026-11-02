@@ -22,8 +22,10 @@ import '../challenges/challenge_service.dart' show challengeRevisionProvider;
 import '../home/providers/home_providers.dart';
 import '../membership/membership_provider.dart';
 import '../membership/membership_screen.dart';
+import '../points/points_screen.dart';
 import '../reminder/reminder_providers.dart';
 import '../stats/providers/stats_providers.dart';
+import '../stats/services/export_csv.dart';
 import 'app_icon_screen.dart';
 import 'app_prefs_screen.dart';
 import 'calorie_screen.dart';
@@ -164,11 +166,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ),
                     ),
                   ),
-                  // 「消消乐」行：进入饮品三消小游戏
+                  // 「吨吨乐园」行：聚合趣味小游戏与每日积分任务
                   _settingRow(
-                    iconAsset: 'match3.svg',
-                    title: '消消乐',
-                    onTap: () => context.push('/game/match3'),
+                    iconAsset: 'playground.svg',
+                    title: '吨吨乐园',
+                    onTap: () => context.push('/playground'),
+                  ),
+                  // 「我的积分」行：查看积分余额与明细
+                  _settingRow(
+                    iconAsset: 'points.svg',
+                    title: '我的积分',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const PointsScreen(),
+                      ),
+                    ),
                   ),
                 ]),
                 const SizedBox(height: 28),
@@ -215,6 +227,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute(builder: (_) => const AppPrefsScreen()),
                     ),
+                  ),
+                  _settingRow(
+                    iconAsset: 'export_data.svg',
+                    title: '数据导出',
+                    onTap: _exportCsv,
                   ),
                   // 「健康」同步与手表联动仅 iOS 提供；Android 不展示
                   if (Platform.isIOS) ...[
@@ -664,6 +681,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(msg), duration: const Duration(seconds: 2)),
     );
+  }
+
+  /// 会员权益「数据导出」：生成全部饮水记录 CSV 并调起分享面板。
+  /// 非会员先进入会员页，开通后继续导出。
+  Future<void> _exportCsv() async {
+    final ok = await ensureMember(context, ref, feature: '数据导出');
+    if (!ok || !mounted) return;
+    final result = await exportAllEntriesCsv(ref);
+    if (!mounted) return;
+    _showSnack(switch (result) {
+      CsvExportResult.ok => '已生成 CSV，可在分享面板中保存或发送',
+      CsvExportResult.empty => '暂无可导出的饮水记录',
+      CsvExportResult.failed => '导出失败，请稍后重试',
+    });
   }
 
   /// 开发入口：长按版本号修改接口地址（内网穿透调试用）

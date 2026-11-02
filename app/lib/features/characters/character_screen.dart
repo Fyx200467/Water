@@ -98,7 +98,7 @@ class _CharacterScreenState extends ConsumerState<CharacterScreen> {
                           onLockedTap: () => Navigator.of(context).push(
                             MaterialPageRoute(
                               builder: (_) =>
-                                  const MembershipScreen(feature: '全部动物角色'),
+                                  const MembershipScreen(feature: '全部角色'),
                             ),
                           ),
                           onTapCharacter: (id) {

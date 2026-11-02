@@ -13,6 +13,7 @@ import '../../shared/models/preferred_unit.dart';
 import '../../shared/widgets/wheel_time_picker.dart';
 import '../drink/services/hydration_calculator.dart';
 import '../home/providers/home_providers.dart';
+import '../settings/app_icon_screen.dart';
 import 'reminder_providers.dart';
 
 /// 提醒设置全屏页面 — 对标竞品简洁布局
@@ -1226,23 +1227,8 @@ class _ReminderSettingsScreenState
             children: [
               Row(
                 children: [
-                  Container(
-                    width: 34,
-                    height: 34,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(9),
-                      gradient: const LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [Color(0xFF8FDCF5), Color(0xFF3AA6DC)],
-                      ),
-                    ),
-                    child: const Icon(
-                      Icons.water_drop,
-                      size: 18,
-                      color: Colors.white,
-                    ),
-                  ),
+                  // 通知预览的 App 图标与全局「App 图标」设置实时同步
+                  const AppIconPreview(size: 34),
                   const SizedBox(width: 8),
                   const Text(
                     '吨吨 · 1 分钟前',

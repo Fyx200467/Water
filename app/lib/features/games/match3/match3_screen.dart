@@ -39,7 +39,7 @@ class _Tile {
 /// - 棋盘图格 = 从「内置 12 款 + 用户新增饮品」里随机抽取的饮品图标
 ///   （不看饮品管理页的开关；自定义饮品删除后自然不再出现）
 /// - 限步数达成目标分：每局 20 步，目标 2000 分，三连 30 分/格，连锁加倍
-/// - 通关按「分数 / 1000」折算积分，受积分体系每日上限约束
+/// - 通关按「分数 / 1000」折算积分，积分不设每日上限
 class Match3Screen extends ConsumerStatefulWidget {
   const Match3Screen({super.key});
 
@@ -329,7 +329,6 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
               )
         : 0;
     if (!mounted) return;
-    final reachedCap = won && !isGuest && earned == 0;
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -363,7 +362,9 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
                 won
                     ? (isGuest
                           ? '登录后才能获得积分，游客不计分'
-                          : (reachedCap ? '今日积分已达上限，明天再来～' : '获得 $earned 积分'))
+                          : (earned > 0
+                              ? '获得 $earned 积分'
+                              : '本局得分不足 1000，暂无积分'))
                     : '目标 $_targetScore 分，再试一次吧',
                 style: const TextStyle(color: Color(0xFF8E8E93), fontSize: 13),
               ),

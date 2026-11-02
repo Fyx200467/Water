@@ -113,8 +113,6 @@ class _GoalInfoFormState extends State<GoalInfoForm>
   late final AnimationController _anim;
 
   static const _brandCyan = Color(0xFF4DB8D8);
-  static const _textDark = Color(0xFF1C1C1E);
-  static const _hintGray = Color(0xFF8E8E93);
 
   @override
   void initState() {
@@ -137,6 +135,29 @@ class _GoalInfoFormState extends State<GoalInfoForm>
         ActivityLevel.medium => '中等运动量',
         ActivityLevel.high => '高运动量',
       };
+
+  /// 运动强度对应的选项图标（选择后展示在胶囊右侧）
+  static IconData _activityIcon(ActivityLevel a) => switch (a) {
+        ActivityLevel.low => Icons.chair_outlined,
+        ActivityLevel.medium => Icons.directions_run,
+        ActivityLevel.high => Icons.fitness_center,
+      };
+
+  /// 天气对应的选项图标
+  static IconData _tempIcon(GoalTemperature t) => switch (t) {
+        GoalTemperature.cold => Icons.ac_unit,
+        GoalTemperature.mild => Icons.wb_cloudy_outlined,
+        GoalTemperature.hot => Icons.wb_sunny_outlined,
+      };
+
+  /// 已选性别的展示图标（未选择时由胶囊回退为箭头）
+  IconData _genderIcon() {
+    final label = widget.values.genderLabel;
+    if (label == null) return Icons.chevron_right;
+    return kGenderOptions
+        .firstWhere((o) => o.label == label, orElse: () => kGenderOptions.first)
+        .icon;
+  }
 
   void _update(GoalInfoValues next) => widget.onChanged(next);
 
@@ -208,189 +229,55 @@ class _GoalInfoFormState extends State<GoalInfoForm>
     );
   }
 
-  /// 身高录入：与体重同款数字滚轮（cm）
-  void _showHeightSheet(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFFF7F6FB),
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      builder: (_) => _NumberWheelSheet(
-        title: '身高',
-        min: 120,
-        max: 220,
-        initial: widget.values.heightCm,
-        onDone: (cm) => _update(widget.values.copyWith(
-          heightCm: cm,
-          clearCustomGoal: true,
-        )),
-      ),
-    );
-  }
-
+  /// 温度选择影响目标计算（寒冷 -150 / 温和 0 / 炎热 +300）
   void _showTempSheet(BuildContext context) {
-    // 温度选择影响目标计算（寒冷 -150 / 温和 0 / 炎热 +300）
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.white,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const _SheetGrabber(),
-              const Text('温度',
-                  style: TextStyle(
-                      color: _textDark,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700)),
-              const SizedBox(height: 12),
-              ...GoalTemperature.values.map((t) => InkWell(
-                    onTap: () {
-                      _update(widget.values.copyWith(
-                        temperature: t,
-                        clearCustomGoal: true,
-                      ));
-                      Navigator.pop(ctx);
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      decoration: const BoxDecoration(
-                        border: Border(
-                          bottom: BorderSide(
-                              color: Color(0xFFE5E5EA), width: 0.5),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(t.label,
-                                  style: const TextStyle(
-                                      color: _textDark,
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w500)),
-                              const SizedBox(height: 2),
-                              Text(t.description,
-                                  style: const TextStyle(
-                                      color: _hintGray, fontSize: 13)),
-                            ],
-                          ),
-                          const Spacer(),
-                          Icon(
-                            t == widget.values.temperature
-                                ? Icons.radio_button_checked
-                                : Icons.radio_button_off,
-                            color: t == widget.values.temperature
-                                ? _brandCyan
-                                : _hintGray,
-                            size: 20,
-                          ),
-                        ],
-                      ),
-                    ),
-                  )),
-              const SizedBox(height: 16),
-              const Text('不会收集或共享你的个人信息',
-                  style: TextStyle(color: _hintGray, fontSize: 12)),
-              const SizedBox(height: 16),
-            ],
-          ),
-        ),
+      builder: (_) => _TemperatureSheet(
+        selected: widget.values.temperature,
+        onSelected: (t) {
+          _update(widget.values.copyWith(
+            temperature: t,
+            clearCustomGoal: true,
+          ));
+          Navigator.pop(context);
+        },
       ),
     );
   }
 
+  /// 自定义目标：大号数字 + ml 键盘输入（对标参考图的数字键盘弹层）
   void _showCustomGoalSheet(BuildContext context) {
     final values = widget.values;
-    int temp = values.customGoalMl ?? values.previewGoal;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFFF2F2F4),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => _CustomGoalSheet(
+        initialMl: values.customGoalMl ?? values.previewGoal,
+        onDone: (ml) => _update(widget.values.copyWith(customGoalMl: ml)),
+      ),
+    );
+  }
+
+  /// 「常见目标 ⓘ」说明弹层：常见目标与推荐目标的区别
+  void _showCommonGoalSheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.white,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheet) => Padding(
-          padding: EdgeInsets.fromLTRB(
-              20, 16, 20, 20 + MediaQuery.of(ctx).viewInsets.bottom),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const _SheetGrabber(),
-              const Text('自定义目标',
-                  style: TextStyle(
-                      color: _textDark,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700)),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: Slider(
-                      value: temp.toDouble(),
-                      min: 1000,
-                      max: 5000,
-                      divisions: 80,
-                      label: UnitFormat.volume(temp),
-                      onChanged: (v) => setSheet(() => temp = v.round()),
-                    ),
-                  ),
-                  SizedBox(
-                    width: 100,
-                    child: Text(UnitFormat.volume(temp),
-                        textAlign: TextAlign.end,
-                        style: const TextStyle(
-                            color: _textDark,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600)),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  TextButton(
-                    onPressed: () {
-                      _update(widget.values.copyWith(clearCustomGoal: true));
-                      Navigator.pop(ctx);
-                    },
-                    child: const Text('使用推荐值'),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () {
-                        _update(widget.values.copyWith(customGoalMl: temp));
-                        Navigator.pop(ctx);
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _brandCyan,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(24)),
-                      ),
-                      child: const Text('确定'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
+      builder: (_) => const _CommonGoalSheet(),
     );
   }
 
@@ -431,15 +318,20 @@ class _GoalInfoFormState extends State<GoalInfoForm>
                       ),
                     ),
                     const SizedBox(height: 6),
-                    const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text('常见目标',
-                            style:
-                                TextStyle(color: _brandCyan, fontSize: 14)),
-                        SizedBox(width: 4),
-                        Icon(Icons.info_outline, color: _brandCyan, size: 16),
-                      ],
+                    GestureDetector(
+                      onTap: () => _showCommonGoalSheet(context),
+                      behavior: HitTestBehavior.opaque,
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text('常见目标',
+                              style: TextStyle(
+                                  color: _brandCyan, fontSize: 14)),
+                          SizedBox(width: 4),
+                          Icon(Icons.info_outline,
+                              color: _brandCyan, size: 16),
+                        ],
+                      ),
                     ),
                     const SizedBox(height: 24),
                     const Text(
@@ -452,13 +344,14 @@ class _GoalInfoFormState extends State<GoalInfoForm>
                       ),
                     ),
                     const SizedBox(height: 18),
-                    // 5 张白胶囊选项卡（性别/体重/身高带左右轻微颤动）
+                    // 白胶囊选项卡：未选择显示「标题 + 箭头」，选择后显示「值 + 图标」
                     PillSway(
                       t: t,
                       phase: 0.0,
                       child: _OptionCapsule(
                         label: '性别',
                         value: values.gender == null ? null : values.genderLabel,
+                        icon: _genderIcon(),
                         onTap: () => _showGenderSheet(context),
                       ),
                     ),
@@ -471,29 +364,22 @@ class _GoalInfoFormState extends State<GoalInfoForm>
                         value: values.weightSelected
                             ? '${values.weightKg.round()}kg'
                             : null,
+                        icon: Icons.monitor_weight_outlined,
                         onTap: () => _showWeightSheet(context),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    PillSway(
-                      t: t,
-                      phase: math.pi / 2,
-                      child: _OptionCapsule(
-                        label: '身高',
-                        value: '${values.heightCm.round()}cm',
-                        onTap: () => _showHeightSheet(context),
                       ),
                     ),
                     const SizedBox(height: 12),
                     _OptionCapsule(
                       label: '运动强度',
                       value: _activityAmountLabel(values.activityLevel),
+                      icon: _activityIcon(values.activityLevel),
                       onTap: () => _showActivitySheet(context),
                     ),
                     const SizedBox(height: 12),
                     _OptionCapsule(
                       label: '温度',
                       value: values.temperature.label,
+                      icon: _tempIcon(values.temperature),
                       onTap: () => _showTempSheet(context),
                     ),
                     const SizedBox(height: 10),
@@ -544,16 +430,18 @@ class _GoalInfoFormState extends State<GoalInfoForm>
   }
 }
 
-/// 白胶囊选项卡（对标原版：白色全圆角行卡 + 左深色粗体标签 +
-/// 右侧水色值与箭头贴右对齐；value 为 null 时只显示箭头）
+/// 白胶囊选项卡：未选择时显示「标题 + 箭头」，选择后整行换成
+/// 「已选值 + 对应图标」，让用户一眼看到当前状态。
 class _OptionCapsule extends StatelessWidget {
   const _OptionCapsule({
     required this.label,
+    required this.icon,
     required this.onTap,
     this.value,
   });
   final String label;
   final String? value;
+  final IconData icon;
   final VoidCallback onTap;
 
   /// 值/箭头颜色：跟随信息录入页的水下背景色
@@ -561,6 +449,7 @@ class _OptionCapsule extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final selected = value != null;
     // 胶囊占内容区 5/8 宽度并居中（比通栏窄，留出呼吸感）
     return Center(
       child: FractionallySizedBox(
@@ -587,32 +476,26 @@ class _OptionCapsule extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Row(
                   children: [
-                    Text(
-                      label,
-                      style: const TextStyle(
-                        color: Color(0xFF171A26),
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const Spacer(),
-                    if (value != null)
-                      Flexible(
-                        child: Text(
-                          value!,
-                          maxLines: 1,
-                          textAlign: TextAlign.right,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: _waterAccent,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                          ),
+                    Expanded(
+                      child: Text(
+                        selected ? value! : label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: selected
+                              ? _waterAccent
+                              : const Color(0xFF171A26),
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
-                    const SizedBox(width: 2),
-                    const Icon(Icons.chevron_right,
-                        color: _waterAccent, size: 20),
+                    ),
+                    const SizedBox(width: 6),
+                    Icon(
+                      selected ? icon : Icons.chevron_right,
+                      color: _waterAccent,
+                      size: selected ? 22 : 20,
+                    ),
                   ],
                 ),
               ),
@@ -848,6 +731,149 @@ class _NumberWheelSheetState extends State<_NumberWheelSheet> {
   }
 }
 
+// ============================ 弹层通用组件 ============================
+
+/// 弹层右上角关闭圆钮
+class _SheetCloseButton extends StatelessWidget {
+  const _SheetCloseButton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFFE9E9EE),
+      shape: const CircleBorder(),
+      child: InkWell(
+        onTap: () => Navigator.of(context).maybePop(),
+        customBorder: const CircleBorder(),
+        child: const SizedBox(
+          width: 38,
+          height: 38,
+          child: Icon(Icons.close, size: 20, color: Color(0xFF8E8E93)),
+        ),
+      ),
+    );
+  }
+}
+
+/// 居中标题 + 右上角关闭按钮
+class _SheetHeader extends StatelessWidget {
+  const _SheetHeader({required this.title});
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 52),
+          child: Text(
+            title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Color(0xFF171A26),
+              fontSize: 21,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        Align(alignment: Alignment.centerRight, child: _SheetCloseButton()),
+      ],
+    );
+  }
+}
+
+/// 选项行：浅灰圆角卡片 + 右侧图标（选中时高亮为勾选态）
+class _SheetOptionTile extends StatelessWidget {
+  const _SheetOptionTile({
+    required this.title,
+    required this.icon,
+    required this.onTap,
+    this.subtitle,
+    this.selected = false,
+  });
+
+  final String title;
+  final String? subtitle;
+  final IconData icon;
+  final VoidCallback onTap;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: selected ? const Color(0xFFEAF7FB) : const Color(0xFFF5F5F7),
+        borderRadius: BorderRadius.circular(18),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(18),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          color: Color(0xFF171A26),
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      if (subtitle != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle!,
+                          style: const TextStyle(
+                            color: Color(0xFF8E8E93),
+                            fontSize: 12.5,
+                            height: 1.4,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Icon(
+                  selected ? Icons.check_circle : icon,
+                  size: 24,
+                  color: selected
+                      ? const Color(0xFF4DB8D8)
+                      : const Color(0xFF1C1C1E),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 弹层底部隐私说明
+class _SheetPrivacyNote extends StatelessWidget {
+  const _SheetPrivacyNote();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.only(top: 6, bottom: 4),
+        child: Text(
+          '不会收集或共享你的个人信息',
+          style: TextStyle(color: Color(0xFF8E8E93), fontSize: 12),
+        ),
+      ),
+    );
+  }
+}
+
 // ============================ 性别选择弹层 ============================
 
 class _GenderSheet extends StatelessWidget {
@@ -858,54 +884,22 @@ class _GenderSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SafeArea(
+      top: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const _SheetGrabber(),
-            const Text('性别',
-                style: TextStyle(
-                    color: Color(0xFF1C1C1E),
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700)),
-            const SizedBox(height: 12),
-            // 与「常见目标」页共用的 5 个性别选项（kGenderOptions）
-            ...kGenderOptions.map((o) => InkWell(
-                  onTap: () => onSelected(o),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    decoration: const BoxDecoration(
-                      border: Border(
-                        bottom:
-                            BorderSide(color: Color(0xFFE5E5EA), width: 0.5),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Text(o.label,
-                            style: const TextStyle(
-                                color: Color(0xFF1C1C1E), fontSize: 16)),
-                        const Spacer(),
-                        Icon(o.icon, color: const Color(0xFF8E8E93)),
-                        const SizedBox(width: 12),
-                        Icon(
-                          o.label == selectedLabel
-                              ? Icons.check_circle
-                              : Icons.radio_button_unchecked,
-                          color: o.label == selectedLabel
-                              ? const Color(0xFF4DB8D8)
-                              : const Color(0xFF8E8E93),
-                          size: 20,
-                        ),
-                      ],
-                    ),
-                  ),
-                )),
+            const _SheetHeader(title: '性别'),
             const SizedBox(height: 16),
-            const Text('不会收集或共享你的个人信息',
-                style: TextStyle(color: Color(0xFF8E8E93), fontSize: 12)),
+            // 与「常见目标」页共用的 5 个性别选项（kGenderOptions）
+            ...kGenderOptions.map((o) => _SheetOptionTile(
+                  title: o.label,
+                  icon: o.icon,
+                  selected: o.label == selectedLabel,
+                  onTap: () => onSelected(o),
+                )),
+            const _SheetPrivacyNote(),
           ],
         ),
       ),
@@ -922,64 +916,33 @@ class _ActivitySheet extends StatelessWidget {
 
   /// 3 个选项：(标题, 副标题, 对应 ActivityLevel, 图标)
   static const _options = <_ActivityOption>[
-    _ActivityOption('低强度活动', '久坐不动', ActivityLevel.low, Icons.chair),
-    _ActivityOption('中等强度活动', '偶尔锻炼', ActivityLevel.medium,
+    _ActivityOption('低强度活动', '大多久坐不动的生活方式', ActivityLevel.low,
+        Icons.chair_outlined),
+    _ActivityOption('中等强度活动', '每周偶尔锻炼或长距离散步', ActivityLevel.medium,
         Icons.directions_run),
-    _ActivityOption('高强度活动', '每周几次', ActivityLevel.high,
+    _ActivityOption('高强度活动', '每周锻炼几次', ActivityLevel.high,
         Icons.fitness_center),
   ];
 
   @override
   Widget build(BuildContext context) {
     return SafeArea(
+      top: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const _SheetGrabber(),
-            const Text('日常活动量',
-                style: TextStyle(
-                    color: Color(0xFF1C1C1E),
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700)),
-            const SizedBox(height: 12),
-            ..._options.map((o) => InkWell(
-                  onTap: () => onSelected(o.level),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    decoration: const BoxDecoration(
-                      border: Border(
-                        bottom:
-                            BorderSide(color: Color(0xFFE5E5EA), width: 0.5),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(o.title,
-                                style: const TextStyle(
-                                    color: Color(0xFF1C1C1E),
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w500)),
-                            const SizedBox(height: 2),
-                            Text(o.subtitle,
-                                style: const TextStyle(
-                                    color: Color(0xFF8E8E93), fontSize: 13)),
-                          ],
-                        ),
-                        const Spacer(),
-                        Icon(o.icon, color: const Color(0xFF8E8E93)),
-                      ],
-                    ),
-                  ),
-                )),
+            const _SheetHeader(title: '每日活动'),
             const SizedBox(height: 16),
-            const Text('不会收集或共享你的个人信息',
-                style: TextStyle(color: Color(0xFF8E8E93), fontSize: 12)),
+            ..._options.map((o) => _SheetOptionTile(
+                  title: o.title,
+                  subtitle: o.subtitle,
+                  icon: o.icon,
+                  selected: o.level == selected,
+                  onTap: () => onSelected(o.level),
+                )),
+            const _SheetPrivacyNote(),
           ],
         ),
       ),
@@ -993,4 +956,346 @@ class _ActivityOption {
   final String subtitle;
   final ActivityLevel level;
   final IconData icon;
+}
+
+// ============================ 天气选择弹层 ============================
+
+class _TemperatureSheet extends StatelessWidget {
+  const _TemperatureSheet({required this.selected, required this.onSelected});
+  final GoalTemperature selected;
+  final void Function(GoalTemperature) onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const _SheetHeader(title: '天气'),
+            const SizedBox(height: 16),
+            ...GoalTemperature.values.map((t) => _SheetOptionTile(
+                  title: t.label,
+                  subtitle: t.description,
+                  icon: _GoalInfoFormState._tempIcon(t),
+                  selected: t == selected,
+                  onTap: () => onSelected(t),
+                )),
+            const _SheetPrivacyNote(),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============================ 常见目标说明弹层 ============================
+
+class _CommonGoalSheet extends StatelessWidget {
+  const _CommonGoalSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            Center(child: _SheetGrabber()),
+            SizedBox(height: 12),
+            Center(
+              child: Text(
+                '每日饮水目标',
+                style: TextStyle(
+                  color: Color(0xFF171A26),
+                  fontSize: 21,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            SizedBox(height: 18),
+            Text(
+              '常见目标',
+              style: TextStyle(
+                color: Color(0xFF171A26),
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            SizedBox(height: 4),
+            Text(
+              '一般人的饮水量目标。',
+              style: TextStyle(
+                color: Color(0xFF3A3F52),
+                fontSize: 13,
+                height: 1.5,
+              ),
+            ),
+            SizedBox(height: 14),
+            Text(
+              '推荐目标',
+              style: TextStyle(
+                color: Color(0xFF171A26),
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            SizedBox(height: 4),
+            Text(
+              '根据你的性别、体重、活动和天气确定的饮水量目标。',
+              style: TextStyle(
+                color: Color(0xFF3A3F52),
+                fontSize: 13,
+                height: 1.5,
+              ),
+            ),
+            SizedBox(height: 20),
+            Text(
+              '饮水量目标是根据众所周知的建议含水量惯例来估算的。'
+              '请咨询你的医生来确定特定的目标对你是否有益。',
+              style: TextStyle(
+                color: Color(0xFF8E8E93),
+                fontSize: 12,
+                height: 1.6,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============================ 自定义目标数字键盘弹层 ============================
+
+class _CustomGoalSheet extends StatefulWidget {
+  const _CustomGoalSheet({required this.initialMl, required this.onDone});
+  final int initialMl;
+  final ValueChanged<int> onDone;
+
+  @override
+  State<_CustomGoalSheet> createState() => _CustomGoalSheetState();
+}
+
+class _CustomGoalSheetState extends State<_CustomGoalSheet> {
+  static const _navy = Color(0xFF2C3345);
+
+  late String _input = widget.initialMl.toString();
+
+  void _press(String digit) {
+    if (_input.length >= 4) return;
+    HapticFeedback.lightImpact();
+    setState(() {
+      _input = _input == '0' ? digit : '$_input$digit';
+    });
+  }
+
+  void _backspace() {
+    if (_input.isEmpty) return;
+    HapticFeedback.lightImpact();
+    setState(() {
+      _input = _input.substring(0, _input.length - 1);
+    });
+  }
+
+  void _submit() {
+    final v = int.tryParse(_input);
+    if (v == null || v <= 0) return;
+    HapticFeedback.mediumImpact();
+    widget.onDone(v.clamp(500, 5000));
+    Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final value = _input.isEmpty ? '0' : _input;
+    return SafeArea(
+      top: false,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Align(
+              alignment: Alignment.centerRight,
+              child: const _SheetCloseButton(),
+            ),
+            const SizedBox(height: 6),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  value,
+                  style: const TextStyle(
+                    color: _navy,
+                    fontSize: 46,
+                    fontWeight: FontWeight.w800,
+                    height: 1.1,
+                  ),
+                ),
+                const Text(
+                  'ml',
+                  style: TextStyle(
+                    color: _navy,
+                    fontSize: 46,
+                    fontWeight: FontWeight.w800,
+                    height: 1.1,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              '自定义目标',
+              style: TextStyle(color: _navy, fontSize: 14),
+            ),
+            const SizedBox(height: 18),
+            ElevatedButton(
+              onPressed: _input.isEmpty ? null : _submit,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _navy,
+                foregroundColor: Colors.white,
+                disabledBackgroundColor: const Color(0xFFD5D7DD),
+                disabledForegroundColor: Colors.white,
+                minimumSize: const Size(132, 52),
+                elevation: 0,
+                shape: const StadiumBorder(),
+                textStyle: const TextStyle(
+                    fontSize: 17, fontWeight: FontWeight.w700),
+              ),
+              child: const Text('完成'),
+            ),
+            const SizedBox(height: 22),
+            _NumberKeypad(onDigit: _press, onBackspace: _backspace),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 数字键盘（1-9 + 0 + 退格），每次按键触发轻震动
+class _NumberKeypad extends StatelessWidget {
+  const _NumberKeypad({required this.onDigit, required this.onBackspace});
+
+  final ValueChanged<String> onDigit;
+  final VoidCallback onBackspace;
+
+  static const _keys = <(String, String)>[
+    ('1', 'ABC'), ('2', 'DEF'), ('3', 'GHI'),
+    ('4', 'JKL'), ('5', 'MNO'), ('6', 'PQR'),
+    ('7', 'PQRS'), ('8', 'TUV'), ('9', 'WXYZ'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        for (var row = 0; row < 3; row++) ...[
+          Row(
+            children: [
+              for (var col = 0; col < 3; col++) ...[
+                if (col > 0) const SizedBox(width: 8),
+                Expanded(
+                  child: _DigitKey(
+                    digit: _keys[row * 3 + col].$1,
+                    letters: _keys[row * 3 + col].$2,
+                    onTap: () => onDigit(_keys[row * 3 + col].$1),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 8),
+        ],
+        Row(
+          children: [
+            const Expanded(child: SizedBox()),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _DigitKey(
+                digit: '0',
+                letters: '',
+                onTap: () => onDigit('0'),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Material(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(10),
+                child: InkWell(
+                  onTap: onBackspace,
+                  borderRadius: BorderRadius.circular(10),
+                  child: const SizedBox(
+                    height: 56,
+                    child: Icon(
+                      Icons.backspace_outlined,
+                      size: 22,
+                      color: Color(0xFF2C3345),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _DigitKey extends StatelessWidget {
+  const _DigitKey({
+    required this.digit,
+    required this.letters,
+    required this.onTap,
+  });
+
+  final String digit;
+  final String letters;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: SizedBox(
+          height: 56,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                digit,
+                style: const TextStyle(
+                  color: Color(0xFF171A26),
+                  fontSize: 24,
+                  height: 1.1,
+                ),
+              ),
+              if (letters.isNotEmpty)
+                Text(
+                  letters,
+                  style: const TextStyle(
+                    color: Color(0xFF8E8E93),
+                    fontSize: 9,
+                    letterSpacing: 1.2,
+                    height: 1.2,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

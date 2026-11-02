@@ -1,4 +1,4 @@
-package com.waterllama.water_llama
+package cn.kunqiong.dundun
 
 import android.content.ComponentName
 import android.content.Context
@@ -152,12 +152,12 @@ class MainActivity : FlutterActivity() {
             val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
             val saved = prefs.getString("flutter.app_icon_selection", null)
             if (!saved.isNullOrBlank()) {
-                val ok = switchIcon("com.waterllama.water_llama.AppIcon_$saved")
+                val ok = switchIcon("cn.kunqiong.dundun.AppIcon_$saved")
                 if (!ok) {
                     // 保存的选择对应的别名已被从清单移除：清掉记录并回到
                     // 默认图标，避免永远指向不存在的入口
                     prefs.edit().remove("flutter.app_icon_selection").apply()
-                    switchIcon("com.waterllama.water_llama.AppIcon_char_alpaca_0")
+                    switchIcon("cn.kunqiong.dundun.AppIcon_char_alpaca_0")
                 }
             }
         } catch (_: Exception) {

@@ -244,6 +244,14 @@ class MembershipNotifier extends StateNotifier<MembershipState> {
     await _persist();
   }
 
+  /// 订单退款 / 被后台收回：清掉付费订单权益，保留积分兑换的那一天
+  Future<void> revokePaid() async {
+    await loaded;
+    if (!state.active) return;
+    state = MembershipState(redeemUntil: state.redeemUntil);
+    await _persist();
+  }
+
   /// 用 /v1/membership/status 的返回更新本机状态；无变化时不触发重建
   Future<void> applyStatus(Map<String, dynamic> res) async {
     await loaded;

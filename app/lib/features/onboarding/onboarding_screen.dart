@@ -10,6 +10,7 @@ import '../../core/storage/providers.dart';
 import '../../shared/models/user_profile.dart';
 import '../../shared/widgets/goal_info_form.dart';
 import '../home/providers/home_providers.dart';
+import '../settings/app_icon_screen.dart';
 import 'widgets/animal_silhouette.dart';
 
 /// PRD §2.1 多步向导 onboarding
@@ -209,19 +210,11 @@ class _NotificationCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              // 应用默认图标：浅灰底板 + 青色水滴
-              Container(
+              // 应用默认图标：浅灰底板 + 青色水滴（与桌面图标共用同一套资源）
+              SizedBox(
                 width: 28,
                 height: 28,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF1F3F7),
-                  borderRadius: BorderRadius.circular(7),
-                ),
-                child: const Icon(
-                  Icons.water_drop,
-                  color: Color(0xFF72E3F0),
-                  size: 18,
-                ),
+                child: AppIconPreview(size: 28, id: kDefaultAppIconId),
               ),
               const SizedBox(width: 8),
               const Text(

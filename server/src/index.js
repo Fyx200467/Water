@@ -1205,6 +1205,7 @@ async function handle(req, res, url) {
     pathname.startsWith('/v1/character-categories') ||
     (pathname === '/v1/membership/orders' && method === 'GET') ||
     /^\/v1\/membership\/orders\/[^/]+\/(paid|reject)$/.test(pathname) ||
+    /^\/v1\/membership\/orders\/[^/]+\/refund$/.test(pathname) ||
     /^\/v1\/user\/[^/]+$/.test(pathname) ||
     pathname.startsWith('/v1/admin/');
 
@@ -2250,6 +2251,51 @@ async function handle(req, res, url) {
         `UPDATE membership_orders SET status = 'rejected' WHERE id = ?`,
       ).run(id);
       return send(res, 200, { ok: true, status: 'rejected' });
+    }
+
+    // 退款：仅已确认的付费订单可退；若退款的是最近一笔有效订单，同时收回会员
+    const refundMatch = pathname.match(
+      /^\/v1\/membership\/orders\/([^/]+)\/refund$/,
+    );
+    if (refundMatch && method === 'PATCH') {
+      const id = decodeURIComponent(refundMatch[1]);
+      const row = db
+        .prepare('SELECT * FROM membership_orders WHERE id = ?')
+        .get(id);
+      if (!row) return fail(res, 404, 'not_found', '订单不存在');
+      if (row.status !== 'paid') {
+        return fail(res, 409, 'not_paid', '只有已确认的订单可以退款');
+      }
+      if ((row.source || 'payment') === 'points') {
+        return fail(res, 400, 'points_order', '积分兑换订单不支持退款');
+      }
+      // 退款前先看这笔订单是不是该用户最近一笔已支付订单，决定是否收回会员
+      const latestPaid = db
+        .prepare(
+          `SELECT id FROM membership_orders
+            WHERE user_id = ? AND status = 'paid' AND source <> 'points'
+            ORDER BY paid_at DESC LIMIT 1`,
+        )
+        .get(row.user_id);
+      const revoke = !latestPaid || latestPaid.id === id;
+      db.exec('BEGIN');
+      try {
+        db.prepare(
+          `UPDATE membership_orders SET status = 'refunded' WHERE id = ?`,
+        ).run(id);
+        if (revoke) {
+          db.prepare(
+            `UPDATE users
+                SET membership_expire_at = NULL, membership_permanent = 0
+              WHERE id = ?`,
+          ).run(row.user_id);
+        }
+        db.exec('COMMIT');
+      } catch (err) {
+        db.exec('ROLLBACK');
+        throw err;
+      }
+      return send(res, 200, { ok: true, status: 'refunded', revoked: revoke });
     }
 
     // ---------- 内测版本发布 ----------
@@ -3441,7 +3487,6 @@ async function handle(req, res, url) {
     'achievement',
     'migrate',
   ]);
-  const EARN_DAILY_CAP = 500;
   const EARN_EVENT_CAP = 200;
 
   if (method === 'POST' && pathname === '/v1/points/events') {
@@ -3476,7 +3521,8 @@ async function handle(req, res, url) {
           skipped += 1;
           continue;
         }
-        // 单条与单日赚分上限：即使客户端改包，也刷不出超量积分。
+        // 单条上限：即使客户端改包，也不能单笔刷出超量积分；
+        // 每日赚分总额不设上限（产品要求），按来源做异常值拦截即可。
         // migrate 只允许每个账号一次性补传旧版本余额。
         if (amount > 0) {
           if (source === 'migrate') {
@@ -3494,20 +3540,6 @@ async function handle(req, res, url) {
             // 挑战奖励是一次性大额积分（10 天挑战 = 1000），单独放宽上限
             const eventCap = source === 'challenge' ? 1000 : EARN_EVENT_CAP;
             if (amount > eventCap) {
-              skipped += 1;
-              continue;
-            }
-            const day = occurredAt.slice(0, 10);
-            const earned = db
-              .prepare(
-                `SELECT COALESCE(SUM(amount), 0) AS total
-                   FROM points_events
-                  WHERE user_id = ? AND amount > 0 AND source <> 'migrate'
-                    AND substr(occurred_at, 1, 10) = ?`,
-              )
-              .get(user.id, day).total;
-            const dayCap = source === 'challenge' ? 2000 : EARN_DAILY_CAP;
-            if (earned + amount > dayCap) {
               skipped += 1;
               continue;
             }

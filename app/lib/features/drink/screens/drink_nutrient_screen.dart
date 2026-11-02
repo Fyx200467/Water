@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../shared/widgets/drink_illustration.dart';
 import '../widgets/liquid_preview.dart';
@@ -245,7 +246,10 @@ class _DrinkNutrientScreenState extends State<DrinkNutrientScreen> {
             perspective: 0.0001, // 近似平面滚轮，无 3D 卷曲（对标原版）
             diameterRatio: 50,
             physics: const FixedExtentScrollPhysics(),
-            onSelectedItemChanged: (i) => _index = i,
+            onSelectedItemChanged: (i) {
+              HapticFeedback.selectionClick();
+              _index = i;
+            },
             childDelegate: ListWheelChildBuilderDelegate(
               childCount: _itemCount,
               builder: (context, index) => _WheelItem(

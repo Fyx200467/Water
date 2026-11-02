@@ -322,12 +322,6 @@ class _HabitDetailScreenState extends ConsumerState<HabitDetailScreen> {
     await startChallenge(habit.id);
     if (!mounted) return;
     ref.read(challengeRevisionProvider.notifier).state += 1;
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      SnackBar(
-        content: Text('挑战开始！坚持 ${habit.days} 天可得 ${habit.rewardPoints} 积分'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
   }
 
   /// 其他正在进行（未完成）的挑战
@@ -368,12 +362,6 @@ class _HabitDetailScreenState extends ConsumerState<HabitDetailScreen> {
     await endChallenge(habit.id);
     if (!mounted) return;
     ref.read(challengeRevisionProvider.notifier).state += 1;
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      const SnackBar(
-        content: Text('已结束挑战'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
   }
 
   Widget _actionPill({

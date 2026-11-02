@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../membership/membership_provider.dart';
+import '../membership/membership_screen.dart';
 import 'points_provider.dart';
 
 /// 我的积分：余额 + 今日进度 + 收支明细（本地流水，最多保留 60 条）
@@ -28,11 +30,13 @@ class PointsScreen extends ConsumerWidget {
               padding: EdgeInsets.fromLTRB(20, topInset + 62, 20, 32),
               children: [
                 _balanceCard(state),
+                const SizedBox(height: 12),
+                _redeemCard(context),
                 const SizedBox(height: 18),
                 _historyCard(state),
                 const SizedBox(height: 14),
                 const Text(
-                  '积分来自消消乐等任务，可兑换会员天数；'
+                  '积分来自吨吨乐园的小游戏与每日任务，可兑换会员天数；'
                   '积分属于账号权益，游客（未登录）不计分，登录后积分与明细跟随账号。',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: _gray, fontSize: 11, height: 1.5),
@@ -66,8 +70,6 @@ class PointsScreen extends ConsumerWidget {
   }
 
   Widget _balanceCard(PointsState state) {
-    final cap = PointsNotifier.matchGameDailyCap;
-    final ratio = (state.todayEarned / cap).clamp(0.0, 1.0);
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
       decoration: BoxDecoration(
@@ -98,28 +100,68 @@ class PointsScreen extends ConsumerWidget {
               height: 1.1,
             ),
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(6),
-                  child: LinearProgressIndicator(
-                    value: ratio,
-                    minHeight: 8,
-                    backgroundColor: Colors.white.withValues(alpha: 0.7),
-                    valueColor: const AlwaysStoppedAnimation(_gold),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Text(
-                '今日 +${state.todayEarned}/$cap',
-                style: const TextStyle(color: Color(0xFF9A6B12), fontSize: 12),
-              ),
-            ],
+          const SizedBox(height: 8),
+          Text(
+            '今日 +${state.todayEarned}',
+            style: const TextStyle(color: Color(0xFF9A6B12), fontSize: 12),
           ),
         ],
+      ),
+    );
+  }
+
+  /// 积分兑换入口：跳转会员页完成兑换（价格与校验以服务端为准）
+  Widget _redeemCard(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const MembershipScreen()),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF4E0),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.redeem_rounded,
+                  size: 20,
+                  color: _gold,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '兑换会员天数',
+                      style: TextStyle(
+                        color: _ink,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$kMemberDayPoints 积分 = 1 天会员，到期后可再兑换',
+                      style: const TextStyle(color: _gray, fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right, size: 20, color: _gray),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -148,7 +190,7 @@ class PointsScreen extends ConsumerWidget {
               padding: EdgeInsets.symmetric(vertical: 34),
               child: Center(
                 child: Text(
-                  '还没有积分记录，去消消乐赚第一笔积分吧',
+                  '还没有积分记录，去吨吨乐园赚第一笔积分吧',
                   style: TextStyle(color: _gray, fontSize: 13),
                 ),
               ),
@@ -220,6 +262,8 @@ class PointsScreen extends ConsumerWidget {
       return '兑换商品';
     }
     if (source == 'match3') return '消消乐奖励';
+    if (source == 'checkin') return '每日签到';
+    if (source == 'milestone') return '饮水达标奖励';
     if (source == 'challenge') return '挑战奖励';
     return '积分变动';
   }

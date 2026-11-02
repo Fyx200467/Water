@@ -3,7 +3,7 @@
 //  吨吨 iOS 桌面小组件（WidgetKit）
 //
 //  数据来源：Flutter 侧 home_widget 插件通过 App Group
-//  `group.com.waterllama.waterLlama` 写入的 UserDefaults：
+//  `group.cn.kunqiong.dundun` 写入的 UserDefaults：
 //    widget_today_ml / goal_ml / widget_date / reset_hour / reset_minute
 //    percent / streak_days / streak_badge / streak_done
 //    bg_color / dark_text / drink{1..3}_name / drink{1..3}_ml

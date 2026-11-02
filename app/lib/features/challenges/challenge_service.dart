@@ -222,8 +222,6 @@ Future<int> ensureChallengeReward(WidgetRef ref, ChallengeProgress p) async {
     final granted = await ref.read(pointsProvider.notifier).earn(
           source: 'challenge',
           amount: p.plan.rewardPoints,
-          dailyCap: p.plan.rewardPoints,
-          ignoreDailyCap: true,
         );
     if (granted <= 0) return 0;
     await prefs.setBool(_kClaimedKey(id), true);

@@ -3758,7 +3758,9 @@
         st === "pending"
           ? '<button class="btn sm" data-paid="' + esc(o.id) + '">确认并开通</button> ' +
             '<button class="btn sm danger" data-reject="' + esc(o.id) + '">拒绝</button>'
-          : '<span class="tag off">-</span>',
+          : (st === "paid" && o.source !== "points"
+            ? '<button class="btn sm danger" data-refund="' + esc(o.id) + '">退款并收回会员</button>'
+            : '<span class="tag off">-</span>'),
       ];
     });
     $("view").innerHTML =
@@ -3795,6 +3797,27 @@
     document.querySelectorAll("[data-reject]").forEach(function (el) {
       el.onclick = function () { rejectOrder(el.dataset.reject); };
     });
+    document.querySelectorAll("[data-refund]").forEach(function (el) {
+      el.onclick = function () { refundOrder(el.dataset.refund); };
+    });
+  }
+
+  async function refundOrder(id) {
+    var order = state.rows.find(function (x) { return x.id === id; });
+    var who = order
+      ? (order.user ? (order.user.nickname || order.user.email || order.user.id) : order.userId)
+      : id;
+    if (!confirm(
+      "退款「" + who + "」的会员订单？\n\n退款后若这是最近一笔有效订单，会立即收回该用户的会员权益，App 端同步后失效。"
+    )) return;
+    try {
+      await api("/membership/orders/" + id + "/refund", {
+        method: "PATCH",
+        body: JSON.stringify({}),
+      });
+      toast("已退款并收回会员");
+      render();
+    } catch (err) { toast(err.message); }
   }
 
   async function rejectOrder(id) {

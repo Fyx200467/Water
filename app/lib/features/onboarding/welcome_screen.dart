@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../home/providers/home_providers.dart';
+import '../settings/app_icon_screen.dart';
 import 'unit_selection_sheet.dart';
 
 /// PRD 对标 §开屏体验：欢迎页（水滴开场）
@@ -48,7 +49,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen>
 
   static const _titleStyle = TextStyle(
     fontSize: 26,
-    fontWeight: FontWeight.w500,
+    fontWeight: FontWeight.w400,
     color: _ink,
     letterSpacing: 0.2,
   );
@@ -251,44 +252,27 @@ class _DropSplashPainter extends CustomPainter {
     final p = animation.value;
 
     if (p < fallEnd) {
-      // ── 下落：加速坠向落点，落地前轻微压扁
+      // ── 下落：加速坠落；速度越快竖向拉伸越明显（横向收窄，体积近似守恒）
       final q = p / fallEnd;
       final eased = Curves.easeInCubic.transform(q);
       final startY = size.height * 0.12;
       final y = startY + (center.dy - startY) * eased;
       final fadeIn = (q / 0.12).clamp(0.0, 1.0);
       final squash = q > 0.88 ? (q - 0.88) / 0.12 : 0.0;
-      final sy = 1 - 0.30 * squash;
-      final sx = 1 + 0.26 * squash;
+      final stretch = 1 + 0.16 * eased;
+      final sy = stretch * (1 - 0.30 * squash);
+      final sx = (1 / stretch) * (1 + 0.26 * squash);
       final r = 15.0;
+      // 真实水滴受气流影响不会绝对垂直下落，加一点极轻微的横向摆动
+      final sway = math.sin(q * math.pi * 1.4) * 1.8;
+
+      final dropPath = _tearDrop(Size(r * 2, r * 2.9))
+          .shift(Offset(-r + sway, -r * 1.45));
 
       canvas.save();
       canvas.translate(center.dx, y);
       canvas.scale(sx, sy);
-      // 渐变填充按 alpha 作用到整层（Paint.color 的 alpha 不会影响 shader）
-      canvas.saveLayer(
-        Rect.fromCircle(center: Offset.zero, radius: r * 2.4),
-        Paint()..color = Colors.white.withValues(alpha: fadeIn),
-      );
-      final shader = const LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        stops: [0.0, 0.55, 1.0],
-        colors: [Color(0xFFB6E6F5), Color(0xFF6CC7E4), Color(0xFF3FA9CE)],
-      ).createShader(Rect.fromCircle(center: Offset.zero, radius: r * 1.6));
-      canvas.drawPath(
-        _tearDrop(Size(r * 2, r * 3.05)).shift(Offset(-r, -r * 1.525)),
-        Paint()
-          ..shader = shader
-          ..isAntiAlias = true,
-      );
-      // 高光
-      canvas.drawCircle(
-        Offset(-r * 0.28, -r * 0.25),
-        r * 0.22,
-        Paint()..color = Colors.white.withValues(alpha: 0.55),
-      );
-      canvas.restore();
+      _paintGlossyDrop(canvas, dropPath, dropPath.getBounds(), r, fadeIn);
       canvas.restore();
       return;
     }
@@ -319,10 +303,21 @@ class _DropSplashPainter extends CustomPainter {
       final pos = center + dir * dist + Offset(0, 74 * s * s);
       final r = (2.8 + 2.4 * d.k) * (1 - s * 0.85);
       if (r <= 0.2) continue;
+      final opacity = 0.85 * (1 - s);
       canvas.drawCircle(
         pos,
         r,
-        Paint()..color = accent.withValues(alpha: 0.85 * (1 - s)),
+        Paint()
+          ..shader = RadialGradient(
+            center: const Alignment(-0.30, -0.38),
+            radius: 1.0,
+            stops: const [0.0, 0.55, 1.0],
+            colors: [
+              Colors.white.withValues(alpha: opacity),
+              accent.withValues(alpha: opacity),
+              accent.withValues(alpha: opacity * 0.7),
+            ],
+          ).createShader(Rect.fromCircle(center: pos, radius: r)),
       );
     }
   }
@@ -332,21 +327,127 @@ class _DropSplashPainter extends CustomPainter {
       oldDelegate.accent != accent || oldDelegate.impactDy != impactDy;
 }
 
-/// 水滴轮廓：顶点在上、底部圆润，铺满给定矩形
+/// 水滴轮廓：尖端较短、底部圆润饱满，接近参考图里的真实水珠
 Path _tearDrop(Size s) {
   final w = s.width;
   final h = s.height;
   final cx = w / 2;
   final p = Path();
   p.moveTo(cx, 0);
-  p.cubicTo(cx + w * 0.30, h * 0.28, cx + w * 0.50, h * 0.60, cx + w * 0.30, h * 0.86);
-  p.quadraticBezierTo(cx, h, cx - w * 0.30, h * 0.86);
-  p.cubicTo(cx - w * 0.50, h * 0.60, cx - w * 0.30, h * 0.28, cx, 0);
+  p.cubicTo(cx + w * 0.14, h * 0.18, cx + w * 0.50, h * 0.40,
+      cx + w * 0.50, h * 0.68);
+  p.cubicTo(cx + w * 0.50, h * 0.90, cx + w * 0.28, h, cx, h);
+  p.cubicTo(cx - w * 0.28, h, cx - w * 0.50, h * 0.90,
+      cx - w * 0.50, h * 0.68);
+  p.cubicTo(cx - w * 0.50, h * 0.40, cx - w * 0.14, h * 0.18, cx, 0);
   p.close();
   return p;
 }
 
-/// 应用图标：浅灰圆角方块 + 青色水滴
+/// 玻璃质感水珠：中心通透、边缘淡青、白色轮廓光 + 两处镜面高光
+void _paintGlossyDrop(
+  Canvas canvas,
+  Path path,
+  Rect bounds,
+  double r,
+  double alpha,
+) {
+  canvas.saveLayer(
+    bounds.inflate(r * 0.4),
+    Paint()..color = Colors.white.withValues(alpha: alpha),
+  );
+  canvas.clipPath(path);
+
+  // 主体：中间近乎无色，越靠边缘越青，像真实水体的折射
+  canvas.drawPath(
+    path,
+    Paint()
+      ..isAntiAlias = true
+      ..shader = const RadialGradient(
+        center: Alignment(0.02, 0.18),
+        radius: 0.95,
+        stops: [0.0, 0.32, 0.68, 1.0],
+        colors: [
+          Color(0xFFFFFFFF),
+          Color(0xFFF3FDFF),
+          Color(0xFFD6F1F8),
+          Color(0xFFA8DEEE),
+        ],
+      ).createShader(bounds),
+  );
+
+  // 尖端偏青、底部边缘回青，避免整颗水珠发白
+  canvas.drawRect(
+    bounds,
+    Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        stops: [0.0, 0.38, 0.78, 1.0],
+        colors: [
+          Color(0x668FD6E6),
+          Color(0x008FD6E6),
+          Color(0x008FD6E6),
+          Color(0x4D8FD6E6),
+        ],
+      ).createShader(bounds),
+  );
+
+  // 底部透光核心：大而柔的白色反光
+  canvas.drawOval(
+    Rect.fromCenter(
+      center: Offset(r * 0.05, r * 0.62),
+      width: r * 0.92,
+      height: r * 1.15,
+    ),
+    Paint()
+      ..color = Colors.white.withValues(alpha: 0.78)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.20),
+  );
+  // 左上镜面高光
+  canvas.drawOval(
+    Rect.fromCenter(
+      center: Offset(-r * 0.33, -r * 0.30),
+      width: r * 0.40,
+      height: r * 0.95,
+    ),
+    Paint()
+      ..color = Colors.white.withValues(alpha: 0.62)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.10),
+  );
+  // 右下小亮点
+  canvas.drawCircle(
+    Offset(r * 0.40, r * 0.50),
+    r * 0.07,
+    Paint()
+      ..color = Colors.white.withValues(alpha: 0.9)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.015),
+  );
+
+  // 白色轮廓光：参考图最明显的特征，左/下/右一圈，尖端自然淡出
+  canvas.drawPath(
+    path,
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = r * 0.16
+      ..shader = const LinearGradient(
+        begin: Alignment.bottomLeft,
+        end: Alignment.topRight,
+        stops: [0.0, 0.42, 0.8, 1.0],
+        colors: [
+          Color(0xFFFFFFFF),
+          Color(0xE6FFFFFF),
+          Color(0x66FFFFFF),
+          Color(0x00FFFFFF),
+        ],
+      ).createShader(bounds)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.025),
+  );
+
+  canvas.restore();
+}
+
+/// 应用图标：直接复用图标库的默认图标（与桌面、设置页预览保持同一枚）
 class _AppIconTile extends StatelessWidget {
   const _AppIconTile({required this.size});
 
@@ -358,8 +459,7 @@ class _AppIconTile extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: const Color(0xFFF1F3F7),
-        borderRadius: BorderRadius.circular(size * 0.24),
+        borderRadius: BorderRadius.circular(size * 0.28),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.06),
@@ -368,41 +468,9 @@ class _AppIconTile extends StatelessWidget {
           ),
         ],
       ),
-      alignment: Alignment.center,
-      child: SizedBox(
-        width: size * 0.34,
-        height: size * 0.42,
-        child: CustomPaint(painter: _TileDropPainter()),
-      ),
+      child: AppIconPreview(size: size, id: kDefaultAppIconId),
     );
   }
-}
-
-class _TileDropPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final path = _tearDrop(size);
-    canvas.drawPath(path, Paint()..color = const Color(0xFF71E3F0));
-    // 左侧高光弧
-    canvas.drawArc(
-      Rect.fromCenter(
-        center: Offset(size.width * 0.34, size.height * 0.66),
-        width: size.width * 0.34,
-        height: size.height * 0.36,
-      ),
-      math.pi * 0.72,
-      math.pi * 0.52,
-      false,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = size.width * 0.10
-        ..strokeCap = StrokeCap.round
-        ..color = Colors.white.withValues(alpha: 0.9),
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 /// 开始按钮：白色胶囊 + 底部静态彩虹光晕

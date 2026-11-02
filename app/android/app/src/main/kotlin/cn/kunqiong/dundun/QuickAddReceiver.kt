@@ -1,4 +1,4 @@
-package com.waterllama.water_llama
+package cn.kunqiong.dundun
 
 import android.appwidget.AppWidgetManager
 import android.content.BroadcastReceiver

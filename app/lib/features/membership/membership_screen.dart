@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../core/analytics/analytics.dart';
 import '../../core/storage/providers.dart';
@@ -11,7 +12,6 @@ import '../../core/sync/sync_api.dart';
 import '../points/points_provider.dart';
 import '../points/points_screen.dart';
 import '../settings/cloud_backup_screen.dart';
-import '../stats/services/export_csv.dart';
 import 'membership_provider.dart';
 
 /// 会员权益统一校验：
@@ -33,7 +33,7 @@ Future<bool> ensureMember(
 class MembershipScreen extends ConsumerStatefulWidget {
   const MembershipScreen({super.key, this.feature});
 
-  /// 触发付费墙的权益点（如「全部动物角色」），用于顶部提示
+  /// 触发付费墙的权益点（如「全部角色」），用于顶部提示
   final String? feature;
 
   @override
@@ -128,6 +128,18 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
         } else {
           setState(() => _pending = null);
         }
+      } else if (status == 'refunded') {
+        // 后台退款并收回会员：清掉付费权益（积分兑换的那一天仍然有效）
+        if (_pending != null || _rejected != null) {
+          setState(() {
+            _pending = null;
+            _rejected = null;
+          });
+        }
+        if (ref.read(membershipProvider).hasPaidOrder) {
+          await ref.read(membershipProvider.notifier).revokePaid();
+          if (mounted) _toast('会员订单已退款，权益已收回');
+        }
       } else if (status == 'paid') {
         if (_pending != null || _rejected != null) {
           setState(() {
@@ -168,11 +180,21 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
   }
 
   static const _benefits = [
-    (Icons.pets, '全部动物角色', '免费版每日限量，会员解锁全部 41 个角色'),
-    (Icons.local_drink, '全部饮品库', '解锁奶茶、酒类与自定义饮品'),
-    (Icons.widgets_outlined, '专属小组件', '自定义主题色与彩色字符层'),
-    (Icons.ios_share, '数据导出', '一键导出全部饮水记录 CSV'),
-    (Icons.block, '无广告', '纯净的饮水体验'),
+    (
+      'assets/images/icons/benefit_characters.svg',
+      '全部角色',
+      '免费版每日限量，会员解锁全部 41 个角色',
+    ),
+    (
+      'assets/images/icons/benefit_beverages.svg',
+      '全部饮品库',
+      '解锁奶茶、酒类与自定义饮品',
+    ),
+    (
+      'assets/images/icons/benefit_export.svg',
+      '数据导出',
+      '一键导出全部饮水记录 CSV',
+    ),
   ];
 
   @override
@@ -310,10 +332,7 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
               children: [
                 Text(
                   '$name 开通申请审核中',
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: const TextStyle(fontSize: 13),
                 ),
                 const SizedBox(height: 2),
                 const Text(
@@ -356,7 +375,6 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
                   '$name 开通申请未通过',
                   style: const TextStyle(
                     fontSize: 13,
-                    fontWeight: FontWeight.w600,
                     color: Color(0xFFB3261E),
                   ),
                 ),
@@ -388,27 +406,19 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
   Widget _header(MembershipState m) {
     return Column(
       children: [
-        Container(
+        SvgPicture.asset(
+          'assets/images/icons/membership_badge.svg',
           width: 72,
           height: 72,
-          decoration: const BoxDecoration(
-            color: Color(0xFFFFF1D6),
-            shape: BoxShape.circle,
-          ),
-          child: const Icon(Icons.workspace_premium, size: 38, color: _gold),
         ),
         const SizedBox(height: 12),
         Text(
           m.isMember ? '吨吨会员已开通' : '开通吨吨会员',
-          style: const TextStyle(
-            color: _ink,
-            fontSize: 24,
-            fontWeight: FontWeight.w800,
-          ),
+          style: const TextStyle(color: _ink, fontSize: 24),
         ),
         const SizedBox(height: 6),
         Text(
-          m.isMember ? m.statusLabel : '解锁全部动物、饮品',
+          m.isMember ? m.statusLabel : '解锁全部角色、饮品',
           style: const TextStyle(color: _gray, fontSize: 13),
         ),
       ],
@@ -447,22 +457,14 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
                 ),
                 child: Text(
                   plan.badge!,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                  ),
+                  style: const TextStyle(color: Colors.white, fontSize: 10),
                 ),
               )
             else
               const SizedBox(height: 18),
             Text(
               plan.name,
-              style: const TextStyle(
-                color: _ink,
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-              ),
+              style: const TextStyle(color: _ink, fontSize: 15),
             ),
             const SizedBox(height: 6),
             Text(
@@ -497,7 +499,7 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
     } else if (enough) {
       subtitle = '$cost 积分兑换 1 天会员 · 当前 ${points.balance} 积分';
     } else {
-      subtitle = '$cost 积分兑换 1 天会员 · 还差 ${cost - points.balance} 积分';
+      subtitle = '$cost 积分兑换 1 天会员';
     }
 
     final String action;
@@ -522,14 +524,10 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
         ),
         child: Row(
           children: [
-            Container(
+            SvgPicture.asset(
+              'assets/images/icons/membership_points.svg',
               width: 40,
               height: 40,
-              decoration: const BoxDecoration(
-                color: Color(0xFFFFF4E0),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.stars_rounded, size: 22, color: _gold),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -538,11 +536,7 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
                 children: [
                   const Text(
                     '积分兑换会员',
-                    style: TextStyle(
-                      color: _ink,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                    ),
+                    style: TextStyle(color: _ink, fontSize: 14),
                   ),
                   const SizedBox(height: 3),
                   Text(
@@ -574,7 +568,6 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
                   style: TextStyle(
                     color: (!m.isMember && enough) ? Colors.white : _gray,
                     fontSize: 12,
-                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ),
@@ -627,47 +620,34 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
     }
   }
 
-  /// 后台权益 code -> 图标；未收录的 code 用通用图标兜底
-  static IconData _benefitIcon(String code) {
+  /// 后台权益 code -> 图标资源；未收录的 code 返回 null，由通用图标兜底
+  static String? _benefitAsset(String code) {
     switch (code) {
       case 'characters':
-        return Icons.pets;
+        return 'assets/images/icons/benefit_characters.svg';
       case 'beverages':
-        return Icons.local_drink;
-      case 'widgets':
-        return Icons.widgets_outlined;
+        return 'assets/images/icons/benefit_beverages.svg';
       case 'export':
-        return Icons.ios_share;
-      case 'adfree':
-        return Icons.block;
+        return 'assets/images/icons/benefit_export.svg';
       default:
-        return Icons.check_circle_outline;
+        return null;
     }
-  }
-
-  /// 会员专享「数据导出」：生成 CSV 并调起系统分享面板
-  Future<void> _exportCsvFromBenefits() async {
-    if (!ref.read(membershipProvider).isMember) {
-      _toast('开通会员后可使用数据导出');
-      return;
-    }
-    _toast('正在生成 CSV…');
-    final result = await exportAllEntriesCsv(ref);
-    if (!mounted) return;
-    _toast(switch (result) {
-      CsvExportResult.ok => '已生成 CSV，可在分享面板中保存或发送',
-      CsvExportResult.empty => '暂无可导出的饮水记录',
-      CsvExportResult.failed => '导出失败，请稍后重试',
-    });
   }
 
   Widget _benefitsCard(MembershipPlan plan) {
-    // 权益由后台按套餐绑定下发；为空（离线/未配置）时回退内置文案
-    final items = plan.benefits.isEmpty
-        ? [for (final (icon, title, sub) in _benefits) (icon, title, sub)]
+    // 权益由后台按套餐绑定下发；为空（离线/未配置）时回退内置文案。
+    // 「专属小组件」与「无广告」不再属于会员权益，后台仍下发时也过滤掉。
+    final hidden = {'widgets', 'adfree'};
+    final List<(String?, String, String)> items = plan.benefits.isEmpty
+        ? [for (final (asset, title, sub) in _benefits) (asset, title, sub)]
         : [
             for (final b in plan.benefits)
-              (_benefitIcon(b.code), b.name, b.description ?? ''),
+              if (!hidden.contains(b.code))
+                (
+                  _benefitAsset(b.code),
+                  b.name.replaceAll('全部动物角色', '全部角色'),
+                  b.description ?? '',
+                ),
           ];
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
@@ -677,53 +657,47 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
       ),
       child: Column(
         children: [
-          for (final (icon, title, sub) in items)
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              // 「数据导出」是唯一可点击的权益（会员导出全部记录为 CSV）
-              onTap: title == '数据导出' ? _exportCsvFromBenefits : null,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 10),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 36,
-                      height: 36,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFFEAF7FB),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(icon, size: 18, color: _cyan),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            title,
-                            style: const TextStyle(
-                              color: _ink,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                            ),
+          for (final (asset, title, sub) in items)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 28,
+                    height: 28,
+                    child: asset != null
+                        ? SvgPicture.asset(
+                            asset,
+                            width: 28,
+                            height: 28,
+                          )
+                        : const Icon(
+                            Icons.check_circle_outline,
+                            size: 24,
+                            color: _gray,
                           ),
-                          const SizedBox(height: 2),
-                          Text(
-                            sub,
-                            style: const TextStyle(color: _gray, fontSize: 11),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            color: _ink,
+                            fontSize: 14,
                           ),
-                        ],
-                      ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          sub,
+                          style: const TextStyle(color: _gray, fontSize: 11),
+                        ),
+                      ],
                     ),
-                    if (title == '数据导出')
-                      const Icon(
-                        Icons.download_rounded,
-                        size: 18,
-                        color: _cyan,
-                      ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
         ],
@@ -749,7 +723,6 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
             style: TextStyle(
               color: _gray,
               fontSize: 16,
-              fontWeight: FontWeight.w700,
             ),
           ),
         ),
@@ -770,11 +743,7 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
           ),
           child: const Text(
             '等待运营确认',
-            style: TextStyle(
-              color: _gray,
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-            ),
+            style: TextStyle(color: _gray, fontSize: 16),
           ),
         ),
       );
@@ -794,7 +763,6 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
           style: const TextStyle(
             color: Colors.white,
             fontSize: 16,
-            fontWeight: FontWeight.w700,
           ),
         ),
       ),
@@ -1044,11 +1012,7 @@ class _OrderWaitSheetState extends State<_OrderWaitSheet> {
             const SizedBox(height: 10),
             Text(
               _paid ? '会员已开通' : '申请已提交，等待确认',
-              style: const TextStyle(
-                color: _ink,
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-              ),
+              style: const TextStyle(color: _ink, fontSize: 18),
             ),
             const SizedBox(height: 6),
             Text(

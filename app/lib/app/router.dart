@@ -7,6 +7,7 @@ import '../features/home/home_screen.dart';
 import '../features/home/providers/home_providers.dart';
 import '../features/onboarding/onboarding_screen.dart';
 import '../features/onboarding/welcome_screen.dart';
+import '../features/playground/playground_screen.dart';
 import '../features/reminder/reminder_settings_screen.dart';
 import '../features/drink/screens/drink_manage_screen.dart';
 import '../features/settings/goal_screen.dart';
@@ -73,6 +74,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/game/match3',
         builder: (context, state) => const Match3Screen(),
+      ),
+      GoRoute(
+        path: '/playground',
+        builder: (context, state) => const PlaygroundScreen(),
       ),
     ],
   );

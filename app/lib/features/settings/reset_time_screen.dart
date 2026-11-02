@@ -248,7 +248,10 @@ class _ResetTimeScreenState extends ConsumerState<ResetTimeScreen> {
       diameterRatio: 10,
       perspective: 0.003,
       physics: const FixedExtentScrollPhysics(),
-      onSelectedItemChanged: onChanged,
+      onSelectedItemChanged: (i) {
+        HapticFeedback.selectionClick();
+        onChanged(i);
+      },
       childDelegate: ListWheelChildBuilderDelegate(
         childCount: count,
         builder: (ctx, index) {

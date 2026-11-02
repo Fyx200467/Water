@@ -822,8 +822,7 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
   // ---------------- 自定义颜色 ----------------
 
   Future<void> _pickCustomColor() async {
-    // 会员权益：自定义主题色属于「专属小组件」
-    if (!await ensureMember(context, ref, feature: '专属小组件')) return;
+    // 自定义主题色对所有用户开放（「专属小组件」已不再作为会员权益）
     if (!mounted) return;
     Color color = ref.read(widgetSettingsProvider).customColor != null
         ? Color(ref.read(widgetSettingsProvider).customColor!)
