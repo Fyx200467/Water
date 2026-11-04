@@ -22,5 +22,11 @@ jobs:
         run: docker restart heshuiyangcheng-backend
       - name: Health check
         run: |
-          sleep 5
-          curl -fsS http://127.0.0.1:8102/health
+          for i in $(seq 1 10); do
+            if docker exec heshuiyangcheng-backend node -e "fetch('http://127.0.0.1:3000/health').then(r=>{if(!r.ok)process.exit(1);return r.text()}).then(t=>console.log(t)).catch(()=>process.exit(1))"; then
+              exit 0
+            fi
+            sleep 3
+          done
+          docker logs --tail 50 heshuiyangcheng-backend
+          exit 1
