@@ -1,4 +1,5 @@
-FROM node:24-alpine
+# 使用国内镜像源，避免 Docker Hub 拉取超时
+FROM docker.m.daocloud.io/library/node:24-alpine
 
 WORKDIR /app
 
