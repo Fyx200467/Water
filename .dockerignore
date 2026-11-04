@@ -6,3 +6,4 @@ data
 .env
 *.log
 .git
+_migrate

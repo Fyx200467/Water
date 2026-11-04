@@ -1,0 +1,23 @@
+name: migrate-data
+on:
+  workflow_dispatch:
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore database and assets
+        run: |
+          set -e
+          mkdir -p /opt/heshuiyangcheng/data /opt/heshuiyangcheng/assets
+          cp _migrate/water_20261104.db /opt/heshuiyangcheng/data/water.db
+          tar -xzf _migrate/assets_20261104.tar.gz -C /opt/heshuiyangcheng/assets --strip-components=1
+          ls -lh /opt/heshuiyangcheng/data/water.db
+          test "$(stat -c%s /opt/heshuiyangcheng/data/water.db)" -gt 100000
+      - name: Restart container
+        run: docker restart heshuiyangcheng-backend
+      - name: Health check
+        run: |
+          sleep 5
+          curl -fsS http://127.0.0.1:8102/health
