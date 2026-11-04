@@ -9,11 +9,16 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      # 不用 actions/checkout：runner 拉 github.com 经常 EOF，直接从自家 Gitea 克隆
+      - name: Fetch source from Gitea
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          git clone --depth 1 "http://giteaadmin:${TOKEN}@43.154.197.96/giteaadmin/heshuiyangcheng.git" repo
 
       - name: Build image
-        run: docker build -t heshuiyangcheng-backend:latest .
+        run: docker build -t heshuiyangcheng-backend:latest repo
 
       - name: Restart container
         run: |

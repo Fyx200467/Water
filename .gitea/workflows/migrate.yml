@@ -10,15 +10,21 @@ jobs:
   migrate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # 不用 actions/checkout：runner 拉 github.com 经常 EOF，直接从自家 Gitea 克隆
+      - name: Fetch source from Gitea
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          git clone --depth 1 "http://giteaadmin:${TOKEN}@43.154.197.96/giteaadmin/heshuiyangcheng.git" repo
 
       - name: Restore database and assets
         run: |
           set -e
           # 容器运行中挂载才会生效，停机状态下 docker cp 会写进容器可写层而不是 /data 卷
-          docker cp _migrate/water_20261104.db heshuiyangcheng-backend:/data/water_import.db
+          docker cp repo/_migrate/water_20261104.db heshuiyangcheng-backend:/data/water_import.db
           docker exec heshuiyangcheng-backend sh -c 'mv /data/water_import.db /data/water.db && rm -f /data/water.db-wal /data/water.db-shm'
-          docker cp server/assets/. heshuiyangcheng-backend:/app/server/assets/
+          docker cp repo/server/assets/. heshuiyangcheng-backend:/app/server/assets/
           docker restart heshuiyangcheng-backend
 
       - name: Verify in container
