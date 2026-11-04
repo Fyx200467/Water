@@ -50,16 +50,13 @@ img { max-width: 100%; display: block; }
 
 .brand { display: flex; align-items: center; gap: 10px; }
 
-.brand-mark {
-  width: 34px;
-  height: 34px;
+.brand-logo {
+  width: 38px;
+  height: 38px;
   border-radius: 11px;
-  display: grid;
-  place-items: center;
-  color: #fff;
-  font-weight: 700;
-  background: linear-gradient(140deg, #24d3e8, #0a7c94);
-  box-shadow: 0 6px 14px -6px rgba(10, 124, 148, 0.8);
+  display: block;
+  object-fit: cover;
+  box-shadow: 0 6px 14px -8px rgba(10, 124, 148, 0.7);
 }
 
 .brand-text { display: flex; flex-direction: column; font-weight: 700; line-height: 1.1; }

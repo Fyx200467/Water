@@ -4,6 +4,8 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>吨吨 · 管理后台</title>
+<link rel="icon" type="image/png" sizes="32x32" href="favicon.png" />
+<link rel="apple-touch-icon" href="logo.png" />
 <style>
   :root {
     --bg: #f5f6f8;
@@ -522,12 +524,10 @@
     box-shadow: var(--shadow-lg);
     backdrop-filter: blur(16px);
   }
-  .login-card::before {
-    content: "吨";
-    display: flex; align-items: center; justify-content: center;
-    width: 50px; height: 50px; border-radius: 16px; margin-bottom: 20px;
-    color: #fff; font-size: 23px; font-weight: 800;
-    background: linear-gradient(140deg, #41b9e2, #73d2f7 60%, #9be4ff);
+  .login-logo {
+    display: block;
+    width: 56px; height: 56px; border-radius: 16px; margin-bottom: 20px;
+    object-fit: cover;
     box-shadow: 0 12px 24px rgba(65, 185, 226, .35);
   }
   .login-card h1 { font-size: 25px; letter-spacing: -.4px; }
@@ -566,12 +566,9 @@
   .brand-mark {
     width: 42px; height: 42px; flex: none;
     border-radius: 14px;
-    background: linear-gradient(140deg, #41b9e2, #7cd7f8);
-    color: #fff;
-    display: flex; align-items: center; justify-content: center;
+    object-fit: cover;
     box-shadow: 0 10px 20px rgba(65, 185, 226, .32);
   }
-  .brand-mark svg { width: 24px; height: 24px; }
   .brand-text b { display: block; font-size: 19px; font-weight: 800; letter-spacing: .3px; line-height: 1.1; }
   .brand-text b span { color: var(--accent); }
   .brand-text small {
@@ -936,6 +933,7 @@
 <!-- 登录 -->
 <div id="loginView" class="login-wrap">
   <form class="login-card" id="loginForm">
+    <img class="login-logo" src="logo.png" alt="吨吨" />
     <h1>吨吨管理后台</h1>
     <p class="sub">饮品库 · 分类 · 图标 · 角色 · 会员套餐 · 用户 · 订单</p>
     <div class="field">
@@ -963,9 +961,7 @@
 <div id="app" class="hidden">
   <aside>
     <div class="brand">
-      <div class="brand-mark">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2c3.3 3.7 5.7 6.7 5.7 9.6a5.7 5.7 0 0 1-11.4 0c0-2.9 2.4-5.9 5.7-9.6Z" fill="currentColor"/></svg>
-      </div>
+      <img class="brand-mark" src="logo.png" alt="吨吨" />
       <div class="brand-text">
         <b>吨吨<span>.</span></b>
         <small>WaterLlama Admin</small>
