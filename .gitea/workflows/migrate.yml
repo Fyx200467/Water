@@ -11,13 +11,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Restore database and assets
         run: |
           set -e
-          docker stop heshuiyangcheng-backend
-          docker cp _migrate/water_20261104.db heshuiyangcheng-backend:/data/water.db
+          # 容器运行中挂载才会生效，停机状态下 docker cp 会写进容器可写层而不是 /data 卷
+          docker cp _migrate/water_20261104.db heshuiyangcheng-backend:/data/water_import.db
+          docker exec heshuiyangcheng-backend sh -c 'mv /data/water_import.db /data/water.db && rm -f /data/water.db-wal /data/water.db-shm'
           docker cp server/assets/. heshuiyangcheng-backend:/app/server/assets/
-          docker start heshuiyangcheng-backend
+          docker restart heshuiyangcheng-backend
+
       - name: Verify in container
         run: |
           for i in $(seq 1 10); do
@@ -26,5 +29,6 @@ jobs:
             fi
             sleep 3
           done
+          docker exec heshuiyangcheng-backend node -e "const {DatabaseSync}=require('node:sqlite');const db=new DatabaseSync('/data/water.db');const c=db.prepare('SELECT COUNT(*) c FROM users').get();const rows=db.prepare('SELECT email,nickname FROM users ORDER BY created_at').all();console.log('users:',c.c,JSON.stringify(rows));"
           docker exec heshuiyangcheng-backend sh -c 'ls /app/server/assets/preset/characters | wc -l'
           docker exec heshuiyangcheng-backend node -e "fetch('http://127.0.0.1:3000/static/preset/characters/dolphin.svg').then(r=>{console.log('static code', r.status); if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
