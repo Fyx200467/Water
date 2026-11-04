@@ -21,6 +21,7 @@ jobs:
           docker run -d --name heshuiyangcheng-backend \
             -p 8102:3000 \
             -v /opt/heshuiyangcheng/data:/data \
+            -v /opt/heshuiyangcheng/assets:/app/server/assets \
             -e PORT=3000 \
             -e DB_PATH=/data/water.db \
             -e ADMIN_DIR=/app/admin \
