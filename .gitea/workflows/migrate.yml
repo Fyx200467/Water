@@ -1,6 +1,9 @@
 name: migrate-data
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - 'migrate-*'
 
 jobs:
   migrate:
