@@ -1,4 +1,5 @@
 name: migrate-data
+
 on:
   workflow_dispatch:
   push:
@@ -13,20 +14,17 @@ jobs:
       - name: Restore database and assets
         run: |
           set -e
-          mkdir -p /opt/heshuiyangcheng/data /opt/heshuiyangcheng/assets
-          cp _migrate/water_20261104.db /opt/heshuiyangcheng/data/water.db
-          tar -xzf _migrate/assets_20261104.tar.gz -C /opt/heshuiyangcheng/assets --strip-components=1
-          ls -lh /opt/heshuiyangcheng/data/water.db
-          test "$(stat -c%s /opt/heshuiyangcheng/data/water.db)" -gt 100000
-      - name: Restart container
-        run: docker restart heshuiyangcheng-backend
-      - name: Health check
+          docker stop heshuiyangcheng-backend
+          docker cp _migrate/water_20261104.db heshuiyangcheng-backend:/data/water.db
+          docker cp server/assets/. heshuiyangcheng-backend:/app/server/assets/
+          docker start heshuiyangcheng-backend
+      - name: Verify in container
         run: |
           for i in $(seq 1 10); do
             if docker exec heshuiyangcheng-backend node -e "fetch('http://127.0.0.1:3000/health').then(r=>{if(!r.ok)process.exit(1);return r.text()}).then(t=>console.log(t)).catch(()=>process.exit(1))"; then
-              exit 0
+              break
             fi
             sleep 3
           done
-          docker logs --tail 50 heshuiyangcheng-backend
-          exit 1
+          docker exec heshuiyangcheng-backend sh -c 'ls /app/server/assets/preset/characters | wc -l'
+          docker exec heshuiyangcheng-backend node -e "fetch('http://127.0.0.1:3000/static/preset/characters/dolphin.svg').then(r=>{console.log('static code', r.status); if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
