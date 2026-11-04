@@ -427,19 +427,29 @@ seedPlan.run('monthly', '月卡', 390, 30, null, 1, seededAt);
 seedPlan.run('yearly', '年卡', 1290, 365, '推荐', 2, seededAt);
 seedPlan.run('lifetime', '永久会员', 2990, 0, '一次买断', 3, seededAt);
 
-// 价格下调迁移：只调整仍是旧默认价的记录，避免覆盖运营在后台改过的价格
-db.prepare(
-  `UPDATE membership_plans SET price_cents = 390, updated_at = ?
-    WHERE code = 'monthly' AND price_cents IN (690, 1800)`,
-).run(seededAt);
-db.prepare(
-  `UPDATE membership_plans SET price_cents = 1290, updated_at = ?
-    WHERE code = 'yearly' AND price_cents IN (2990, 9800)`,
-).run(seededAt);
-db.prepare(
-  `UPDATE membership_plans SET price_cents = 2990, updated_at = ?
-    WHERE code = 'lifetime' AND price_cents IN (5990, 19800)`,
-).run(seededAt);
+// 价格下调迁移：只调整仍是旧默认价的记录，避免覆盖运营在后台改过的价格。
+// 用 app_meta 记录「已迁移」，否则每次重启都会把运营手动改回 690/1800 的价格重置掉。
+db.exec('CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT)');
+const priceMigrated = db
+  .prepare(`SELECT value FROM app_meta WHERE key = 'price_v2_migrated'`)
+  .get();
+if (!priceMigrated) {
+  db.prepare(
+    `UPDATE membership_plans SET price_cents = 390, updated_at = ?
+      WHERE code = 'monthly' AND price_cents IN (690, 1800)`,
+  ).run(seededAt);
+  db.prepare(
+    `UPDATE membership_plans SET price_cents = 1290, updated_at = ?
+      WHERE code = 'yearly' AND price_cents IN (2990, 9800)`,
+  ).run(seededAt);
+  db.prepare(
+    `UPDATE membership_plans SET price_cents = 2990, updated_at = ?
+      WHERE code = 'lifetime' AND price_cents IN (5990, 19800)`,
+  ).run(seededAt);
+  db.prepare(
+    `INSERT INTO app_meta (key, value) VALUES ('price_v2_migrated', ?)`,
+  ).run(seededAt);
+}
 
 // 会员权益目录：与客户端会员中心内置文案一致；套餐里存逗号分隔的 code
 const seedBenefit = db.prepare(
@@ -489,6 +499,9 @@ const builtinBeverages = [
   ['alcohol_wine', '红酒', 'alcohol', 150, -0.95, '#A62034', 10],
   ['alcohol_spirits', '白酒', 'alcohol', 100, -3.18, '#E3E8EC', 11],
 ];
+// App 安装包内置同 id 的 12 款饮品：删除后重启会被种子重新写回，
+// 因此后台只允许「下架」（is_published=0），不允许物理删除。
+export const BUILTIN_BEVERAGE_IDS = new Set(builtinBeverages.map(([id]) => id));
 for (const [id, name, category, ml, ratio, color, sort] of builtinBeverages) {
   seedBeverage.run(id, name, category, ml, ratio, color, sort, seededAt, seededAt);
 }

@@ -14,7 +14,7 @@ import http from 'node:http';
 import https from 'node:https';
 import os from 'node:os';
 import path from 'node:path';
-import { db, dbPath, nowIso } from './db.js';
+import { BUILTIN_BEVERAGE_IDS, db, dbPath, nowIso } from './db.js';
 
 const accessLog = process.env.ACCESS_LOG ||
   `${os.homedir()}/Documents/Trae-CN/default/.water-server/access.log`;
@@ -564,7 +564,7 @@ const optInt = (v) => {
 };
 
 const VOLUME_PRESETS = new Set(['water', 'regular']);
-const ANIMATIONS = new Set(['bubbles', 'micro', 'ice', 'rice', 'none']);
+const ANIMATIONS = new Set(['bubbles', 'micro', 'ice', 'rice', 'leaves', 'none']);
 
 // 客户端埋点白名单：只收关键漏斗事件，避免被当成通用日志表
 const ANALYTICS_EVENTS = new Set([
@@ -1142,9 +1142,14 @@ async function handle(req, res, url) {
   }
 
   // ==================== 饮品目录（App 拉取，公开，按登录态标记会员锁） ====================
+  // includeHidden=1：新客户端带上已下架饮品并附带 isPublished 标记，
+  // 避免 App 把后台下架的内置饮品又从安装包预设里补回来；老客户端不传，行为不变。
   if (method === 'GET' && pathname === '/v1/catalog/beverages') {
+    const includeHidden = url.searchParams.get('includeHidden') === '1';
     const rows = db
-      .prepare(`${BEVERAGE_SELECT} WHERE b.is_published = 1 ORDER BY b.sort, b.created_at`)
+      .prepare(
+        `${BEVERAGE_SELECT}${includeHidden ? '' : ' WHERE b.is_published = 1'} ORDER BY b.sort, b.created_at`,
+      )
       .all();
     const viewer = authenticate(req);
     const member = isMemberUser(viewer?.revoked ? null : viewer?.id);
@@ -1592,6 +1597,16 @@ async function handle(req, res, url) {
       if (!row) return fail(res, 404, 'not_found', '饮品不存在');
 
       if (method === 'DELETE') {
+        // 内置饮品在 App 安装包里也有同名预设，物理删除后重启会被种子写回；
+        // 后台统一用「发布到客户端」开关下架，避免删了又出现的假象。
+        if (BUILTIN_BEVERAGE_IDS.has(id)) {
+          return fail(
+            res,
+            409,
+            'builtin_beverage',
+            '内置饮品不支持删除，请编辑时取消「发布到客户端」来下架',
+          );
+        }
         db.prepare('DELETE FROM beverages WHERE id = ?').run(id);
         return send(res, 200, { ok: true });
       }

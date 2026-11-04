@@ -1254,6 +1254,11 @@
     }
     if (!file.size) throw new Error("文件为空");
     if (file.size > 3 * 1024 * 1024) throw new Error("文件不能超过 3MB");
+    // 角色素材只允许 SVG：App 端按 .svg 下载并用 SvgPicture 渲染，
+    // 位图会被当成 SVG 解析失败，表现为角色/挑战卡空白。
+    if (dir === "preset/characters" && ext !== "svg") {
+      throw new Error("角色素材仅支持 SVG（PNG/JPG/WEBP 在 App 内显示空白）");
+    }
     if (dir === "preset/characters" && ext === "svg" && file.size > 1024 * 1024) {
       throw new Error("角色 SVG 不能超过 1MB");
     }
@@ -2782,9 +2787,9 @@
               '<input id="c_asset" value="' + esc(item.assetUrl) + '" placeholder="https://…/llama.png" />' +
               '<div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">' +
                 '<button class="btn ghost sm" type="button" id="c_pick">选择本地文件上传</button>' +
-                '<span class="api-hint" id="c_pick_hint">支持 SVG（≤1MB）/ PNG / JPG / WEBP（≤3MB），上传前可先预览校验</span>' +
+                '<span class="api-hint" id="c_pick_hint">仅支持 SVG（≤1MB），App 以矢量方式渲染，PNG/JPG 会显示空白</span>' +
               "</div>" +
-              '<input id="c_pick_file" type="file" accept=".svg,.png,.jpg,.jpeg,.webp" style="display:none;" />' +
+              '<input id="c_pick_file" type="file" accept=".svg" style="display:none;" />' +
               '<div class="cu-list" id="c_up"></div>' +
             "</div>" +
             '<div id="c_asset_preview" style="width:64px;height:64px;border-radius:12px;background:#f5f7fa;display:flex;align-items:center;justify-content:center;flex:none;overflow:hidden;">' +
