@@ -5,12 +5,14 @@ WORKDIR /app
 
 COPY server/ ./server/
 COPY admin/ ./admin/
+COPY web/ ./web/
 
 ENV NODE_ENV=production \
     PORT=3000 \
     DB_PATH=/data/water.db \
     ADMIN_DIR=/app/admin \
-    ASSETS_DIR=/app/server/assets
+    ASSETS_DIR=/app/server/assets \
+    WEB_DIR=/app/web
 
 EXPOSE 3000
 VOLUME ["/data"]

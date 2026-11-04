@@ -34,6 +34,11 @@ const adminDir =
   process.env.ADMIN_DIR ||
   `${os.homedir()}/Documents/Trae-CN/default/.water-server/admin`;
 
+// 官网静态页面目录（可选，部署时通过 WEB_DIR 指定）
+const webDir =
+  process.env.WEB_DIR ||
+  `${os.homedir()}/Documents/Trae-CN/default/.water-server/web`;
+
 const PORT = Number(process.env.PORT || 3000);
 const TOKEN_TTL_DAYS = 365;
 const MAX_PUSH_ITEMS = 500;
@@ -118,6 +123,23 @@ const staticTypes = {
   '.webp': 'image/webp',
 };
 
+// 官网页面用到的类型（与素材托管的类型分开维护）
+const siteTypes = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.txt': 'text/plain; charset=utf-8',
+  '.xml': 'application/xml; charset=utf-8',
+  '.ico': 'image/x-icon',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.apk': 'application/vnd.android.package-archive',
+};
+
 /// 素材托管：/static/<文件名> 映射到 assets 目录
 function serveStatic(res, pathname) {
   let rel = '';
@@ -154,6 +176,45 @@ function serveStatic(res, pathname) {
   }
   res.writeHead(200, headers);
   createReadStream(filePath).pipe(res);
+}
+
+/// 官网托管：静态页面 + APK 下载（免鉴权）
+function serveSite(res, pathname, method) {
+  let rel = '/index.html';
+  try {
+    const decoded = decodeURIComponent(pathname);
+    if (decoded !== '/' && decoded !== '') rel = decoded;
+  } catch {
+    rel = '/index.html';
+  }
+  if (rel.endsWith('/')) rel += 'index.html';
+  else if (!/\.[a-z0-9]{1,10}$/i.test(rel)) rel += '.html';
+
+  const root = path.resolve(webDir) + path.sep;
+  const filePath = path.resolve(webDir, `.${rel}`);
+  if (!filePath.startsWith(root) || !existsSync(filePath) || !statSync(filePath).isFile()) {
+    res.writeHead(404, {
+      'Content-Type': 'text/html; charset=utf-8',
+      ...corsHeaders,
+    });
+    return res.end('<!DOCTYPE html><html lang="zh-CN"><meta charset="utf-8">'
+      + '<title>页面不存在</title><body style="font-family:sans-serif;padding:64px;text-align:center">'
+      + '<h1>404</h1><p>页面不存在，<a href="/">返回官网首页</a></p></body></html>');
+  }
+
+  const ext = path.extname(filePath).toLowerCase();
+  const isHtml = ext === '.html';
+  const stat = statSync(filePath);
+  res.writeHead(200, {
+    'Content-Type': siteTypes[ext] || 'application/octet-stream',
+    'Content-Length': stat.size,
+    // 页面本身随时更新，禁止缓存；静态资源短缓存
+    'Cache-Control': isHtml ? 'no-store, must-revalidate' : 'public, max-age=600, must-revalidate',
+    ...(ext === '.apk' ? { 'Content-Disposition': `attachment; filename="${path.basename(filePath)}"` } : {}),
+    ...corsHeaders,
+  });
+  if (method === 'HEAD') return res.end();
+  return createReadStream(filePath).pipe(res);
 }
 
 const isIso = (v) => typeof v === 'string' && !Number.isNaN(Date.parse(v));
@@ -896,6 +957,11 @@ async function handle(req, res, url) {
   }
 
   if (method === 'GET' && pathname === '/') {
+    // 根路径改为官网首页，接口说明挪到 /api-info
+    return serveSite(res, '/', method);
+  }
+
+  if (method === 'GET' && pathname === '/api-info') {
     return send(res, 200, {
       name: 'water-server',
       version: '0.1.0',
@@ -2893,6 +2959,12 @@ async function handle(req, res, url) {
     }
 
     return fail(res, 404, 'not_found', '接口不存在');
+  }
+
+  // ==================== 官网页面与安装包下载（免鉴权） ====================
+  // 只接管 /v1 之外的 GET/HEAD，接口与素材路径已在上面优先处理
+  if ((method === 'GET' || method === 'HEAD') && !pathname.startsWith('/v1/')) {
+    return serveSite(res, pathname, method);
   }
 
   // 以下接口都需要登录
