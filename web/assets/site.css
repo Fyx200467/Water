@@ -342,9 +342,120 @@ h1 {
 .doc a { color: var(--water-deep); text-decoration: underline; }
 .doc .back { display: inline-block; margin-bottom: 24px; font-size: 14px; color: var(--water-deep); }
 
+/* ---------- 数据条 ---------- */
+.stats { border-block: 1px solid var(--line); background: #fff; }
+.stats-inner {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  padding: 26px 0;
+  text-align: center;
+}
+.stats-inner b { display: block; font-size: 28px; color: var(--water-deep); letter-spacing: -0.5px; }
+.stats-inner span { font-size: 13px; color: var(--ink-soft); }
+
+/* ---------- 使用流程 ---------- */
+.steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+.step {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 22px;
+  position: relative;
+}
+.step-no {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--water);
+}
+.step h3 { margin: 8px 0 8px; font-size: 17px; }
+.step p { margin: 0; font-size: 14px; color: var(--ink-soft); }
+
+/* ---------- 权益对比表 ---------- */
+.compare { margin-top: 40px; overflow-x: auto; }
+.compare table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  font-size: 14.5px;
+}
+.compare th, .compare td {
+  padding: 13px 18px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+.compare thead th { background: #f1fbfd; color: var(--ink); font-weight: 600; }
+.compare tbody tr:last-child td { border-bottom: none; }
+.compare td:nth-child(2), .compare td:nth-child(3),
+.compare th:nth-child(2), .compare th:nth-child(3) { text-align: center; width: 22%; }
+.compare .col-hot { color: var(--water-deep); font-weight: 600; background: #f7fdfe; }
+
+/* ---------- 常见问题 ---------- */
+.faq { border-top: 1px solid var(--line); }
+.faq details { border-bottom: 1px solid var(--line); padding: 4px 0; }
+.faq summary {
+  cursor: pointer;
+  padding: 18px 34px 18px 0;
+  font-weight: 600;
+  font-size: 16px;
+  position: relative;
+  list-style: none;
+}
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after {
+  content: "+";
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 20px;
+  color: var(--water);
+  font-weight: 400;
+}
+.faq details[open] summary::after { content: "−"; }
+.faq p { margin: 0 0 18px; font-size: 14.5px; color: var(--ink-soft); max-width: 62em; }
+
+/* ---------- 更新日志 ---------- */
+.timeline { display: grid; gap: 0; }
+.tl-item {
+  display: grid;
+  grid-template-columns: 108px 1fr;
+  gap: 18px;
+  padding: 18px 0;
+  border-top: 1px solid var(--line);
+}
+.tl-item:last-child { border-bottom: 1px solid var(--line); }
+.tl-date { font-size: 13px; color: var(--ink-soft); padding-top: 4px; }
+.tl-item h3 { margin: 0 0 4px; font-size: 16px; }
+.tl-item p { margin: 0; font-size: 14.5px; color: var(--ink-soft); }
+
+/* ---------- 关于我们 ---------- */
+.about { display: grid; grid-template-columns: 1.35fr 0.65fr; gap: 48px; align-items: start; }
+.about p { font-size: 15.5px; color: var(--ink-soft); max-width: 40em; }
+.about-meta { display: grid; gap: 12px; margin-top: 26px; font-size: 14.5px; }
+.about-meta span {
+  display: inline-block;
+  width: 84px;
+  color: var(--ink-soft);
+}
+.about-meta a { color: var(--water-deep); text-decoration: underline; }
+.about-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 26px 24px;
+}
+.about-card h3 { margin: 0 0 10px; font-size: 17px; }
+.about-card p { font-size: 14px; margin: 0 0 18px; }
+
 /* ---------- 响应式 ---------- */
 @media (max-width: 980px) {
   .grid-4 { grid-template-columns: repeat(2, 1fr); }
+  .steps { grid-template-columns: repeat(2, 1fr); }
+  .about { grid-template-columns: 1fr; gap: 28px; }
   .char-strip { grid-template-columns: repeat(4, 1fr); }
   .hero-inner { grid-template-columns: 1fr; }
   .hero-art { order: -1; min-height: 300px; }
@@ -356,6 +467,9 @@ h1 {
   .nav-cta { margin-left: auto; }
   .section { padding: 56px 0; }
   .grid-3 { grid-template-columns: 1fr; }
+  .stats-inner { grid-template-columns: repeat(2, 1fr); gap: 18px; }
+  .steps { grid-template-columns: 1fr; }
+  .tl-item { grid-template-columns: 1fr; gap: 4px; }
   .download-inner { grid-template-columns: 1fr; }
   .qr-box { justify-self: start; }
   .footer-inner { flex-direction: column; align-items: flex-start; }
