@@ -1,0 +1,27 @@
+name: inspect-assets
+
+on:
+  push:
+    tags:
+      - 'inspect-*'
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: List host assets
+        run: |
+          echo "== host assets =="
+          ls -la /opt/heshuiyangcheng/assets | head -20
+          echo "== preset =="
+          ls -la /opt/heshuiyangcheng/assets/preset 2>/dev/null | head -20
+          echo "== characters count =="
+          ls /opt/heshuiyangcheng/assets/preset/characters 2>/dev/null | wc -l
+      - name: List container assets
+        run: |
+          echo "== container assets =="
+          docker exec heshuiyangcheng-backend sh -c 'ls -la /app/server/assets | head -20; echo; ls /app/server/assets/preset/characters | wc -l' || true
+      - name: Probe static url
+        run: |
+          docker exec heshuiyangcheng-backend node -e "fetch('http://127.0.0.1:3000/static/preset/characters/dolphin.svg').then(r=>console.log('code',r.status)).catch(e=>console.log('err',e.message))" || true
