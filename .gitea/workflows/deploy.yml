@@ -1,0 +1,38 @@
+name: build-and-deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t heshuiyangcheng-backend:latest .
+
+      - name: Restart container
+        run: |
+          docker rm -f heshuiyangcheng-backend || true
+          docker run -d --name heshuiyangcheng-backend \
+            -p 8102:3000 \
+            -v /opt/heshuiyangcheng/data:/data \
+            -e PORT=3000 \
+            -e DB_PATH=/data/water.db \
+            -e ADMIN_DIR=/app/admin \
+            -e ASSETS_DIR=/app/server/assets \
+            -e ADMIN_EMAIL="${{ secrets.ADMIN_EMAIL }}" \
+            -e ADMIN_PASSWORD="${{ secrets.ADMIN_PASSWORD }}" \
+            --restart unless-stopped \
+            heshuiyangcheng-backend:latest
+
+      - name: Health check
+        run: |
+          for i in 1 2 3 4 5; do
+            sleep 2
+            curl -fsS http://127.0.0.1:8102/health && break
+          done
