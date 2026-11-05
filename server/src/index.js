@@ -700,6 +700,33 @@ const benefitsJson = (v) =>
       : [],
   );
 
+/// 挑战卡禁止分类只接受 App BeverageCategory 的英文名（大小写容错），
+/// 其余值直接丢弃：客户端不认识会静默忽略，避免后台「看起来已设置」却无效
+const BEVERAGE_CATEGORY_CODES = [
+  'water',
+  'tea',
+  'coffee',
+  'milk',
+  'milkTea',
+  'juice',
+  'soda',
+  'soup',
+  'alcohol',
+];
+const BEVERAGE_CATEGORY_BY_KEY = new Map(
+  BEVERAGE_CATEGORY_CODES.map((code) => [code.toLowerCase(), code]),
+);
+const categoriesJson = (v) => {
+  if (!Array.isArray(v)) return '[]';
+  const out = [];
+  for (const raw of v) {
+    const key = String(raw ?? '').trim().replace(/\s+/g, '').toLowerCase();
+    const code = BEVERAGE_CATEGORY_BY_KEY.get(key);
+    if (code && !out.includes(code)) out.push(code);
+  }
+  return JSON.stringify(out);
+};
+
 /// 挑战卡字段统一为 camelCase；admin 额外返回上下架状态与创建时间
 function mapChallenge(r, admin = false) {
   const item = {
@@ -2615,7 +2642,7 @@ async function handle(req, res, url) {
         rewardPoints,
         listJson(body.forbiddenLabels),
         listJson(body.forbiddenKeywords),
-        listJson(body.forbiddenCategories),
+        categoriesJson(body.forbiddenCategories),
         nextSort,
         body.isPublished === undefined ? 1 : boolInt(body.isPublished),
         nowIso(),
@@ -2682,7 +2709,7 @@ async function handle(req, res, url) {
             : listJson(body.forbiddenKeywords),
           body.forbiddenCategories === undefined
             ? row.forbidden_categories
-            : listJson(body.forbiddenCategories),
+            : categoriesJson(body.forbiddenCategories),
           sort,
           body.isPublished === undefined
             ? row.is_published
