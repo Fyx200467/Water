@@ -101,6 +101,7 @@ class BeverageCatalogNotifier extends StateNotifier<List<Beverage>> {
           : (m['animation'] ?? '').toString().trim(),
       containerId: icon.isEmpty ? null : 'url:$icon',
       memberOnly: m['memberOnly'] == true,
+      isPublished: m['isPublished'] != false,
       calories: (m['calories'] as num?)?.toInt(),
       caffeineMg: (m['caffeineMg'] as num?)?.toInt(),
       alcoholPercent: (m['alcoholPercent'] as num?)?.toInt(),
@@ -137,18 +138,24 @@ final beverageCatalogProvider =
 
 /// 完整饮品库 = 内置预设（可被后台同 id 覆盖）+ 后台新增饮品 + 自定义饮品
 ///
-/// 顺序完全跟随后台 sort：后台用 ↑ ↓ 调整后的顺序即为客户端展示顺序，
-/// 未下发（未发布/离线无缓存）的内置款按安装包内置顺序补在末尾
+/// 顺序完全跟随后台 sort：后台用 ↑ ↓ 调整后的顺序即为客户端展示顺序。
+/// 后台「下架」的内置款（isPublished=false）不会再从安装包预设里补回来；
+/// 只有「离线且没有缓存」时才用安装包内置顺序兜底。
 final beverageLibraryProvider = Provider<List<Beverage>>((ref) {
   final remote = ref.watch(beverageCatalogProvider);
   final customs = ref.watch(customBeveragesProvider);
   final presetById = {for (final p in Beverage.presets) p.id: p};
-  final remoteIds = {for (final b in remote) b.id};
-  return [
+  final published = remote.where((b) => b.isPublished).toList();
+  final publishedIds = {for (final b in published) b.id};
+  final hiddenIds = {
     for (final b in remote)
+      if (!b.isPublished) b.id,
+  };
+  return [
+    for (final b in published)
       presetById[b.id] != null ? _mergePreset(presetById[b.id]!, b) : b,
     for (final p in Beverage.presets)
-      if (!remoteIds.contains(p.id)) p,
+      if (!publishedIds.contains(p.id) && !hiddenIds.contains(p.id)) p,
     ...customs,
   ];
 });

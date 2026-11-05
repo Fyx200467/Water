@@ -368,7 +368,7 @@ class LocalStorage {
   Future<void> addPendingPointEvent(Map<String, dynamic> event) async {
     final id = event['eventId']?.toString();
     if (id == null || id.isEmpty) return;
-    final all = loadPendingPointEvents();
+    final all = <Map<String, dynamic>>[...loadPendingPointEvents()];
     if (all.any((e) => e['eventId']?.toString() == id)) return;
     all.add(event);
     await prefs.setString(_pointsPendingKey, jsonEncode(all));
@@ -395,6 +395,26 @@ class LocalStorage {
     final snapshot = loadPointsSnapshot() ?? <String, dynamic>{};
     snapshot['balance'] = balance;
     snapshot['history'] = history;
+    // 今日收入按服务端流水重算：服务端未入账的本地记录不再显示，
+    // 避免出现「今日 +6 但余额没涨」的假数据
+    final now = DateTime.now();
+    var todayEarned = 0;
+    for (final e in history) {
+      final amount = (e['amount'] as num?)?.toInt() ?? 0;
+      final at = DateTime.fromMillisecondsSinceEpoch(
+        (e['at'] as num?)?.toInt() ?? 0,
+      );
+      if (amount > 0 &&
+          at.year == now.year &&
+          at.month == now.month &&
+          at.day == now.day) {
+        todayEarned += amount;
+      }
+    }
+    snapshot['todayEarned'] = todayEarned;
+    snapshot['dayKey'] =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-'
+        '${now.day.toString().padLeft(2, '0')}';
     await savePointsSnapshot(snapshot);
   }
 
@@ -513,7 +533,26 @@ class LocalStorage {
 
   Future<void> softDeleteEntry(String clientId) async {
     if (_hasDb) {
-      await _db!.update(
+      // 从未上行到服务端的记录（server_id 为空）直接物理删除：
+      // 否则会留下一条无意义的删除墓碑，导致「待同步 N 条」永远不清零
+      final rows = await _db!.query(
+        'drink_entries',
+        columns: ['server_id'],
+        where: 'client_id = ? AND owner_user_id = ?',
+        whereArgs: [clientId, _owner],
+        limit: 1,
+      );
+      final serverId = rows.isEmpty ? null : rows.first['server_id'] as String?;
+      if (rows.isNotEmpty && (serverId == null || serverId.isEmpty)) {
+        await _db.delete(
+          'drink_entries',
+          where: 'client_id = ? AND owner_user_id = ?',
+          whereArgs: [clientId, _owner],
+        );
+        await _prefsRemoveEntry(clientId);
+        return;
+      }
+      await _db.update(
         'drink_entries',
         {
           'deleted': 1,
@@ -627,6 +666,21 @@ class LocalStorage {
 
   Future<void> setHealthLastSyncAt(DateTime at) async {
     await prefs.setString(_kHealthLastSync, at.toIso8601String());
+  }
+
+  // ---------- 小游戏进度 ----------
+
+  static const String _kMatch3Level = 'match3_level';
+
+  /// 消消乐闯关已解锁的最高关卡（默认第 1 关）
+  int get match3Level {
+    final v = prefs.getInt(_kMatch3Level) ?? 1;
+    return v < 1 ? 1 : v;
+  }
+
+  Future<void> setMatch3Level(int level) async {
+    if (level < 1) return;
+    await prefs.setInt(_kMatch3Level, level);
   }
 
   // ---------- 账号与云备份 ----------
@@ -991,12 +1045,14 @@ class LocalStorage {
     }
   }
 
-  /// 尚未上行到服务端的记录（含待同步的删除墓碑）
+  /// 尚未上行到服务端的记录（含待同步的删除墓碑；
+  /// 从未上行过的删除墓碑没有意义，不再计入/上报）
   Future<List<DrinkEntry>> loadPendingSyncEntries({int limit = 200}) async {
     if (_hasDb) {
       final rows = await _db!.query(
         'drink_entries',
-        where: 'synced = 0 AND owner_user_id = ?',
+        where: "synced = 0 AND owner_user_id = ?"
+            " AND (deleted = 0 OR (server_id IS NOT NULL AND server_id != ''))",
         whereArgs: [_owner],
         orderBy: 'drank_at ASC',
         limit: limit,
@@ -1004,20 +1060,26 @@ class LocalStorage {
       return rows.map(DrinkEntry.fromMap).toList();
     }
     final all = await _prefsLoadAllEntries();
-    return all.where((e) => !e.synced).take(limit).toList();
+    return all
+        .where((e) => !e.synced && (!e.deleted || (e.serverId?.isNotEmpty ?? false)))
+        .take(limit)
+        .toList();
   }
 
   Future<int> countPendingSyncEntries() async {
     if (_hasDb) {
       final rows = await _db!.rawQuery(
         'SELECT COUNT(*) AS c FROM drink_entries'
-        ' WHERE synced = 0 AND owner_user_id = ?',
+        " WHERE synced = 0 AND owner_user_id = ?"
+        " AND (deleted = 0 OR (server_id IS NOT NULL AND server_id != ''))",
         [_owner],
       );
       return (rows.first['c'] as int?) ?? 0;
     }
     final all = await _prefsLoadAllEntries();
-    return all.where((e) => !e.synced).length;
+    return all
+        .where((e) => !e.synced && (!e.deleted || (e.serverId?.isNotEmpty ?? false)))
+        .length;
   }
 
   /// 本机游客桶里仍未删除的记录条数：登录成功后据此询问「是否并入账号」
@@ -1154,12 +1216,27 @@ class LocalStorage {
     final all = await _prefsLoadAllEntries();
     final idx = all.indexWhere((e) => e.clientId == clientId);
     if (idx >= 0) {
-      all[idx] = all[idx].copyWith(deleted: true, synced: false);
+      final e = all[idx];
+      // 从未上行过的记录：直接移除，不生成无意义的删除墓碑
+      if (e.serverId == null || e.serverId!.isEmpty) {
+        all.removeAt(idx);
+      } else {
+        all[idx] = e.copyWith(deleted: true, synced: false);
+      }
       await prefs.setString(
         _entriesStoreKey,
         jsonEncode(all.map((e) => e.toMap()).toList()),
       );
     }
+  }
+
+  Future<void> _prefsRemoveEntry(String clientId) async {
+    final all = await _prefsLoadAllEntries();
+    all.removeWhere((e) => e.clientId == clientId);
+    await prefs.setString(
+      _entriesStoreKey,
+      jsonEncode(all.map((e) => e.toMap()).toList()),
+    );
   }
 
   // ---------- 清除数据 ----------
@@ -1374,16 +1451,18 @@ class LocalStorage {
   }
 
   static List<Map<String, dynamic>> _decodePendingList(String? raw) {
-    if (raw == null || raw.isEmpty) return const [];
+    // 必须返回可增删的列表：调用方会直接 add（const [] 会抛
+    // Unsupported operation: Cannot add to an unmodifiable list）
+    if (raw == null || raw.isEmpty) return <Map<String, dynamic>>[];
     try {
       final decoded = jsonDecode(raw);
-      if (decoded is! List) return const [];
+      if (decoded is! List) return <Map<String, dynamic>>[];
       return decoded
           .whereType<Map>()
           .map((e) => Map<String, dynamic>.from(e))
           .toList();
     } catch (_) {
-      return const [];
+      return <Map<String, dynamic>>[];
     }
   }
 

@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 
 import '../../core/time/logical_day.dart';
 import '../../shared/models/preferred_unit.dart';
+import '../../shared/widgets/app_back_button.dart';
 import '../home/providers/home_providers.dart';
 import 'providers/stats_providers.dart';
 import 'widgets/month_calendar.dart';
@@ -29,7 +30,10 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
     final goal = ref.watch(profileProvider)?.dailyGoalMl ?? 2000;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('数据统计')),
+      appBar: AppBar(
+        leading: const Center(child: AppBackButton()),
+        title: const Text('数据统计'),
+      ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
         children: [

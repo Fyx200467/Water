@@ -8,6 +8,7 @@ import '../../core/settings/account_settings.dart';
 import '../../core/storage/providers.dart';
 import '../../core/sync/sync_service.dart';
 import '../../shared/models/user_profile.dart';
+import '../../shared/widgets/app_back_button.dart';
 import '../../shared/widgets/goal_info_form.dart';
 import '../../shared/widgets/underwater_scene.dart';
 import '../home/providers/home_providers.dart';
@@ -116,28 +117,10 @@ class _GoalScreenState extends ConsumerState<GoalScreen> {
               onContinue: () => Navigator.of(context).pop(),
             ),
             // 左上角返回（白底场景用浅色圆钮 + 深色箭头）
-            SafeArea(
+            const SafeArea(
               child: Padding(
-                padding: const EdgeInsets.only(left: 12, top: 8),
-                child: Material(
-                  color: Colors.white.withValues(alpha: 0.92),
-                  shape: const CircleBorder(),
-                  elevation: 1.5,
-                  shadowColor: const Color(0xFF2C3E50).withValues(alpha: 0.18),
-                  child: InkWell(
-                    onTap: () => Navigator.of(context).pop(),
-                    customBorder: const CircleBorder(),
-                    child: const SizedBox(
-                      width: 40,
-                      height: 40,
-                      child: Icon(
-                        Icons.arrow_back_ios_new,
-                        size: 17,
-                        color: Color(0xFF2C3E50),
-                      ),
-                    ),
-                  ),
-                ),
+                padding: EdgeInsets.only(left: 12, top: 8),
+                child: AppBackButton(),
               ),
             ),
           ],

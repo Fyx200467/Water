@@ -17,6 +17,7 @@ import '../core/sync/profile_sync.dart';
 import '../core/sync/session_watch.dart';
 import '../core/sync/sync_api.dart';
 import '../core/sync/sync_service.dart';
+import '../core/time/logical_day.dart';
 import '../features/challenges/challenge_service.dart';
 import '../features/characters/character_catalog.dart';
 import '../features/drink/providers/beverage_catalog_provider.dart';
@@ -51,6 +52,9 @@ class _WaterLlamaAppState extends ConsumerState<WaterLlamaApp>
     with WidgetsBindingObserver {
   Timer? _reschedTimer;
   Timer? _catalogTimer;
+
+  /// 当前逻辑日（yyyy-MM-dd）：用于跨零点自动重置首页水量与每日任务状态
+  String _logicalDayKey = LogicalDay.keyString(LogicalDay.today());
   bool _revokedDialogShown = false;
 
   @override
@@ -64,10 +68,20 @@ class _WaterLlamaAppState extends ConsumerState<WaterLlamaApp>
     SyncService.onSessionChanged = _handleSessionChanged;
     // 云端账号级偏好（单位 / 角色 / 自定义饮品）应用到本机后刷新界面
     SyncService.onSettingsSynced = _handleSettingsSynced;
-    // 每轮同步（成功/失败）结束：刷新账号卡的待同步条数与上次同步时间
-    SyncService.onSyncFinished = () {
+    // 每轮同步（成功/失败）结束：刷新账号卡的待同步条数与上次同步时间；
+    // 拉到云端记录时由根节点统一刷新首页/历史页，避免依赖登录页等
+    // 调用方仍在前台——用户提前返回时也能在同步完成后自动回显
+    SyncService.onSyncFinished = (result) {
       if (!mounted) return;
       ref.read(syncRevisionProvider.notifier).state++;
+      if (result.pulled > 0) {
+        _reloadTodayEntries();
+        ref.invalidate(yearEntriesProvider);
+        ref.invalidate(monthDataProvider);
+        ref.invalidate(dayEntriesForProvider);
+        ref.invalidate(checkinDaysProvider);
+        ref.invalidate(bestCheckinDaysProvider);
+      }
     };
     // 云端积分余额 / 明细合并到本机后刷新积分页
     PointsSync.onSynced = _handlePointsSynced;
@@ -79,7 +93,7 @@ class _WaterLlamaAppState extends ConsumerState<WaterLlamaApp>
     ProfileSync.onProfileSynced = () {
       if (!mounted) return;
       ref.invalidate(profileProvider);
-      ref.invalidate(todayEntriesProvider);
+      _reloadTodayEntries();
     };
     // 冷启动：已登录则建立会话实时通道，另一台设备登录时立即收到通知
     unawaited(() async {
@@ -102,7 +116,7 @@ class _WaterLlamaAppState extends ConsumerState<WaterLlamaApp>
       final storage = await ref.read(localStorageProvider.future);
       final report = await HealthSyncService.maybeAutoSync(storage);
       if (report.imported > 0 && mounted) {
-        ref.invalidate(todayEntriesProvider);
+        _reloadTodayEntries();
       }
     });
     // 冷启动：已登录且开启无感同步时跑一轮（未登录为纯本地，断网失败均不影响使用）
@@ -111,7 +125,7 @@ class _WaterLlamaAppState extends ConsumerState<WaterLlamaApp>
       final storage = await ref.read(localStorageProvider.future);
       final result = await SyncService.autoSync(storage);
       if ((result?.pulled ?? 0) > 0 && mounted) {
-        ref.invalidate(todayEntriesProvider);
+        _reloadTodayEntries();
         ref.invalidate(yearEntriesProvider);
       }
     });
@@ -134,6 +148,15 @@ class _WaterLlamaAppState extends ConsumerState<WaterLlamaApp>
       final state = WidgetsBinding.instance.lifecycleState;
       if (state != null && state != AppLifecycleState.resumed) return;
       unawaited(_syncCharacters());
+      // 跨零点：App 长期停留时，首页水量、每日任务、今日积分需要按新的
+      // 逻辑日重置，否则会一直显示昨天的数据且当天无法签到
+      final dayKey = LogicalDay.keyString(LogicalDay.today());
+      if (dayKey != _logicalDayKey) {
+        _logicalDayKey = dayKey;
+        _reloadTodayEntries();
+        unawaited(ref.read(pointsProvider.notifier).reload());
+        ref.invalidate(yearEntriesProvider);
+      }
       // 饮品目录同样定时对齐：后台改图标 / 排序 / 新增后最多 30 秒生效
       unawaited(_syncBeverages());
       // 挑战目录同样轻量轮询：后台发布/下架挑战最多 30 秒生效
@@ -214,6 +237,14 @@ class _WaterLlamaAppState extends ConsumerState<WaterLlamaApp>
     } catch (_) {
       // 版本检查失败不影响启动
     }
+  }
+
+  /// 重载今日记录，但保留当前列表直到新数据就绪。
+  ///
+  /// 不能直接用 invalidate：provider 会先重建为空列表，首页总量瞬时归零，
+  /// 导致数字回滚动画与达标彩带各播两次（加一杯水后同步回包即触发）。
+  void _reloadTodayEntries() {
+    unawaited(ref.read(todayEntriesProvider.notifier).refresh());
   }
 
   /// 会话归属账号发生变化：推进会话纪元，让所有按 owner 读取的数据
@@ -342,10 +373,16 @@ class _WaterLlamaAppState extends ConsumerState<WaterLlamaApp>
           status['expireAt']?.toString() ?? '',
         );
         final permanent = status['permanent'] == true;
+        final redeemTier = status['redeemTier'] as String?;
+        final redeemUntil = DateTime.tryParse(
+          status['redeemUntil']?.toString() ?? '',
+        );
         final current = ref.read(membershipProvider);
         final changed =
             !current.hasPaidOrder ||
             current.planCode != planCode ||
+            current.redeemTier != redeemTier ||
+            current.redeemUntil != redeemUntil ||
             (permanent
                 ? current.expireAt != null
                 : current.expireAt != expireAt);
@@ -354,6 +391,9 @@ class _WaterLlamaAppState extends ConsumerState<WaterLlamaApp>
             planCode: planCode,
             expireAt: expireAt,
             permanent: permanent,
+            redeemTier: redeemTier,
+            redeemUntil: redeemUntil,
+            syncRedeemWindow: true,
           );
         }
       } else if (ref.read(membershipProvider).hasPaidOrder) {
@@ -442,7 +482,7 @@ class _WaterLlamaAppState extends ConsumerState<WaterLlamaApp>
         }
         final result = await SyncService.autoSync(storage);
         if ((result?.pulled ?? 0) > 0 && mounted) {
-          ref.invalidate(todayEntriesProvider);
+          _reloadTodayEntries();
           ref.invalidate(yearEntriesProvider);
         }
       }());

@@ -278,7 +278,6 @@ class SharePosterScreen extends ConsumerWidget {
                     const SizedBox(height: 20),
                     // 两个分享按钮：微信 / QQ（均调起系统分享面板）
                     _shareButton(
-                      bg: const Color(0xFFDFF6E8),
                       icon: Container(
                         width: 34,
                         height: 34,
@@ -298,7 +297,6 @@ class SharePosterScreen extends ConsumerWidget {
                     ),
                     const SizedBox(height: 12),
                     _shareButton(
-                      bg: const Color(0xFFE3F4FE),
                       icon: Container(
                         width: 34,
                         height: 34,
@@ -343,22 +341,19 @@ class SharePosterScreen extends ConsumerWidget {
     );
   }
 
-  /// 分享按钮：浅色底大胶囊 + 彩色平台图标 + 平台色文字
+  /// 分享按钮：彩色平台图标 + 平台色文字（无底色，点击区域保持整行高）
   Widget _shareButton({
-    required Color bg,
     required Widget icon,
     required String label,
     required Color color,
     required VoidCallback onTap,
   }) {
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: onTap,
-      child: Container(
+      child: SizedBox(
+        width: double.infinity,
         height: 64,
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(32),
-        ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [

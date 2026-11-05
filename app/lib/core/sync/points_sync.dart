@@ -36,6 +36,7 @@ class PointsSync {
   static Future<DateTime> redeemMemberDay(
     LocalStorage storage, {
     int days = 1,
+    required String tier,
   }) async {
     if (!storage.hasAccountSession) {
       throw SyncApiException('请先登录账号后再兑换');
@@ -44,7 +45,11 @@ class PointsSync {
 
     // 先把待上行流水补传，服务端才能看到最新余额
     await _pushPending(storage, token);
-    final res = await SyncApi.redeemMembershipDay(token, days: days);
+    final res = await SyncApi.redeemMembershipDay(
+      token,
+      days: days,
+      tier: tier,
+    );
     final expireAt = DateTime.tryParse(res['expireAt']?.toString() ?? '');
     if (expireAt == null) {
       throw SyncApiException('兑换结果异常，请稍后重试');

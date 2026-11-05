@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/app_info.dart';
 import '../../core/storage/providers.dart';
 import '../../core/sync/sync_api.dart';
+import '../../shared/widgets/app_back_button.dart';
 
 const _bg = Color(0xFFF5F6F8);
 const _ink = Color(0xFF1C1C1E);
@@ -110,11 +111,7 @@ class _FeedbackScreenState extends ConsumerState<FeedbackScreen> {
         children: [
           Row(
             children: [
-              IconButton(
-                onPressed: () => Navigator.of(context).maybePop(),
-                icon: const Icon(Icons.arrow_back_ios_new, size: 18),
-                color: _ink,
-              ),
+              const AppBackButton(),
               const Text(
                 '帮助与支持',
                 style: TextStyle(

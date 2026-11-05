@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 本地/局域网服务端调用（开发期）
@@ -20,11 +21,11 @@ class SyncApiException implements Exception {
 }
 
 class SyncApi {
-  /// 默认指向本机开发服务；可用
-  /// `--dart-define=API_BASE_URL=...` 覆盖，也可在设置页长按版本号运行时修改
+  /// 内置生产服务地址，打包即生效，无需再手动切换
+  /// 可用 `--dart-define=API_BASE_URL=...` 覆盖（调试/内网环境）
   static const String _defaultBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://127.0.0.1:3000',
+    defaultValue: 'https://dundun.kunqiongai.com',
   );
 
   static String _baseUrl = _defaultBaseUrl;
@@ -34,8 +35,10 @@ class SyncApi {
   /// 运行时可配接口地址在 SharedPreferences 中的键
   static const String prefsKey = 'api_base_url';
 
-  /// 启动时加载已保存的接口地址（内网穿透域名变化时无需重新打包）
+  /// 启动时加载已保存的接口地址（仅调试包；发布包固定用内置地址，
+  /// 避免历史保存的本机/局域网地址覆盖生产接口）
   static Future<void> loadFromPrefs() async {
+    if (kReleaseMode) return;
     try {
       final prefs = await SharedPreferences.getInstance();
       final normalized = normalize(prefs.getString(prefsKey));
@@ -318,16 +321,17 @@ class SyncApi {
     return _request('GET', '/v1/points', token: token);
   }
 
-  /// 积分兑换会员天数：扣分与开通都在服务端完成
+  /// 积分兑换会员天数：扣分与开通都在服务端完成，tier 决定昵称等级
   static Future<Map<String, dynamic>> redeemMembershipDay(
     String token, {
     int days = 1,
+    required String tier,
   }) {
     return _request(
       'POST',
       '/v1/membership/redeem',
       token: token,
-      body: {'days': days},
+      body: {'days': days, 'tier': tier},
     );
   }
 
@@ -347,6 +351,18 @@ class SyncApi {
     return _request(
       'POST',
       '/v1/membership/orders/$orderId/cancel',
+      token: token,
+    );
+  }
+
+  /// 用户自助退款：仅本人已支付的付费订单、且支付后 24 小时内
+  static Future<Map<String, dynamic>> refundMembershipOrder(
+    String token,
+    String orderId,
+  ) {
+    return _request(
+      'POST',
+      '/v1/membership/orders/$orderId/refund',
       token: token,
     );
   }
@@ -429,7 +445,7 @@ class SyncApi {
     try {
       final request = await client.openUrl(
         'GET',
-        Uri.parse('$baseUrl/v1/catalog/beverages'),
+        Uri.parse('$baseUrl/v1/catalog/beverages?includeHidden=1'),
       );
       final response = await request.close().timeout(
         const Duration(seconds: 8),

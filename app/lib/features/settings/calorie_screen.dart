@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../../shared/widgets/app_back_button.dart';
+import '../../shared/widgets/app_switch.dart';
 import 'settings_flags.dart';
 
 // ============================================================
@@ -21,7 +23,6 @@ class CalorieScreen extends StatefulWidget {
 }
 
 class _CalorieScreenState extends State<CalorieScreen> {
-  static const _cyan = Color(0xFF35B5D6);
   static const _textDark = Color(0xFF1C1C1E);
 
   @override
@@ -44,22 +45,9 @@ class _CalorieScreenState extends State<CalorieScreen> {
               children: [
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                  child: Align(
+                  child: const Align(
                     alignment: Alignment.centerLeft,
-                    child: InkWell(
-                      onTap: () => Navigator.pop(context),
-                      customBorder: const CircleBorder(),
-                      child: Container(
-                        width: 44,
-                        height: 44,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFFE9E9EC),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.chevron_left,
-                            color: Color(0xFF5A5A60), size: 28),
-                      ),
-                    ),
+                    child: AppBackButton(),
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -104,19 +92,10 @@ class _CalorieScreenState extends State<CalorieScreen> {
                                         fontSize: 17,
                                         fontWeight: FontWeight.w800)),
                               ),
-                              Transform.scale(
-                                scale: 0.9,
-                                child: Switch(
-                                  value:
-                                      SettingsFlags.instance.trackCalories,
-                                  onChanged: (v) => SettingsFlags.instance
-                                      .save(trackCalories: v),
-                                  activeTrackColor: _cyan,
-                                  activeThumbColor: Colors.white,
-                                  inactiveThumbColor: Colors.white,
-                                  inactiveTrackColor:
-                                      const Color(0xFFE5E5EA),
-                                ),
+                              AppSwitch(
+                                value: SettingsFlags.instance.trackCalories,
+                                onChanged: (v) => SettingsFlags.instance
+                                    .save(trackCalories: v),
                               ),
                             ],
                           ),

@@ -2,13 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:home_widget/home_widget.dart';
 
+import '../../shared/widgets/app_back_button.dart';
+import '../../shared/widgets/app_switch.dart';
 import 'settings_flags.dart';
 
 // ============================================================
 // App、声音、动画设置页（对标原版：4 张灰卡，每卡 = 标题 + 青色开关 + 说明小字）
 //
-// 1. 庆祝我的一天！ —— 饮水目标完成后，主屏幕上显示"庆祝我的一天！"按钮
-//    （关闭后首页完成目标时的庆祝轮播整体隐藏）
+// 1. 告诉我的朋友 —— 饮水目标完成后，主屏幕上显示"告诉我的朋友"按钮
+//    （关闭后首页完成目标时的分享横幅整体隐藏）
 // 2. App 声音 —— 在 App 中播放简单的声音（完成目标、弹弓命中时）
 // 3. 小部件声音 —— 从小部件添加饮料时发出声音（原生点按即时播放）
 // 4. 杯子里的动画 —— 动画粒子，如：气泡、冰块、茶叶（总开关，所有杯子预览生效）
@@ -23,7 +25,6 @@ class AppPrefsScreen extends StatefulWidget {
 }
 
 class _AppPrefsScreenState extends State<AppPrefsScreen> {
-  static const _cyan = Color(0xFF35B5D6);
   static const _textDark = Color(0xFF1C1C1E);
 
   @override
@@ -67,17 +68,7 @@ class _AppPrefsScreenState extends State<AppPrefsScreen> {
             ),
           ),
           const SizedBox(width: 8),
-          Transform.scale(
-            scale: 0.9,
-            child: Switch(
-              value: value,
-              onChanged: onChanged,
-              activeTrackColor: _cyan,
-              activeThumbColor: Colors.white,
-              inactiveThumbColor: Colors.white,
-              inactiveTrackColor: const Color(0xFFE5E5EA),
-            ),
-          ),
+          AppSwitch(value: value, onChanged: onChanged),
         ],
       ),
     );
@@ -106,24 +97,11 @@ class _AppPrefsScreenState extends State<AppPrefsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
                   child: Align(
                     alignment: Alignment.centerLeft,
-                    child: InkWell(
-                      onTap: () => Navigator.pop(context),
-                      customBorder: const CircleBorder(),
-                      child: Container(
-                        width: 44,
-                        height: 44,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFFE9E9EC),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.chevron_left,
-                            color: Color(0xFF5A5A60), size: 28),
-                      ),
-                    ),
+                    child: AppBackButton(),
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -142,8 +120,8 @@ class _AppPrefsScreenState extends State<AppPrefsScreen> {
                     child: Column(
                       children: [
                         _card(
-                            '庆祝我的一天！',
-                            '饮水目标完成后，主屏幕上会显示"庆祝我的一天！"按钮',
+                            '告诉我的朋友',
+                            '饮水目标完成后，主屏幕上会显示"告诉我的朋友"按钮',
                             f.celebrateDay,
                             (v) => f.save(celebrateDay: v)),
                         const SizedBox(height: 14),

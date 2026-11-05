@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../shared/models/beverage.dart';
 import '../../../shared/models/preferred_unit.dart';
+import '../../../shared/widgets/app_back_button.dart';
+import '../../../shared/widgets/app_switch.dart';
 import '../../../shared/widgets/drink_illustration.dart';
 import '../../home/providers/home_providers.dart';
 import '../../membership/membership_provider.dart';
@@ -104,11 +106,7 @@ class _DrinkManageScreenState extends ConsumerState<DrinkManageScreen> {
                 child: Row(
                   children: [
                     // 返回圆钮（浅灰圆底）
-                    _CircleButton(
-                      onTap: () => Navigator.pop(context),
-                      child: const Icon(Icons.arrow_back_ios_new,
-                          size: 18, color: _textDark),
-                    ),
+                    const AppBackButton(),
                     const Expanded(
                       child: Text(
                         '饮料',
@@ -481,30 +479,6 @@ String _alcoholTag(int v) {
   return base.endsWith('酒') ? base : '$base酒';
 }
 
-/// 顶部返回圆钮（浅灰圆底）
-class _CircleButton extends StatelessWidget {
-  const _CircleButton({required this.onTap, required this.child});
-  final VoidCallback onTap;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: const Color(0xFFF2F2F5),
-      shape: const CircleBorder(),
-      child: InkWell(
-        onTap: onTap,
-        customBorder: const CircleBorder(),
-        child: SizedBox(
-          width: 42,
-          height: 42,
-          child: Center(child: child),
-        ),
-      ),
-    );
-  }
-}
-
 /// 品类筛选胶囊：未选中浅灰底，选中渲染为指定颜色（品类色/深灰黑）
 class _CategoryChip extends StatelessWidget {
   const _CategoryChip({
@@ -684,28 +658,29 @@ class _DrinkCard extends StatelessWidget {
                   fontWeight: FontWeight.w700,
                 ),
               ),
-              // 首页展示开关（iOS 风格：开青色/关浅灰）；水无开关但保留
+              // 首页展示开关（与提醒页同一 iOS 风格组件）；水无开关但保留
               // 同宽隐形占位，使进水量百分比与其它卡片右缘对齐
               const SizedBox(width: 10),
-              Transform.scale(
-                scale: 0.82,
-                child: isWater
-                    ? const ExcludeSemantics(
-                        // 水没有开关：隐形占位仅用于右缘对齐，且不进读屏树
-                        child: Opacity(
-                          opacity: 0,
-                          child: Switch(value: false, onChanged: null),
+              SizedBox(
+                width: 60,
+                child: Center(
+                  child: isWater
+                      ? const ExcludeSemantics(
+                          // 水没有开关：隐形占位仅用于右缘对齐，且不进读屏树
+                          child: Opacity(
+                            opacity: 0,
+                            child: AppSwitch(
+                              value: false,
+                              onChanged: null,
+                            ),
+                          ),
+                        )
+                      : AppSwitch(
+                          value: visible,
+                          onChanged:
+                              onToggle == null ? null : (_) => onToggle!(),
                         ),
-                      )
-                    : Switch(
-                        value: visible,
-                        onChanged:
-                            onToggle == null ? null : (_) => onToggle!(),
-                        activeTrackColor: const Color(0xFF35B5D6),
-                        activeThumbColor: Colors.white,
-                        inactiveThumbColor: Colors.white,
-                        inactiveTrackColor: const Color(0xFFE5E5EA),
-                      ),
+                ),
               ),
             ],
           ),

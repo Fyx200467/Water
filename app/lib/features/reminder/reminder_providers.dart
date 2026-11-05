@@ -22,8 +22,8 @@ class ReminderSettings {
   final List<String> times;
   final List<String> disabledTimes;
 
-  /// 07:00~22:00 默认整点网格中被「编辑成别的时刻」的整点，
-  /// 用于把该格从网格中移除，避免一次编辑同时出现旧整点和新时刻
+  /// 07:00~22:00 默认整点网格中（实际展示 08:00 起）被「编辑成别的时刻」
+  /// 的整点，用于把该格从网格中移除，避免一次编辑同时出现旧整点和新时刻
   final List<String> hiddenTimes;
   final String message;
 
@@ -31,9 +31,9 @@ class ReminderSettings {
   List<String> get activeTimes =>
       times.where((t) => !disabledTimes.contains(t)).toList();
 
-  /// 首次使用的默认值：只开启当天第一个整点（07:00），
-  /// 其余整点在界面上显示为关闭，避免新装即被高频提醒轰炸
-  static const defaultTimes = ['07:00'];
+  /// 首次使用的默认值：不预设任何整点，全部时间默认关闭，
+  /// 避免新装即收到提醒；用户需要时自行在时间网格里打开
+  static const defaultTimes = <String>[];
   static const defaultMessage = '别忘了喝水';
 
   ReminderSettings copyWith({
@@ -234,7 +234,7 @@ final stopAtGoalEnabledProvider =
 /// 高级设置开关：饮水进度标题
 final progressTitleEnabledProvider =
     StateNotifierProvider<NotificationToggleNotifier, bool>((ref) {
-  return NotificationToggleNotifier(ref, 'notif_progress_title', true);
+  return NotificationToggleNotifier(ref, 'notif_progress_title', false);
 });
 
 /// 高级设置开关：激励性标题
@@ -246,13 +246,13 @@ final motivationalTitleEnabledProvider =
 /// 高级设置开关：饮水事实
 final waterFactsEnabledProvider =
     StateNotifierProvider<NotificationToggleNotifier, bool>((ref) {
-  return NotificationToggleNotifier(ref, 'notif_water_facts', true);
+  return NotificationToggleNotifier(ref, 'notif_water_facts', false);
 });
 
 /// 高级设置开关：贴纸
 final stickersEnabledProvider =
     StateNotifierProvider<NotificationToggleNotifier, bool>((ref) {
-  return NotificationToggleNotifier(ref, 'notif_stickers', true);
+  return NotificationToggleNotifier(ref, 'notif_stickers', false);
 });
 
 /// 提醒音效（key 对应 NotificationService.soundLabels），默认系统默认音
@@ -261,10 +261,10 @@ final reminderSoundProvider =
   return StringSettingNotifier(ref, 'reminder_sound', 'default');
 });
 
-/// 智能提醒间隔（分钟），默认 120
+/// 智能提醒间隔（分钟），默认 30（合法档位 15~300）
 final notificationIntervalMinutesProvider =
     StateNotifierProvider<IntSettingNotifier, int>((ref) {
-  return IntSettingNotifier(ref, 'notif_interval_min', 120);
+  return IntSettingNotifier(ref, 'notif_interval_min', 30);
 });
 
 /// 智能提醒生效窗口开始（当日分钟数，含），默认 08:00 ——

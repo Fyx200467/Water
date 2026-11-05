@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../shared/widgets/app_back_button.dart';
 import '../home/providers/home_providers.dart';
 import '../reminder/reminder_providers.dart';
 import '../stats/providers/stats_providers.dart';
@@ -137,7 +138,7 @@ class _ResetTimeScreenState extends ConsumerState<ResetTimeScreen> {
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                   child: Align(
                     alignment: Alignment.centerLeft,
-                    child: _BackButton(onTap: () async {
+                    child: AppBackButton(onTap: () async {
                       // 先把防抖的重算补齐再返回，保证统计页口径已切换
                       await _flush();
                       if (mounted) Navigator.pop(context);
@@ -314,30 +315,6 @@ class _ResetTimeScreenState extends ConsumerState<ResetTimeScreen> {
               ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _BackButton extends StatelessWidget {
-  const _BackButton({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      customBorder: const CircleBorder(),
-      child: Container(
-        width: 44,
-        height: 44,
-        decoration: const BoxDecoration(
-          color: Color(0xFFE9E9EC),
-          shape: BoxShape.circle,
-        ),
-        child: const Icon(Icons.chevron_left,
-            color: Color(0xFF5A5A60), size: 28),
       ),
     );
   }

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../shared/widgets/app_back_button.dart';
+
 /// 条款与隐私：用户协议 / 隐私政策 / 儿童个人信息保护规则
 /// 内容对应本 App 的实际数据处理方式（游客数据仅存本机、账号数据上云、
 /// 注销即物理删除、埋点匿名）。
@@ -42,6 +44,7 @@ class _LegalScreenState extends State<LegalScreen>
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
+        leading: const Center(child: AppBackButton()),
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
         elevation: 0,

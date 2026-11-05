@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 1024 1024" width="200" height="200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="silverA" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#96A0AE"/>
+      <stop offset="1" stop-color="#78828F"/>
+    </linearGradient>
+    <linearGradient id="silverB" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#C2CAD5"/>
+      <stop offset="1" stop-color="#A1ABB8"/>
+    </linearGradient>
+    <linearGradient id="silverC" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#C6CFDA"/>
+      <stop offset="1" stop-color="#9CA7B5"/>
+    </linearGradient>
+    <linearGradient id="silverD" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#B6C0CD"/>
+      <stop offset="1" stop-color="#8B96A5"/>
+    </linearGradient>
+  </defs>
+  <path d="M60.235294 361.411765l744.809412 425.622588A30.117647 30.117647 0 0 1 790.136471 843.294118H173.658353a60.235294 60.235294 0 0 1-59.783529-52.766118L60.235294 361.411765z" fill="url(#silverA)"/>
+  <path d="M963.764706 361.411765l-53.63953 429.116235A60.235294 60.235294 0 0 1 850.341647 843.294118H233.893647a30.117647 30.117647 0 0 1-14.968471-56.259765L963.764706 361.411765z" fill="url(#silverA)"/>
+  <path d="M512 240.941176l331.053176 509.289412A60.235294 60.235294 0 0 1 792.545882 843.294118H231.454118a60.235294 60.235294 0 0 1-50.507294-93.06353L512 240.941176z" fill="url(#silverC)"/>
+  <path d="M512 240.941176l331.053176 509.289412A60.235294 60.235294 0 0 1 792.545882 843.294118H512V240.941176z" fill="url(#silverD)"/>
+  <circle cx="512" cy="210.823529" r="60.235294" fill="url(#silverB)"/>
+  <circle cx="963.764706" cy="331.294118" r="60.235294" fill="url(#silverB)"/>
+  <circle cx="60.235294" cy="331.294118" r="60.235294" fill="url(#silverB)"/>
+</svg>

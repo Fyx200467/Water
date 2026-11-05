@@ -9,9 +9,13 @@ import '../../core/analytics/analytics.dart';
 import '../../core/storage/providers.dart';
 import '../../core/sync/points_sync.dart';
 import '../../core/sync/sync_api.dart';
+import '../../shared/widgets/account_avatar.dart';
+import '../../shared/widgets/app_back_button.dart';
+import '../../shared/widgets/tier_nickname.dart';
 import '../points/points_provider.dart';
 import '../points/points_screen.dart';
 import '../settings/cloud_backup_screen.dart';
+import '../settings/legal_screen.dart';
 import 'membership_provider.dart';
 
 /// 会员权益统一校验：
@@ -41,7 +45,7 @@ class MembershipScreen extends ConsumerStatefulWidget {
 }
 
 class _MembershipScreenState extends ConsumerState<MembershipScreen> {
-  static const _bg = Color(0xFFF7F7F9);
+  static const _bg = Color(0xFFF5FAFC);
   static const _ink = Color(0xFF1C1C1E);
   static const _gray = Color(0xFF8E8E93);
   static const _cyan = Color(0xFF4DB8D8);
@@ -49,12 +53,18 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
 
   String? _selectedCode;
 
+  /// 是否勾选「已阅读并同意会员服务协议」，未勾选时主按钮置灰
+  bool _agreed = false;
+
   /// 待运营确认的开通申请（会员页顶部提示条）
   Map<String, dynamic>? _pending;
 
   /// 最近一次被后台拒绝的申请（展示提示条，用户可关闭）
   Map<String, dynamic>? _rejected;
   String? _dismissedRejectedId;
+
+  /// 24 小时内可自助退款的最近一笔付费订单（积分兑换单不展示入口）
+  Map<String, dynamic>? _refundable;
 
   Timer? _pollTimer;
   bool _refreshing = false;
@@ -97,13 +107,15 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
       final res = await SyncApi.membershipStatus(storage.syncToken!);
       if (!mounted) return;
       await ref.read(membershipProvider.notifier).applyStatus(res);
+      // 积分余额也以服务端为准，避免兑换弹层显示过期余额
+      await PointsSync.sync(storage);
     } catch (_) {
       // 静默同步失败不打扰用户
     }
   }
 
   /// 同步最新一笔申请：pending 显示提示条；rejected 显示未通过提示；
-  /// paid 表示运营已确认，直接在页面内开通
+  /// paid 表示运营已确认，直接在页面内开通；24 小时内还展示自助退款入口
   Future<void> _refreshOrderState() async {
     if (_refreshing) return;
     _refreshing = true;
@@ -113,10 +125,12 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
       final latest = await SyncApi.latestMembershipOrder(storage.syncToken!);
       if (!mounted) return;
       final status = latest?['status']?.toString();
+      final refundable = _isRefundable(latest) ? latest : null;
       if (status == 'pending') {
         setState(() {
           _pending = latest;
           _rejected = null;
+          _refundable = null;
         });
       } else if (status == 'rejected') {
         final id = latest?['id']?.toString() ?? '';
@@ -124,29 +138,32 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
           setState(() {
             _pending = null;
             _rejected = latest;
+            _refundable = null;
           });
         } else {
           setState(() => _pending = null);
         }
       } else if (status == 'refunded') {
-        // 后台退款并收回会员：清掉付费权益（积分兑换的那一天仍然有效）
-        if (_pending != null || _rejected != null) {
+        // 后台退款：只扣掉该订单对应天数，以服务端最新有效期为准
+        if (_pending != null || _rejected != null || _refundable != null) {
           setState(() {
             _pending = null;
             _rejected = null;
+            _refundable = null;
           });
         }
-        if (ref.read(membershipProvider).hasPaidOrder) {
-          await ref.read(membershipProvider.notifier).revokePaid();
-          if (mounted) _toast('会员订单已退款，权益已收回');
+        final storage = await ref.read(localStorageProvider.future);
+        if (storage.hasAccountSession) {
+          try {
+            await ref.read(membershipProvider.notifier).restore();
+          } catch (_) {}
         }
       } else if (status == 'paid') {
-        if (_pending != null || _rejected != null) {
-          setState(() {
-            _pending = null;
-            _rejected = null;
-          });
-        }
+        setState(() {
+          _pending = null;
+          _rejected = null;
+          _refundable = refundable;
+        });
         await ref.read(membershipProvider.notifier).applyStatus(latest!);
       } else if (_pending != null) {
         setState(() => _pending = null);
@@ -155,6 +172,73 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
       // 网络失败时保留上次结果，不打扰用户
     } finally {
       _refreshing = false;
+    }
+  }
+
+  /// 付费订单支付后 24 小时内可自助退款；积分兑换单没有现金可退
+  bool _isRefundable(Map<String, dynamic>? order) {
+    if (order == null || order['status']?.toString() != 'paid') return false;
+    if ((order['source']?.toString() ?? 'payment') == 'points') return false;
+    final paidAt =
+        DateTime.tryParse(order['paidAt']?.toString() ?? '') ??
+        DateTime.tryParse(order['createdAt']?.toString() ?? '');
+    if (paidAt == null) return false;
+    return DateTime.now().difference(paidAt) < const Duration(hours: 24);
+  }
+
+  /// 自助退款：二次确认后调用服务端接口，退回现金并扣减对应会员天数
+  Future<void> _selfRefund() async {
+    final order = _refundable;
+    if (order == null) return;
+    final days = (order['durationDays'] as num?)?.toInt() ?? 0;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text(
+          '申请退款',
+          style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+        ),
+        content: Text(
+          days > 0
+              ? '退款后将扣减该订单对应的 $days 天会员，已使用的天数不返还。确定退款吗？'
+              : '退款后将撤销这笔永久会员。确定退款吗？',
+          style: const TextStyle(fontSize: 14, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消', style: TextStyle(color: _gray)),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: _cyan),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('确认退款'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      final storage = await ref.read(localStorageProvider.future);
+      if (!storage.hasAccountSession) return;
+      await SyncApi.refundMembershipOrder(
+        storage.syncToken!,
+        order['id'] as String,
+      );
+      if (!mounted) return;
+      setState(() => _refundable = null);
+      try {
+        await ref.read(membershipProvider.notifier).restore();
+      } catch (_) {}
+      await _refreshAll();
+      if (!mounted) return;
+      _toast('退款成功，对应会员天数已扣减');
+    } on SyncApiException catch (e) {
+      if (mounted) _toast(e.message);
+    } catch (_) {
+      if (mounted) _toast('退款失败，请稍后重试');
     }
   }
 
@@ -197,6 +281,69 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
     ),
   ];
 
+  // 会员等级图标：月卡=银钻，年卡=金钻，永久=炫钻
+  static const _crownSilver =
+      'assets/images/icons/membership_badge_silver.svg';
+  static const _crownGold = 'assets/images/icons/membership_badge_gold.svg';
+  static const _crownRainbow =
+      'assets/images/icons/membership_badge_rainbow.svg';
+
+  /// 当前会员等级图标：永久=炫钻，年卡=金钻，月卡/积分兑换按所选等级
+  String? _tierCrown(MembershipState m) =>
+      m.isMember ? tierCrownAsset(m.tier) : null;
+
+  /// 套餐卡上的等级图标：月卡=银钻，年卡=金钻，永久=炫钻
+  String _planCrown(String code) => switch (code) {
+    'yearly' => _crownGold,
+    'lifetime' => _crownRainbow,
+    _ => _crownSilver,
+  };
+
+  /// 套餐卡配色：月卡银色、年卡金色、永久炫彩
+  ({List<Color> bg, Color border, Color band, Color accent}) _tierStyle(
+    String code,
+  ) => switch (code) {
+    'yearly' => (
+      bg: const [Color(0xFFFFFDF5), Color(0xFFF8E6B9)],
+      border: const Color(0xFFE6CF96),
+      band: const Color(0xFFF6E9C6),
+      accent: const Color(0xFFD9A21B),
+    ),
+    'lifetime' => (
+      bg: const [
+        Color(0xFFFFF3FA),
+        Color(0xFFEDF4FF),
+        Color(0xFFF2ECFF),
+      ],
+      border: const Color(0xFFDFD2FF),
+      band: const Color(0xFFEDE6FF),
+      accent: const Color(0xFFA07BFF),
+    ),
+    _ => (
+      bg: const [Colors.white, Color(0xFFE9ECF1)],
+      border: const Color(0xFFCBD2DB),
+      band: const Color(0xFFE3E7ED),
+      accent: const Color(0xFF8A96A5),
+    ),
+  };
+
+  /// 服务端未配置原价时，用调价前的旧价作为划线原价
+  int? _legacyOriginalCents(String code) => switch (code) {
+    'monthly' => 690,
+    'yearly' => 2990,
+    'lifetime' => 5990,
+    _ => null,
+  };
+
+  /// 分转元，去掉末尾多余的 0
+  String _priceNumber(int cents) {
+    final yuan = cents / 100;
+    return yuan
+        .toStringAsFixed(2)
+        .replaceFirst(RegExp(r'0+$'), '')
+        .replaceFirst(RegExp(r'\.$'), '');
+  }
+
   @override
   Widget build(BuildContext context) {
     final membership = ref.watch(membershipProvider);
@@ -212,17 +359,36 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
 
     // 内容铺满整屏（状态栏区域同为页面底色），返回按钮悬浮在内容之上
     final topInset = MediaQuery.of(context).padding.top;
+    final account = ref.watch(cloudBackupStateProvider).valueOrNull;
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.dark,
       child: Scaffold(
         backgroundColor: _bg,
         body: Stack(
           children: [
+            // 顶部浅色渐变：从品牌浅青过渡到页面底色，作为用户区底衬
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 220,
+              child: const IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Color(0xFFEAF7FB), Color(0xFFF5FAFC)],
+                    ),
+                  ),
+                ),
+              ),
+            ),
             ListView(
-              padding: EdgeInsets.fromLTRB(20, topInset + 62, 20, 32),
+              padding: EdgeInsets.fromLTRB(20, topInset + 62, 20, 24),
               children: [
-                _header(membership),
-                const SizedBox(height: 20),
+                _header(membership, account),
+                const SizedBox(height: 40),
                 if (_pending != null && !membership.isMember) ...[
                   _pendingBanner(),
                   const SizedBox(height: 16),
@@ -259,57 +425,69 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
                   ),
                   const SizedBox(height: 16),
                 ],
-                if (!membership.isMember) ...[
-                  Row(
-                    children: [
-                      for (var i = 0; i < plans.length; i++) ...[
-                        if (i > 0) const SizedBox(width: 10),
-                        Expanded(child: _planCard(plans[i], selected)),
-                      ],
+                Row(
+                  children: [
+                    for (var i = 0; i < plans.length; i++) ...[
+                      if (i > 0) const SizedBox(width: 10),
+                      Expanded(
+                        child: _planCard(
+                          plans[i],
+                          selected,
+                          locked: membership.isPermanent,
+                        ),
+                      ),
                     ],
-                  ),
-                  const SizedBox(height: 18),
-                ],
-                _pointsCard(membership),
-                const SizedBox(height: 18),
-                _benefitsCard(selected),
-                const SizedBox(height: 18),
-                _subscribeButton(selected, membership),
-                const SizedBox(height: 14),
-                const Center(
-                  child: Text(
-                    '内测阶段无需付款：提交申请后由运营确认，确认后自动开通；'
-                    '正式版接入应用内购买（iOS IAP / Google Play）',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: _gray, fontSize: 11, height: 1.5),
-                  ),
+                  ],
                 ),
+                if (membership.isMember) ...[
+                  const SizedBox(height: 10),
+                  Center(
+                    child: Text(
+                      membership.isPermanent
+                          ? '已开通永久会员，无需续费'
+                          : '续费天数在当前有效期基础上顺延，升级立即生效',
+                      style: const TextStyle(color: _gray, fontSize: 11),
+                    ),
+                  ),
+                ],
+                if (_refundable != null) ...[
+                  const SizedBox(height: 2),
+                  Center(child: _refundLink()),
+                ],
+                const SizedBox(height: 30),
+                _benefitsTitle(),
+                const SizedBox(height: 14),
+                _benefitsCard(selected),
+                const SizedBox(height: 22),
+                _pointsRow(membership),
               ],
             ),
             // 悬浮返回按钮：不随内容滚动，压在页面左上角
             Positioned(
               top: topInset + 8,
               left: 12,
-              child: InkWell(
-                onTap: () => Navigator.of(context).maybePop(),
-                customBorder: const CircleBorder(),
-                child: Container(
-                  width: 36,
-                  height: 36,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFE5E5EA),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.arrow_back_ios_new,
-                    size: 15,
-                    color: _ink,
-                  ),
-                ),
-              ),
+              child: const AppBackButton(),
             ),
           ],
         ),
+        bottomNavigationBar: _bottomBar(selected, membership),
+      ),
+    );
+  }
+
+  /// 自助退款入口：仅 24 小时内的已支付付费订单展示
+  Widget _refundLink() {
+    return TextButton(
+      onPressed: _selfRefund,
+      style: TextButton.styleFrom(
+        foregroundColor: _gray,
+        minimumSize: Size.zero,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      child: const Text(
+        '申请退款（支付后 24 小时内可退）',
+        style: TextStyle(fontSize: 11, decoration: TextDecoration.underline),
       ),
     );
   }
@@ -403,110 +581,261 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
     );
   }
 
-  Widget _header(MembershipState m) {
-    return Column(
+  /// 用户区：头像 + 昵称 + 会员标识，第二行为套餐与有效期
+  Widget _header(MembershipState m, CloudBackupState? account) {
+    final loggedIn = account?.isLoggedIn ?? false;
+    final nickname = loggedIn ? account!.nickname : '未登录';
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        SvgPicture.asset(
-          'assets/images/icons/membership_badge.svg',
-          width: 72,
-          height: 72,
+        AccountAvatar(
+          size: 64,
+          loggedIn: loggedIn,
+          avatarPath: account?.avatarPath,
+          padding: 2,
+          background: loggedIn
+              ? const Color(0xFFDCEFFD)
+              : const Color(0xFFF2F2F7),
         ),
-        const SizedBox(height: 12),
-        Text(
-          m.isMember ? '吨吨会员已开通' : '开通吨吨会员',
-          style: const TextStyle(color: _ink, fontSize: 24),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          m.isMember ? m.statusLabel : '解锁全部角色、饮品',
-          style: const TextStyle(color: _gray, fontSize: 13),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Flexible(
+                    child: _tierNickname(nickname, m),
+                  ),
+                  if (m.isMember) ...[
+                    const SizedBox(width: 5),
+                    SvgPicture.asset(
+                      _tierCrown(m)!,
+                      width: 20,
+                      height: 20,
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                _statusLine(m),
+                style: const TextStyle(color: _gray, fontSize: 12, height: 1.4),
+              ),
+            ],
+          ),
         ),
       ],
     );
   }
 
-  Widget _planCard(MembershipPlan plan, MembershipPlan selected) {
+  /// 昵称按会员等级着色：银钻银灰、金钻金色、炫钻渐变流光
+  Widget _tierNickname(String nickname, MembershipState m) => TierNickname(
+    text: nickname,
+    tier: m.isMember ? m.tier : null,
+    fontSize: 19,
+  );
+
+  /// 状态行：未开通仅显示状态；会员显示套餐名与到期时间
+  String _statusLine(MembershipState m) {
+    if (!m.isMember) return '未开通';
+    if (m.hasPaidOrder) {
+      if (m.expireAt == null) return '${m.planName} · 长期有效';
+      return '${m.planName} · ${m.statusLabel}';
+    }
+    return m.statusLabel;
+  }
+
+  Widget _planCard(MembershipPlan plan, MembershipPlan selected, {
+    bool locked = false,
+  }) {
     final on = plan.code == selected.code;
-    return GestureDetector(
-      onTap: () {
-        setState(() => _selectedCode = plan.code);
-        Analytics.track(
-          'plan_select',
-          props: {'plan': plan.code, 'priceCents': plan.priceCents},
-        );
-      },
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(8, 16, 8, 14),
-        decoration: BoxDecoration(
-          color: on ? const Color(0xFFEAF7FB) : Colors.white,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: on ? _cyan : const Color(0xFFE9E9EC),
-            width: on ? 2 : 1,
+    // 卡片上只显示「月卡 / 年卡 / 永久」，不带“会员”后缀
+    final nameLabel = plan.name.replaceFirst(RegExp(r'会员$'), '');
+    final style = _tierStyle(plan.code);
+    final rawOriginal = plan.originalPriceCents;
+    final originalCents = rawOriginal != null && rawOriginal > 0
+        ? rawOriginal
+        : _legacyOriginalCents(plan.code);
+    final showOriginal =
+        originalCents != null && originalCents > plan.priceCents;
+    return SizedBox(
+      height: 142,
+      child: GestureDetector(
+        onTap: locked
+            ? null
+            : () {
+                setState(() => _selectedCode = plan.code);
+                Analytics.track(
+                  'plan_select',
+                  props: {'plan': plan.code, 'priceCents': plan.priceCents},
+                );
+              },
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: style.bg,
+            ),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: on ? style.accent : style.border,
+              width: on ? 2 : 1,
+            ),
+            boxShadow: on
+                ? [
+                    BoxShadow(
+                      color: style.accent.withValues(alpha: 0.22),
+                      blurRadius: 14,
+                      offset: const Offset(0, 5),
+                    ),
+                  ]
+                : null,
           ),
-        ),
-        child: Column(
-          children: [
-            if (plan.badge != null)
+          child: Column(
+            children: [
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(6, 16, 6, 0),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          SvgPicture.asset(
+                            _planCrown(plan.code),
+                            width: 18,
+                            height: 18,
+                          ),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              nameLabel,
+                              textAlign: TextAlign.center,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: _ink,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.baseline,
+                          textBaseline: TextBaseline.alphabetic,
+                          children: [
+                            const Text(
+                              '¥',
+                              style: TextStyle(
+                                color: _ink,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            Text(
+                              plan.priceLabel.replaceFirst('¥', ''),
+                              style: const TextStyle(
+                                color: _ink,
+                                fontSize: 22,
+                                fontWeight: FontWeight.w700,
+                                height: 1.1,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (showOriginal) ...[
+                        const SizedBox(height: 10),
+                        RichText(
+                          text: TextSpan(
+                            style: const TextStyle(fontSize: 10),
+                            children: [
+                              const TextSpan(
+                                text: '¥',
+                                style: TextStyle(color: Color(0xFF35B7E0)),
+                              ),
+                              TextSpan(
+                                text: _priceNumber(originalCents),
+                                style: const TextStyle(
+                                  color: Color(0xFF9A9FA8),
+                                  decoration: TextDecoration.lineThrough,
+                                  decorationColor: Color(0xFFD64545),
+                                  decorationThickness: 1.2,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                      const Spacer(),
+                    ],
+                  ),
+                ),
+              ),
               Container(
-                margin: const EdgeInsets.only(bottom: 6),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                height: 30,
+                width: double.infinity,
+                alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: _gold,
-                  borderRadius: BorderRadius.circular(8),
+                  color: style.band,
+                  borderRadius: const BorderRadius.vertical(
+                    bottom: Radius.circular(17),
+                  ),
                 ),
                 child: Text(
-                  plan.badge!,
-                  style: const TextStyle(color: Colors.white, fontSize: 10),
+                  plan.perDayLabel ?? '长期有效',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF4A4F57),
+                    fontSize: 10.5,
+                  ),
                 ),
-              )
-            else
-              const SizedBox(height: 18),
-            Text(
-              plan.name,
-              style: const TextStyle(color: _ink, fontSize: 15),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              plan.priceLabel,
-              style: TextStyle(
-                color: on ? _cyan : _ink,
-                fontSize: 22,
-                fontWeight: FontWeight.w800,
               ),
-            ),
-            const SizedBox(height: 3),
-            Text(
-              plan.perDayLabel ?? plan.badge ?? '长期有效',
-              style: const TextStyle(color: _gray, fontSize: 10),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 
-  /// 积分兑换入口：玩消消乐赚积分，1 天 / 份，到期后才能再兑
-  Widget _pointsCard(MembershipState m) {
-    final points = ref.watch(pointsProvider);
-    final cost = kMemberDayPoints;
-    final enough = points.balance >= cost;
-    final byPoints = m.isMember && !m.hasPaidOrder;
+  /// 权益区标题：参考稿为居中加粗标题，不带两侧装饰线
+  Widget _benefitsTitle() {
+    return const Center(
+      child: Text(
+        'VIP尊享会员权益',
+        style: TextStyle(
+          color: _ink,
+          fontSize: 17,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
 
-    final String subtitle;
-    if (m.isMember) {
-      subtitle = byPoints ? '积分兑换的会员有效期内，到期后可再兑换 1 天' : '当前会员有效期内，到期后可再用积分兑换';
-    } else if (enough) {
-      subtitle = '$cost 积分兑换 1 天会员 · 当前 ${points.balance} 积分';
-    } else {
-      subtitle = '$cost 积分兑换 1 天会员';
-    }
+  /// 积分兑换行：左侧积分图标，右侧兑换按钮（参考稿放在权益区下方）
+  Widget _pointsRow(MembershipState m) {
+    final points = ref.watch(pointsProvider);
+    final cheapest = kRedeemTierPoints[MembershipTier.silver]!;
+    final enough = points.balance >= cheapest;
+    // 永久会员无需再兑换；其他会员期内兑换按天顺延
+    final canRedeem = !m.isPermanent && enough;
 
     final String action;
-    if (m.isMember) {
-      action = '有效期内';
+    if (m.isPermanent) {
+      action = '无需兑换';
     } else if (enough) {
-      action = '立即兑换';
+      action = '兑换';
     } else {
       action = '积分不足';
     }
@@ -516,57 +845,36 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
         context,
       ).push(MaterialPageRoute(builder: (_) => const PointsScreen())),
       behavior: HitTestBehavior.opaque,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-        ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(4, 6, 4, 6),
         child: Row(
           children: [
             SvgPicture.asset(
-              'assets/images/icons/membership_points.svg',
-              width: 40,
-              height: 40,
+              'assets/icons/menu/points.svg',
+              width: 20,
+              height: 20,
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    '积分兑换会员',
-                    style: TextStyle(color: _ink, fontSize: 14),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(
-                      color: _gray,
-                      fontSize: 11,
-                      height: 1.4,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 10),
-            SizedBox(
-              height: 34,
-              child: FilledButton(
-                onPressed: (!m.isMember && enough) ? _redeemWithPoints : null,
-                style: FilledButton.styleFrom(
-                  backgroundColor: _cyan,
-                  disabledBackgroundColor: const Color(0xFFE9E9EC),
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(17),
+            const SizedBox(width: 8),
+            const Text('积分兑换', style: TextStyle(color: _ink, fontSize: 14)),
+            const Spacer(),
+            GestureDetector(
+              onTap: canRedeem ? () => _redeemSheet(m) : null,
+              child: Container(
+                height: 28,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: canRedeem
+                        ? const Color(0xFFD5D7DB)
+                        : const Color(0xFFE6E7E9),
                   ),
                 ),
                 child: Text(
                   action,
                   style: TextStyle(
-                    color: (!m.isMember && enough) ? Colors.white : _gray,
+                    color: canRedeem ? const Color(0xFF4A4F57) : _gray,
                     fontSize: 12,
                   ),
                 ),
@@ -578,16 +886,146 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
     );
   }
 
+  /// 三档积分兑换：30 积分银钻 / 50 积分金钻 / 100 积分炫钻，各 1 天
+  Future<void> _redeemSheet(MembershipState m) async {
+    final balance = ref.read(pointsProvider).balance;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                const Text(
+                  '积分兑换会员',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                ),
+                const Spacer(),
+                Text(
+                  '当前 $balance 积分',
+                  style: const TextStyle(color: _gray, fontSize: 12),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '兑换 1 天会员，昵称按所选等级显示；会员期内自动顺延到期时间',
+                style: TextStyle(color: _gray, fontSize: 11),
+              ),
+            ),
+            const SizedBox(height: 12),
+            for (final tier in MembershipTier.values)
+              _redeemOptionRow(
+                ctx,
+                tier,
+                balance,
+                m,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _redeemOptionRow(
+    BuildContext sheetCtx,
+    MembershipTier tier,
+    int balance,
+    MembershipState m,
+  ) {
+    final cost = kRedeemTierPoints[tier]!;
+    final enabled = !m.isPermanent && balance >= cost;
+    final sub = '1 天，${redeemTierLabel(tier)}效果';
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: enabled
+          ? () {
+              Navigator.pop(sheetCtx);
+              _redeemTier(tier, cost);
+            }
+          : null,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF6F8FA),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFE8EAED)),
+        ),
+        child: Row(
+          children: [
+            SvgPicture.asset(tierCrownAsset(tier), width: 22, height: 22),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    redeemTierLabel(tier),
+                    style: const TextStyle(
+                      color: _ink,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    sub,
+                    style: const TextStyle(color: _gray, fontSize: 11),
+                  ),
+                ],
+              ),
+            ),
+            Text(
+              '$cost 积分',
+              style: TextStyle(
+                color: enabled ? _ink : _gray,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              height: 28,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: enabled ? _cyan : const Color(0xFFEDEEF0),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Text(
+                enabled ? '兑换' : '积分不足',
+                style: TextStyle(
+                  color: enabled ? Colors.white : _gray,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// 消耗积分兑换 1 天会员（仅非会员可兑，到期后才能再次兑换）
-  Future<void> _redeemWithPoints() async {
-    final cost = kMemberDayPoints;
+  Future<void> _redeemTier(MembershipTier tier, int cost) async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('积分兑换 1 天会员'),
         content: Text(
-          '将消耗 $cost 积分，兑换后立即生效 1 天。\n'
+          '将消耗 $cost 积分，开通 1 天「${redeemTierLabel(tier)}」效果。\n'
           '到期后才能再次兑换，不能叠加、不能提前续期。',
           style: const TextStyle(height: 1.5),
         ),
@@ -607,13 +1045,22 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
     if (ok != true || !mounted) return;
 
     final storage = await ref.read(localStorageProvider.future);
+    if (!storage.hasAccountSession) {
+      _toast('请先登录账号后再兑换，积分会同步到账号');
+      return;
+    }
     try {
       // 兑换在服务端完成：扣分与开通会员日都由服务端校验，余额以服务端为准
-      final expireAt = await PointsSync.redeemMemberDay(storage);
+      final expireAt = await PointsSync.redeemMemberDay(
+        storage,
+        tier: tier.name,
+      );
       if (!mounted) return;
-      await ref.read(membershipProvider.notifier).applyRedeemDay(expireAt);
+      await ref
+          .read(membershipProvider.notifier)
+          .applyRedeemDay(expireAt, tier);
       if (!mounted) return;
-      _toast('已兑换 1 天会员，特权立即生效');
+      _toast('已兑换 1 天会员，${redeemTierLabel(tier)}立即生效');
     } catch (e) {
       if (!mounted) return;
       _toast(e is SyncApiException ? e.message : '兑换失败，请检查网络后重试');
@@ -705,84 +1152,157 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
     );
   }
 
-  Widget _subscribeButton(MembershipPlan plan, MembershipState m) {
-    if (m.isMember) {
-      return SizedBox(
-        height: 50,
-        child: FilledButton(
-          onPressed: null,
-          style: FilledButton.styleFrom(
-            backgroundColor: const Color(0xFFE9E9EC),
-            disabledBackgroundColor: const Color(0xFFE9E9EC),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(25),
-            ),
-          ),
-          child: const Text(
-            '已开通',
-            style: TextStyle(
-              color: _gray,
-              fontSize: 16,
-            ),
-          ),
-        ),
-      );
+  /// 底部固定操作区：主按钮 + 协议勾选，始终悬浮在列表之上
+  Widget _bottomBar(MembershipPlan plan, MembershipState m) {
+    // 永久会员不再需要续费；「待确认」申请也会暂时锁住按钮
+    final permanent = m.isPermanent;
+    final locked = _pending != null || permanent;
+    final enabled = !locked;
+    final String label;
+    if (permanent) {
+      label = '已开通永久会员';
+    } else if (_pending != null) {
+      label = '等待运营确认';
+    } else if (m.isMember) {
+      label = '续费 / 升级 ${plan.priceLabel}';
+    } else {
+      label = '立即开通 ${plan.priceLabel}';
     }
-    if (_pending != null) {
-      // 已有待确认申请：禁止重复下单，避免后台出现两条审核记录
-      return SizedBox(
-        height: 50,
-        child: FilledButton(
-          onPressed: null,
-          style: FilledButton.styleFrom(
-            backgroundColor: const Color(0xFFE9E9EC),
-            disabledBackgroundColor: const Color(0xFFE9E9EC),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(25),
-            ),
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 16,
+            offset: const Offset(0, -4),
           ),
-          child: const Text(
-            '等待运营确认',
-            style: TextStyle(color: _gray, fontSize: 16),
-          ),
-        ),
-      );
-    }
-    return SizedBox(
-      height: 50,
-      child: FilledButton(
-        onPressed: () => _subscribe(plan),
-        style: FilledButton.styleFrom(
-          backgroundColor: _cyan,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(25),
-          ),
-        ),
-        child: Text(
-          '立即开通 ${plan.priceLabel}',
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 16,
+        ],
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: Material(
+                  borderRadius: BorderRadius.circular(25),
+                  clipBehavior: Clip.antiAlias,
+                  color: enabled ? Colors.transparent : const Color(0xFFE9E9EC),
+                  child: Ink(
+                    decoration: BoxDecoration(
+                      gradient: enabled
+                          ? const LinearGradient(
+                              begin: Alignment.centerLeft,
+                              end: Alignment.centerRight,
+                              colors: [
+                                Color(0xFF3B8CFF),
+                                Color(0xFF7FB8FF),
+                              ],
+                            )
+                          : null,
+                    ),
+                    child: InkWell(
+                      onTap: enabled
+                          ? () {
+                              // 未勾选协议时不置灰，点击后提示，避免首屏像"按钮不可用"
+                              if (!_agreed) {
+                                _toast('请先勾选同意《吨吨会员服务协议》');
+                                return;
+                              }
+                              _subscribe(plan);
+                            }
+                          : null,
+                      child: Center(
+                        child: Text(
+                          label,
+                          style: TextStyle(
+                            color: enabled ? Colors.white : _gray,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              _agreementRow(),
+            ],
           ),
         ),
       ),
     );
   }
 
+  Widget _agreementRow() {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => setState(() => _agreed = !_agreed),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            width: 16,
+            height: 16,
+            decoration: BoxDecoration(
+              color: _agreed ? _cyan : Colors.white,
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: _agreed ? _cyan : const Color(0xFFC7CCD3),
+              ),
+            ),
+            child: _agreed
+                ? const Icon(Icons.check, size: 11, color: Colors.white)
+                : null,
+          ),
+          const SizedBox(width: 6),
+          const Text('已阅读并同意', style: TextStyle(color: _gray, fontSize: 12)),
+          GestureDetector(
+            onTap: _openAgreement,
+            child: const Text(
+              '《吨吨会员服务协议》',
+              style: TextStyle(color: _cyan, fontSize: 12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 复用设置页已有的条款与隐私页面（0 = 用户协议）
+  void _openAgreement() {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const LegalScreen(initialTab: 0)));
+  }
+
   Future<void> _subscribe(MembershipPlan plan) async {
+    if (ref.read(membershipProvider).isPermanent) {
+      _toast('已开通永久会员，无需续费');
+      return;
+    }
     if (_pending != null) {
       _toast('已有待确认的开通申请，请等待运营处理');
       return;
     }
+    final alreadyMember = ref.read(membershipProvider).isMember;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text('确认开通${plan.name}？'),
+        title: Text(alreadyMember ? '确认续费/升级${plan.name}？' : '确认开通${plan.name}？'),
         content: Text(
           '内测阶段无需付款：提交申请后由运营确认，确认后会员自动生效。\n\n'
           '${plan.priceLabel} · '
           '${plan.durationDays > 0 ? '${plan.durationDays} 天' : '永久有效'}\n\n'
+          '${alreadyMember ? '续费天数将在当前有效期基础上顺延，升级立即生效。\n\n' : ''}'
           '开通需要联网提交申请。',
           style: const TextStyle(height: 1.5),
         ),

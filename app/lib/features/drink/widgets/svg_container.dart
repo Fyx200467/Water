@@ -457,6 +457,20 @@ class _SvgContainerIconState extends State<SvgContainerIcon> {
     }
   }
 
+  /// 云端图标加载失败（后台删除了图标 / 离线）时的兜底：
+  /// 用安装包内置的纯净水杯剪影，避免饮品图标整块空白
+  Widget _bundledFallback() {
+    return SvgPicture.asset(
+      svgContainerAsset('svg:water_pure_user'),
+      colorFilter: ColorFilter.mode(widget.color, BlendMode.srcIn),
+      width: widget.size,
+      height: widget.size,
+      fit: BoxFit.contain,
+      errorBuilder: (context, error, stack) =>
+          SizedBox.square(dimension: widget.size),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final info = _info;
@@ -473,7 +487,7 @@ class _SvgContainerIconState extends State<SvgContainerIcon> {
             width: widget.size,
             height: widget.size,
             fit: BoxFit.contain,
-            errorBuilder: (_, __, ___) => SizedBox.square(dimension: widget.size),
+            errorBuilder: (_, __, ___) => _bundledFallback(),
           );
         }
         return SvgPicture.network(
@@ -483,8 +497,7 @@ class _SvgContainerIconState extends State<SvgContainerIcon> {
           height: widget.size,
           fit: BoxFit.contain,
           placeholderBuilder: (_) => SizedBox.square(dimension: widget.size),
-          errorBuilder: (context, error, stack) =>
-              SizedBox.square(dimension: widget.size),
+          errorBuilder: (context, error, stack) => _bundledFallback(),
         );
       }
       // 失败回退：优先用已下载的本地文件，其次安装包内置资源

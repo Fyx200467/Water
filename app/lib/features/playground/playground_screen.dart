@@ -4,6 +4,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/storage/providers.dart';
+import '../../shared/widgets/app_back_button.dart';
 import '../home/providers/home_providers.dart';
 import '../points/points_provider.dart';
 import '../points/points_screen.dart';
@@ -16,7 +17,10 @@ class PlaygroundScreen extends ConsumerWidget {
   static const _bg = Color(0xFFF5FAFC);
   static const _ink = Color(0xFF171A26);
   static const _gray = Color(0xFF8E8E93);
+  static const _sectionTitle = Color(0xFF6B7280);
   static const _cyan = Color(0xFF4DB8D8);
+  /// 任务标题右侧的积分奖励小字（更小更淡）
+  static const _rewardHint = Color(0xFFB4BAC4);
 
   /// 每日签到奖励
   static const int checkinPoints = 2;
@@ -38,116 +42,108 @@ class PlaygroundScreen extends ConsumerWidget {
       body: ListView(
         padding: EdgeInsets.fromLTRB(20, topInset + 8, 20, 32),
         children: [
-          // 标题 + 积分入口
-          Row(
-            children: [
-              GestureDetector(
-                onTap: () => Navigator.of(context).maybePop(),
-                child: Container(
-                  width: 36,
-                  height: 36,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFE5E5EA),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.arrow_back_ios_new,
-                    size: 15,
-                    color: _ink,
-                  ),
+          // 返回与积分入口分列两侧
+          SizedBox(
+            height: 40,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                const Positioned(
+                  left: 0,
+                  child: AppBackButton(),
                 ),
-              ),
-              const SizedBox(width: 12),
-              const Expanded(
-                child: Text(
-                  '吨吨乐园',
-                  style: TextStyle(
-                    color: _ink,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              GestureDetector(
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const PointsScreen()),
-                ),
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.stars_rounded,
-                          size: 16, color: Color(0xFFE0A63C)),
-                      const SizedBox(width: 4),
-                      Text(
-                        '${points.balance}',
-                        style: const TextStyle(
-                          color: _ink,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                        ),
+                Positioned(
+                  right: 0,
+                  child: GestureDetector(
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const PointsScreen()),
+                    ),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 7),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
                       ),
-                    ],
+                      child: Row(
+                        children: [
+                          SvgPicture.asset(
+                            'assets/icons/menu/points.svg',
+                            width: 16,
+                            height: 16,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '${points.balance}',
+                            style: const TextStyle(
+                              color: _ink,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
           const SizedBox(height: 16),
           _heroCard(),
           const SizedBox(height: 22),
           const Text(
             '趣味小游戏',
-            style: TextStyle(
-              color: _ink,
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-            ),
+            style: TextStyle(color: _sectionTitle, fontSize: 16),
           ),
           const SizedBox(height: 10),
           _gameCard(context),
           const SizedBox(height: 22),
           const Text(
             '每日任务',
-            style: TextStyle(
-              color: _ink,
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
+            style: TextStyle(color: _sectionTitle, fontSize: 16),
+          ),
+          const SizedBox(height: 10),
+          // 两个任务合并为一张卡片，中间用浅色细线分隔
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
             ),
-          ),
-          const SizedBox(height: 10),
-          _taskTile(
-            icon: Icons.event_available_rounded,
-            iconBg: const Color(0xFFEAF7FB),
-            iconColor: _cyan,
-            title: '每日签到',
-            desc: '每天来看看吨吨，立得 $checkinPoints 积分',
-            action: signedToday ? '已签到' : '签到 +$checkinPoints',
-            enabled: !signedToday,
-            onTap: () => _claim(context, ref, 'checkin', checkinPoints),
-          ),
-          const SizedBox(height: 10),
-          _taskTile(
-            icon: Icons.emoji_events_rounded,
-            iconBg: const Color(0xFFFFF4E0),
-            iconColor: const Color(0xFFE0A63C),
-            title: '今日饮水达标',
-            desc: goalReached
-                ? '今日已达标，领取 $goalPoints 积分'
-                : '喝到 ${progress.goalMl}ml 即可领取 $goalPoints 积分',
-            progress: goalReached
-                ? null
-                : '${progress.totalEffectiveMl} / ${progress.goalMl} ml',
-            action: goalClaimed
-                ? '已领取'
-                : (goalReached ? '领取 +$goalPoints' : '未达标'),
-            enabled: goalReached && !goalClaimed,
-            onTap: () => _claim(context, ref, 'milestone', goalPoints),
+            child: Column(
+              children: [
+                _taskTile(
+                  icon: SvgPicture.asset(
+                    'assets/icons/menu/calendar_header.svg',
+                    width: 24,
+                    height: 24,
+                  ),
+                  title: '每日签到',
+                  reward: '+$checkinPoints',
+                  action: signedToday ? '已签到' : '签到',
+                  enabled: !signedToday,
+                  onTap: () => _claim(context, ref, 'checkin', checkinPoints),
+                ),
+                const Divider(
+                  height: 1,
+                  thickness: 1,
+                  color: Color(0xFFEFF1F4),
+                  indent: 16,
+                  endIndent: 16,
+                ),
+                _taskTile(
+                  icon: const Icon(Icons.emoji_events_rounded,
+                      size: 24, color: Color(0xFFE0A63C)),
+                  title: '今日饮水达标',
+                  reward: '+$goalPoints',
+                  action: goalClaimed
+                      ? '已领取'
+                      : (goalReached ? '领取 +$goalPoints' : '未达标'),
+                  enabled: goalReached && !goalClaimed,
+                  onTap: () => _claim(context, ref, 'milestone', goalPoints),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 18),
           const Text(
@@ -163,7 +159,7 @@ class PlaygroundScreen extends ConsumerWidget {
 
   Widget _heroCard() {
     return Container(
-      padding: const EdgeInsets.fromLTRB(18, 18, 16, 18),
+      padding: const EdgeInsets.fromLTRB(18, 28, 16, 28),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
         gradient: const LinearGradient(
@@ -176,8 +172,12 @@ class PlaygroundScreen extends ConsumerWidget {
         children: [
           SvgPicture.asset(
             'assets/icons/menu/playground.svg',
-            width: 46,
-            height: 46,
+            width: 54,
+            height: 54,
+            colorFilter: const ColorFilter.mode(
+              Colors.white,
+              BlendMode.srcIn,
+            ),
           ),
           const SizedBox(width: 14),
           const Expanded(
@@ -220,19 +220,10 @@ class PlaygroundScreen extends ConsumerWidget {
           padding: const EdgeInsets.fromLTRB(16, 14, 14, 14),
           child: Row(
             children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEAF7FB),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                alignment: Alignment.center,
-                child: SvgPicture.asset(
-                  'assets/icons/menu/match3.svg',
-                  width: 26,
-                  height: 26,
-                ),
+              SvgPicture.asset(
+                'assets/icons/menu/match3.svg',
+                width: 24,
+                height: 24,
               ),
               const SizedBox(width: 12),
               const Expanded(
@@ -241,16 +232,7 @@ class PlaygroundScreen extends ConsumerWidget {
                   children: [
                     Text(
                       '消消乐',
-                      style: TextStyle(
-                        color: _ink,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    SizedBox(height: 3),
-                    Text(
-                      '合成饮品得分，每 1000 分 = 1 积分，不限每日上限',
-                      style: TextStyle(color: _gray, fontSize: 12),
+                      style: TextStyle(color: _ink, fontSize: 15),
                     ),
                   ],
                 ),
@@ -265,11 +247,7 @@ class PlaygroundScreen extends ConsumerWidget {
                 ),
                 child: const Text(
                   '去玩',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: TextStyle(color: Colors.white, fontSize: 12),
                 ),
               ),
             ],
@@ -280,63 +258,41 @@ class PlaygroundScreen extends ConsumerWidget {
   }
 
   Widget _taskTile({
-    required IconData icon,
-    required Color iconBg,
-    required Color iconColor,
+    required Widget icon,
     required String title,
-    required String desc,
+    String? reward,
     required String action,
     required bool enabled,
     required VoidCallback onTap,
-    String? progress,
   }) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-      ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
       child: Row(
         children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: iconBg,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            alignment: Alignment.center,
-            child: Icon(icon, size: 22, color: iconColor),
-          ),
+          SizedBox(width: 24, height: 24, child: Center(child: icon)),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    color: _ink,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  desc,
-                  style: const TextStyle(color: _gray, fontSize: 12),
-                ),
-                if (progress != null) ...[
-                  const SizedBox(height: 3),
-                  Text(
-                    progress,
-                    style: const TextStyle(
-                      color: Color(0xFF9A6B12),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
+                Row(
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(color: _ink, fontSize: 15),
                     ),
-                  ),
-                ],
+                    if (reward != null) ...[
+                      const SizedBox(width: 6),
+                      Text(
+                        reward,
+                        style: const TextStyle(
+                          color: _rewardHint,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ],
             ),
           ),
@@ -354,7 +310,6 @@ class PlaygroundScreen extends ConsumerWidget {
                 style: TextStyle(
                   color: enabled ? Colors.white : _gray,
                   fontSize: 12,
-                  fontWeight: FontWeight.w600,
                 ),
               ),
             ),

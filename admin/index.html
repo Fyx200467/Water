@@ -2969,7 +2969,7 @@
         '<div class="user-cell">' + avatar + "<b>" + esc(u.nickname || "未命名") + "</b></div>",
         esc(GENDER_LABEL[u.gender] || u.gender || "-"),
         esc(u.email || "-"),
-        esc(u.phone || "-"),
+        esc(String(u.pointsBalance || 0)),
         memberCell(u),
         esc(fmtTime(u.createdAt, false)),
         '<div class="row-actions">' +
@@ -2986,7 +2986,7 @@
         '<div class="grow"></div>' +
         '<span class="api-hint">会员到期后客户端自动回退为免费版 · 体重/身高等身体数据不在后台展示</span>' +
       "</div>" +
-      tableWrap(["吨吨ID", "昵称", "性别", "邮箱", "手机", "会员", "注册日", "操作"], body) +
+      tableWrap(["吨吨ID", "昵称", "性别", "邮箱", "积分", "会员", "注册日", "操作"], body) +
       pager();
     bindPager();
     $("queryUsers").onclick = function () {
@@ -3759,7 +3759,9 @@
           ? '<button class="btn sm" data-paid="' + esc(o.id) + '">确认并开通</button> ' +
             '<button class="btn sm danger" data-reject="' + esc(o.id) + '">拒绝</button>'
           : (st === "paid" && o.source !== "points"
-            ? '<button class="btn sm danger" data-refund="' + esc(o.id) + '">退款并收回会员</button>'
+            ? ((o.paidAt && Date.now() - Date.parse(o.paidAt) <= 24 * 3600 * 1000)
+              ? '<button class="btn sm danger" data-refund="' + esc(o.id) + '">退款（仅扣本单天数）</button>'
+              : '<span class="tag off">超过 24 小时退款时限</span>')
             : '<span class="tag off">-</span>'),
       ];
     });
@@ -3808,14 +3810,14 @@
       ? (order.user ? (order.user.nickname || order.user.email || order.user.id) : order.userId)
       : id;
     if (!confirm(
-      "退款「" + who + "」的会员订单？\n\n退款后若这是最近一笔有效订单，会立即收回该用户的会员权益，App 端同步后失效。"
+      "退款「" + who + "」的会员订单？\n\n仅支持付款后 24 小时内的订单；退款只扣掉该订单对应的会员天数，其他已购/积分兑换的会员天数保留。"
     )) return;
     try {
       await api("/membership/orders/" + id + "/refund", {
         method: "PATCH",
         body: JSON.stringify({}),
       });
-      toast("已退款并收回会员");
+      toast("已退款，已扣除该订单对应的会员天数");
       render();
     } catch (err) { toast(err.message); }
   }

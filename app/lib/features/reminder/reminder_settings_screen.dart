@@ -10,6 +10,8 @@ import '../../core/notification/notification_service.dart';
 import '../../core/sound/sound_service.dart';
 import '../../core/time/logical_day.dart';
 import '../../shared/models/preferred_unit.dart';
+import '../../shared/widgets/app_back_button.dart';
+import '../../shared/widgets/app_switch.dart';
 import '../../shared/widgets/wheel_time_picker.dart';
 import '../drink/services/hydration_calculator.dart';
 import '../home/providers/home_providers.dart';
@@ -25,7 +27,7 @@ import 'reminder_providers.dart';
 /// 3. 选项卡卡组：两个圆角顶选项卡贴在浅青面板顶部（选中=青色+白圈勾+
 ///    白字，未选中=浅灰+灰勾+灰字），点击直接切换内容（无滑动动画）——
 ///    智能页 = 通知间隔小时/分钟双滑块 + 开始/结束时间 + 提示行；
-///    自定义页 = 07:00~22:00 整点时间网格 +「新建」按钮
+///    自定义页 = 08:00~22:00 整点时间网格 +「新建」按钮
 /// 4. 星期几圆形选项（周日开头，横向滚动）
 /// 5. 高级设置卡（达到目标停止/进度标题/激励标题/饮水事实/
 ///    自定义信息/快速添加/贴纸）
@@ -189,24 +191,7 @@ class _ReminderSettingsScreenState
   // ==================== 悬浮返回按钮 ====================
 
   /// 圆形浅灰返回按钮（浮在页面内容之上，无标题行）
-  Widget _buildBackButton() {
-    return GestureDetector(
-      onTap: () => Navigator.of(context).maybePop(),
-      child: Container(
-        width: 36,
-        height: 36,
-        decoration: const BoxDecoration(
-          color: Color(0xFFE5E5EA),
-          shape: BoxShape.circle,
-        ),
-        child: const Icon(
-          Icons.arrow_back_ios_new,
-          size: 15,
-          color: _textPrimary,
-        ),
-      ),
-    );
-  }
+  Widget _buildBackButton() => const AppBackButton();
 
   // ==================== 区块：饮水提醒总开关 + 选项卡卡组 ====================
 
@@ -242,7 +227,7 @@ class _ReminderSettingsScreenState
               ),
             ),
             const SizedBox(width: 8),
-            _IosSwitch(
+            AppSwitch(
               value: enabled,
               onChanged: (v) async {
                 if (v) await _ensureNotificationPermission();
@@ -533,13 +518,13 @@ class _ReminderSettingsScreenState
     await ref.read(reminderProvider.notifier).rescheduleNow();
   }
 
-  /// 自定义提醒面板：整点时间网格（07:00~22:00 两列）+「新建」按钮
+  /// 自定义提醒面板：整点时间网格（08:00~22:00 两列）+「新建」按钮
   Widget _customPanel() {
     final reminder = ref.watch(reminderProvider);
     final slots = <String>[
       // 默认整点网格：被改成别的时刻的整点不再占位（否则一次编辑会
       // 同时出现旧整点和新时刻，看起来像"新增"而不是"修改"）
-      for (var h = 7; h <= 22; h++)
+      for (var h = 8; h <= 22; h++)
         if (!reminder.hiddenTimes
             .contains('${h.toString().padLeft(2, '0')}:00'))
           '${h.toString().padLeft(2, '0')}:00',
@@ -607,12 +592,12 @@ class _ReminderSettingsScreenState
     );
   }
 
-  /// 是否为 07:00~22:00 的整点槽位
+  /// 是否为 08:00~22:00 的整点槽位
   bool _isHourlySlot(String t) {
     final p = t.split(':');
     if (p.length != 2) return false;
     final h = int.tryParse(p[0]);
-    return h != null && p[1] == '00' && h >= 7 && h <= 22;
+    return h != null && p[1] == '00' && h >= 8 && h <= 22;
   }
 
   /// 网格时间格：开启 = 白底深字青开关；关闭 = 浅青底灰字灰开关；
@@ -644,7 +629,7 @@ class _ReminderSettingsScreenState
                 ),
               ),
             ),
-            _IosSwitch(
+            AppSwitch(
               value: on,
               onChanged: (v) => _toggleSlot(time, enable: v),
             ),
@@ -1462,7 +1447,7 @@ class _ReminderSettingsScreenState
             ),
           ),
           const SizedBox(width: 8),
-          _IosSwitch(
+          AppSwitch(
             value: value,
             onChanged: (v) async {
               // 开关变更影响通知内容/今日剩余槽位 → 立即重排
@@ -1511,7 +1496,7 @@ class _ReminderSettingsScreenState
             ),
           ),
           const SizedBox(width: 8),
-          _IosSwitch(
+          AppSwitch(
             value: enabled,
             onChanged: (v) async {
               // 贴纸影响通知正文内容 → 重排
@@ -1564,69 +1549,6 @@ class _ReminderSettingsScreenState
         ),
       );
     }
-  }
-}
-
-/// 统一 iOS 风格开关（全页所有开关共用，视觉完全一致）
-///
-/// Material 自带 Switch 自带不可去除的内边距（约 8px 水平留白），
-/// 不同行内显得宽窄不一、右缘对不齐。此组件固定 44×26 轨道 +
-/// 22 圆钮，无隐藏边距；onChanged 为 null 时呈现禁用态（灰轨）
-/// 且不可点。
-class _IosSwitch extends StatelessWidget {
-  const _IosSwitch({required this.value, this.onChanged});
-  final bool value;
-  final ValueChanged<bool>? onChanged;
-
-  /// 开启轨道色（用户指定 #1BC5DE）
-  static const _trackOn = Color(0xFF1BC5DE);
-
-  @override
-  Widget build(BuildContext context) {
-    final disabled = onChanged == null;
-    return GestureDetector(
-      onTap: disabled
-          ? null
-          : () {
-              HapticFeedback.selectionClick();
-              onChanged!(!value);
-            },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOut,
-        width: 44,
-        height: 26,
-        padding: const EdgeInsets.all(2),
-        decoration: BoxDecoration(
-          color: !value
-              ? const Color(0xFFE9E9EB)
-              : (disabled
-                  ? _trackOn.withValues(alpha: 0.35)
-                  : _trackOn),
-          borderRadius: BorderRadius.circular(13),
-        ),
-        child: AnimatedAlign(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOut,
-          alignment: value ? Alignment.centerRight : Alignment.centerLeft,
-          child: Container(
-            width: 22,
-            height: 22,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.12),
-                  blurRadius: 3,
-                  offset: const Offset(0, 1),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
   }
 }
 

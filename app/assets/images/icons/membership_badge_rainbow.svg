@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 1024 1024" width="200" height="200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="rainA" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6FD3FF"/>
+      <stop offset="0.5" stop-color="#A98BFF"/>
+      <stop offset="1" stop-color="#FF7FC6"/>
+    </linearGradient>
+    <linearGradient id="rainB" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFB6DE"/>
+      <stop offset="0.5" stop-color="#8FA9FF"/>
+      <stop offset="1" stop-color="#7FE2FF"/>
+    </linearGradient>
+    <linearGradient id="rainC" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#D6F8FF"/>
+      <stop offset="0.4" stop-color="#A98BFF"/>
+      <stop offset="1" stop-color="#FFA8D3"/>
+    </linearGradient>
+    <linearGradient id="rainD" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#9BEAFF"/>
+      <stop offset="1" stop-color="#FFB3D9"/>
+    </linearGradient>
+  </defs>
+  <path d="M60.235294 361.411765l744.809412 425.622588A30.117647 30.117647 0 0 1 790.136471 843.294118H173.658353a60.235294 60.235294 0 0 1-59.783529-52.766118L60.235294 361.411765z" fill="url(#rainA)"/>
+  <path d="M963.764706 361.411765l-53.63953 429.116235A60.235294 60.235294 0 0 1 850.341647 843.294118H233.893647a30.117647 30.117647 0 0 1-14.968471-56.259765L963.764706 361.411765z" fill="url(#rainA)"/>
+  <path d="M512 240.941176l331.053176 509.289412A60.235294 60.235294 0 0 1 792.545882 843.294118H231.454118a60.235294 60.235294 0 0 1-50.507294-93.06353L512 240.941176z" fill="url(#rainC)"/>
+  <path d="M512 240.941176l331.053176 509.289412A60.235294 60.235294 0 0 1 792.545882 843.294118H512V240.941176z" fill="url(#rainD)"/>
+  <circle cx="512" cy="210.823529" r="60.235294" fill="url(#rainB)"/>
+  <circle cx="963.764706" cy="331.294118" r="60.235294" fill="url(#rainB)"/>
+  <circle cx="60.235294" cy="331.294118" r="60.235294" fill="url(#rainB)"/>
+</svg>

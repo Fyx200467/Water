@@ -665,7 +665,7 @@ function mapChallenge(r, admin = false) {
 }
 
 /// 订单支付成功后写入会员有效期：按时长顺延，0 天视为永久
-function grantMembership(userId, durationDays) {
+function grantMembership(userId, durationDays, orderId = null) {
   const user = db
     .prepare(
       'SELECT membership_expire_at, membership_permanent FROM users WHERE id = ?',
@@ -681,12 +681,25 @@ function grantMembership(userId, durationDays) {
       : NaN;
     const base = Number.isFinite(current) && current > now ? current : now;
     const expireAt = new Date(base + Number(durationDays) * 86400000).toISOString();
+    // 积分兑换的昵称等级保留到它自己的截止时间，付费订单叠加天数不覆盖等级
     db.prepare(
       'UPDATE users SET membership_expire_at = ?, membership_permanent = 0 WHERE id = ?',
     ).run(expireAt, userId);
     return { expireAt, permanent: false };
   }
 
+  // 永久卡：记录开通前的状态，退款时原样恢复
+  if (orderId) {
+    db.prepare(
+      `UPDATE membership_orders
+          SET prev_expire_at = ?, prev_permanent = ?
+        WHERE id = ?`,
+    ).run(
+      user.membership_expire_at ?? null,
+      user.membership_permanent ? 1 : 0,
+      orderId,
+    );
+  }
   db.prepare(
     'UPDATE users SET membership_permanent = 1, membership_expire_at = NULL WHERE id = ?',
   ).run(userId);
@@ -703,8 +716,12 @@ function loadBenefitDict() {
     .all();
 }
 
-/// 会员日兑换：1 天所需积分（与客户端 kMemberDayPoints 一致）
-const POINTS_PER_MEMBER_DAY = 100;
+/// 积分兑换会员档位：1 天所需积分与昵称等级（与客户端 kRedeemTierPoints 一致）
+const REDEEM_TIERS = {
+  silver: { points: 30, label: '银钻昵称' },
+  gold: { points: 50, label: '金钻昵称' },
+  rainbow: { points: 100, label: '炫钻昵称' },
+};
 
 /// 当前积分余额：只认流水求和，客户端不上行总额
 function pointsBalance(userId) {
@@ -1957,7 +1974,10 @@ async function handle(req, res, url) {
         .prepare(
           `SELECT id, nickname, email, phone, gender, weight_kg, height_cm,
                   daily_goal_ml, membership_expire_at, membership_permanent,
-                  avatar_url, created_at
+                  avatar_url, created_at,
+                  (SELECT COALESCE(SUM(pe.amount), 0)
+                     FROM points_events pe
+                    WHERE pe.user_id = users.id) AS points_balance
              FROM users
             ${where}
             ORDER BY created_at DESC LIMIT ? OFFSET ?`,
@@ -1993,6 +2013,7 @@ async function handle(req, res, url) {
           dailyGoalMl: r.daily_goal_ml,
           membershipExpireAt: r.membership_expire_at,
           membershipPermanent: toBool(r.membership_permanent),
+          pointsBalance: r.points_balance || 0,
           providers: providersOf.get(r.id) || [],
           avatarUrl: r.avatar_url || null,
           createdAt: r.created_at,
@@ -2229,7 +2250,7 @@ async function handle(req, res, url) {
               SET status = 'paid', paid_at = ?, external_tx_id = ?
             WHERE id = ?`,
         ).run(nowIso(), String(body.externalTxId || `manual_${Date.now()}`), id);
-        const granted = grantMembership(row.user_id, row.duration_days);
+        const granted = grantMembership(row.user_id, row.duration_days, id);
         db.exec('COMMIT');
         return send(res, 200, { ok: true, planCode: row.plan_code, ...granted });
       } catch (err) {
@@ -2253,7 +2274,7 @@ async function handle(req, res, url) {
       return send(res, 200, { ok: true, status: 'rejected' });
     }
 
-    // 退款：仅已确认的付费订单可退；若退款的是最近一笔有效订单，同时收回会员
+    // 退款：仅付款后 24 小时内的付费订单可退；只扣该订单对应天数，不影响其他订单
     const refundMatch = pathname.match(
       /^\/v1\/membership\/orders\/([^/]+)\/refund$/,
     );
@@ -2269,33 +2290,63 @@ async function handle(req, res, url) {
       if ((row.source || 'payment') === 'points') {
         return fail(res, 400, 'points_order', '积分兑换订单不支持退款');
       }
-      // 退款前先看这笔订单是不是该用户最近一笔已支付订单，决定是否收回会员
-      const latestPaid = db
+      const paidAt = Date.parse(row.paid_at || row.created_at || '');
+      if (!Number.isFinite(paidAt)) {
+        return fail(res, 400, 'no_paid_at', '订单缺少付款时间，无法判断退款时限');
+      }
+      if (Date.now() - paidAt > 24 * 3600 * 1000) {
+        return fail(res, 400, 'refund_window', '已超过 24 小时退款时限');
+      }
+
+      const user = db
         .prepare(
-          `SELECT id FROM membership_orders
-            WHERE user_id = ? AND status = 'paid' AND source <> 'points'
-            ORDER BY paid_at DESC LIMIT 1`,
+          'SELECT membership_expire_at, membership_permanent FROM users WHERE id = ?',
         )
         .get(row.user_id);
-      const revoke = !latestPaid || latestPaid.id === id;
+      let expireAt = user ? user.membership_expire_at : null;
+      let permanent = user ? user.membership_permanent : 0;
+
+      if (Number(row.duration_days) > 0) {
+        // 付费天数：在当前到期日上扣掉本单天数，扣完即失效
+        if (expireAt) {
+          const base = Date.parse(expireAt);
+          if (Number.isFinite(base)) {
+            const next = base - Number(row.duration_days) * 86400000;
+            expireAt = next > Date.now() ? new Date(next).toISOString() : null;
+          }
+        }
+      } else {
+        // 永久卡：恢复开通前的到期时间/永久状态，而不是粗暴清空
+        if (row.prev_permanent) {
+          permanent = 1;
+          expireAt = null;
+        } else {
+          permanent = 0;
+          expireAt = row.prev_expire_at || null;
+          if (expireAt && expireAt <= nowIso()) expireAt = null;
+        }
+      }
+
       db.exec('BEGIN');
       try {
         db.prepare(
           `UPDATE membership_orders SET status = 'refunded' WHERE id = ?`,
         ).run(id);
-        if (revoke) {
-          db.prepare(
-            `UPDATE users
-                SET membership_expire_at = NULL, membership_permanent = 0
-              WHERE id = ?`,
-          ).run(row.user_id);
-        }
+        db.prepare(
+          `UPDATE users SET membership_expire_at = ?, membership_permanent = ?
+            WHERE id = ?`,
+        ).run(expireAt, permanent, row.user_id);
         db.exec('COMMIT');
       } catch (err) {
         db.exec('ROLLBACK');
         throw err;
       }
-      return send(res, 200, { ok: true, status: 'refunded', revoked: revoke });
+      return send(res, 200, {
+        ok: true,
+        status: 'refunded',
+        expireAt,
+        permanent: !!permanent,
+      });
     }
 
     // ---------- 内测版本发布 ----------
@@ -3261,7 +3312,15 @@ async function handle(req, res, url) {
       .get(planCode);
     if (!plan) return fail(res, 404, 'plan_not_found', '套餐不存在或已下架');
 
-    // 同一时刻只允许存在一笔待确认申请：不论套餐，避免后台出现重复审核单
+    // 永久会员不可再次续费：权益已终身有效，再下单只会造成重复扣款
+    const current = db
+      .prepare('SELECT membership_permanent FROM users WHERE id = ?')
+      .get(user.id);
+    if (current?.membership_permanent) {
+      return fail(res, 409, 'permanent_member', '已开通永久会员，无需续费');
+    }
+
+    // 同一时刻只允许存在一笔待确认申请；用户改选套餐时，取消旧的待审核单再建新单
     const pending = db
       .prepare(
         `SELECT * FROM membership_orders
@@ -3270,16 +3329,21 @@ async function handle(req, res, url) {
       )
       .get(user.id);
     if (pending) {
-      return send(res, 200, {
-        id: pending.id,
-        planCode: pending.plan_code,
-        planName: pending.plan_name || plan.name,
-        amountCents: pending.amount_cents,
-        durationDays: pending.duration_days,
-        status: pending.status,
-        createdAt: pending.created_at,
-        reused: true,
-      });
+      if (pending.plan_code === plan.code) {
+        return send(res, 200, {
+          id: pending.id,
+          planCode: pending.plan_code,
+          planName: pending.plan_name || plan.name,
+          amountCents: pending.amount_cents,
+          durationDays: pending.duration_days,
+          status: pending.status,
+          createdAt: pending.created_at,
+          reused: true,
+        });
+      }
+      db.prepare(
+        `UPDATE membership_orders SET status = 'cancelled' WHERE id = ?`,
+      ).run(pending.id);
     }
 
     const now = nowIso();
@@ -3357,6 +3421,7 @@ async function handle(req, res, url) {
         amountCents: row.amount_cents,
         createdAt: row.created_at,
         paidAt: row.paid_at,
+        source: row.source || 'payment',
         expireAt:
           paid && !row.membership_permanent ? row.membership_expire_at : null,
         permanent: paid && !!row.membership_permanent,
@@ -3399,6 +3464,78 @@ async function handle(req, res, url) {
       `UPDATE membership_orders SET status = 'cancelled' WHERE id = ?`,
     ).run(id);
     return send(res, 200, { ok: true, status: 'cancelled' });
+  }
+
+  // 用户自助退款：仅本人已支付的付费订单、且支付后 24 小时内
+  const userRefundMatch = pathname.match(
+    /^\/v1\/membership\/orders\/([^/]+)\/refund$/,
+  );
+  if (userRefundMatch && method === 'POST') {
+    const id = decodeURIComponent(userRefundMatch[1]);
+    const row = db
+      .prepare('SELECT * FROM membership_orders WHERE id = ? AND user_id = ?')
+      .get(id, user.id);
+    if (!row) return fail(res, 404, 'not_found', '订单不存在');
+    if (row.status !== 'paid') {
+      return fail(res, 409, 'not_paid', '只有已支付的订单可以退款');
+    }
+    if (String(row.source || 'payment') === 'points') {
+      return fail(res, 400, 'points_order', '积分兑换订单不支持退款');
+    }
+    const paidAt = Date.parse(row.paid_at || row.created_at || '');
+    if (!Number.isFinite(paidAt)) {
+      return fail(res, 400, 'invalid_order', '订单支付时间缺失');
+    }
+    if (Date.now() - paidAt > 24 * 3600 * 1000) {
+      return fail(res, 400, 'refund_window', '已超过 24 小时退款时限');
+    }
+
+    const userRow = db
+      .prepare(
+        'SELECT membership_expire_at, membership_permanent FROM users WHERE id = ?',
+      )
+      .get(row.user_id);
+    let expireAt = userRow ? userRow.membership_expire_at : null;
+    let permanent = userRow ? userRow.membership_permanent : 0;
+    if (Number(row.duration_days) > 0) {
+      if (expireAt) {
+        const base = Date.parse(expireAt);
+        if (Number.isFinite(base)) {
+          const next = base - Number(row.duration_days) * 86400000;
+          expireAt = next > Date.now() ? new Date(next).toISOString() : null;
+        }
+      }
+    } else {
+      if (row.prev_permanent) {
+        permanent = 1;
+        expireAt = null;
+      } else {
+        permanent = 0;
+        expireAt = row.prev_expire_at || null;
+        if (expireAt && expireAt <= nowIso()) expireAt = null;
+      }
+    }
+
+    db.exec('BEGIN');
+    try {
+      db.prepare(
+        `UPDATE membership_orders SET status = 'refunded' WHERE id = ?`,
+      ).run(id);
+      db.prepare(
+        `UPDATE users SET membership_expire_at = ?, membership_permanent = ?
+          WHERE id = ?`,
+      ).run(expireAt, permanent, row.user_id);
+      db.exec('COMMIT');
+    } catch (err) {
+      db.exec('ROLLBACK');
+      return fail(res, 500, 'refund_failed', err.message);
+    }
+    return send(res, 200, {
+      ok: true,
+      status: 'refunded',
+      expireAt,
+      permanent: !!permanent,
+    });
   }
 
   // 客户端异常上报：单条上报、内容限长，避免把日志表撑爆
@@ -3454,13 +3591,27 @@ async function handle(req, res, url) {
   if (method === 'GET' && pathname === '/v1/membership/status') {
     const row = db
       .prepare(
-        'SELECT membership_expire_at, membership_permanent FROM users WHERE id = ?',
+        `SELECT membership_expire_at, membership_permanent,
+                membership_redeem_tier, membership_redeem_until
+           FROM users WHERE id = ?`,
       )
       .get(user.id);
     const permanent = !!row.membership_permanent;
     const expireAt = row.membership_expire_at;
     const isMember = permanent || (!!expireAt && expireAt > nowIso());
+    const redeemUntilRaw = row.membership_redeem_until;
+    const redeemActive =
+      isMember && !permanent && !!redeemUntilRaw && redeemUntilRaw > nowIso();
+    // 套餐类型取最近一笔付费订单；纯积分兑换时回落到积分订单
     const lastPaid = db
+      .prepare(
+        `SELECT plan_code FROM membership_orders
+          WHERE user_id = ? AND status = 'paid'
+            AND (source = 'payment' OR source IS NULL OR source = '')
+          ORDER BY paid_at DESC LIMIT 1`,
+      )
+      .get(user.id);
+    const lastAny = db
       .prepare(
         `SELECT plan_code FROM membership_orders
           WHERE user_id = ? AND status = 'paid'
@@ -3471,7 +3622,10 @@ async function handle(req, res, url) {
       isMember,
       permanent: isMember && permanent,
       expireAt: permanent ? null : expireAt,
-      planCode: lastPaid?.plan_code ?? null,
+      planCode: lastPaid?.plan_code ?? lastAny?.plan_code ?? null,
+      // 积分兑换档位：在自己的有效窗口内参与「取最高等级」
+      redeemTier: redeemActive ? row.membership_redeem_tier ?? null : null,
+      redeemUntil: redeemActive ? redeemUntilRaw : null,
     });
   }
 
@@ -3488,6 +3642,10 @@ async function handle(req, res, url) {
     'migrate',
   ]);
   const EARN_EVENT_CAP = 200;
+  // 小游戏每日积分上限：防止改包无限刷分（签到、挑战等一次性奖励不受此限）
+  const DAILY_GAME_CAP = 500;
+  // 每天只能领一次的来源：按服务器（UTC+8）日期判定，改手机时间无效
+  const DAILY_ONCE_SOURCES = new Set(['checkin', 'milestone']);
 
   if (method === 'POST' && pathname === '/v1/points/events') {
     const body = await readJson(req);
@@ -3543,6 +3701,36 @@ async function handle(req, res, url) {
               skipped += 1;
               continue;
             }
+            // 每日任务：同一来源每（服务器）日只能入账一次
+            if (DAILY_ONCE_SOURCES.has(source)) {
+              const claimed = db
+                .prepare(
+                  `SELECT 1 FROM points_events
+                    WHERE user_id = ? AND source = ? AND amount > 0
+                      AND date(created_at, '+8 hours') = date('now', '+8 hours')
+                    LIMIT 1`,
+                )
+                .get(user.id, source);
+              if (claimed) {
+                skipped += 1;
+                continue;
+              }
+            }
+            // 小游戏：每天累计不超过 DAILY_GAME_CAP 分
+            if (source === 'match3') {
+              const usedRow = db
+                .prepare(
+                  `SELECT COALESCE(SUM(amount), 0) AS total FROM points_events
+                    WHERE user_id = ? AND source = 'match3' AND amount > 0
+                      AND date(created_at, '+8 hours') = date('now', '+8 hours')`,
+                )
+                .get(user.id);
+              const used = Number(usedRow?.total || 0);
+              if (used + amount > DAILY_GAME_CAP) {
+                skipped += 1;
+                continue;
+              }
+            }
           }
         }
         // 支出不能把余额扣成负数（多设备并发时以服务端余额为准）
@@ -3588,7 +3776,7 @@ async function handle(req, res, url) {
            FROM points_events
           WHERE user_id = ?
           ORDER BY occurred_at DESC, created_at DESC
-          LIMIT 60`,
+          LIMIT 300`,
       )
       .all(user.id);
     return send(res, 200, {
@@ -3605,24 +3793,22 @@ async function handle(req, res, url) {
   if (method === 'POST' && pathname === '/v1/membership/redeem') {
     const body = await readJson(req);
     const days = Math.min(Math.max(Number(body.days) || 1, 1), 30);
-    const cost = days * POINTS_PER_MEMBER_DAY;
+    // 兑换档位：银钻 30 分/天、金钻 50 分/天、炫钻 100 分/天
+    const tier = REDEEM_TIERS[String(body.tier || 'silver')]
+      ? String(body.tier || 'silver')
+      : 'silver';
+    const cost = days * REDEEM_TIERS[tier].points;
 
     const row = db
       .prepare(
-        'SELECT membership_expire_at, membership_permanent FROM users WHERE id = ?',
+        `SELECT membership_expire_at, membership_permanent,
+                membership_redeem_tier, membership_redeem_until
+           FROM users WHERE id = ?`,
       )
       .get(user.id);
     const permanent = !!row?.membership_permanent;
-    const expireAtRaw = row?.membership_expire_at || null;
-    const isMember =
-      permanent || (!!expireAtRaw && expireAtRaw > nowIso());
-    if (isMember) {
-      return fail(
-        res,
-        409,
-        'already_member',
-        '当前会员仍有效，到期后才能再兑换',
-      );
+    if (permanent) {
+      return fail(res, 409, 'permanent_member', '永久会员无需兑换');
     }
 
     const balance = pointsBalance(user.id);
@@ -3630,7 +3816,21 @@ async function handle(req, res, url) {
       return fail(res, 400, 'insufficient_points', '积分不足');
     }
 
-    const expireAt = new Date(Date.now() + days * 86400000).toISOString();
+    // 会员期内兑换按天顺延；等级取「付费/已兑换」中的最高档，只在本窗口内生效
+    const nowMs = Date.now();
+    const expireMs = Date.parse(row?.membership_expire_at || '');
+    const redeemMs = Date.parse(row?.membership_redeem_until || '');
+    const redeemActive = Number.isFinite(redeemMs) && redeemMs > nowMs;
+    const baseMs = Math.max(
+      nowMs,
+      Number.isFinite(expireMs) ? expireMs : 0,
+      Number.isFinite(redeemMs) ? redeemMs : 0,
+    );
+    const expireAt = new Date(baseMs + days * 86400000).toISOString();
+    const RANK = { silver: 1, gold: 2, rainbow: 3 };
+    const prevTier = redeemActive ? row?.membership_redeem_tier : null;
+    const effectiveTier =
+      prevTier && RANK[prevTier] > RANK[tier] ? prevTier : tier;
     db.exec('BEGIN');
     try {
       db.prepare(
@@ -3647,8 +3847,10 @@ async function handle(req, res, url) {
         nowIso(),
       );
       db.prepare(
-        'UPDATE users SET membership_expire_at = ?, membership_permanent = 0 WHERE id = ?',
-      ).run(expireAt, user.id);
+        `UPDATE users SET membership_expire_at = ?, membership_permanent = 0,
+                          membership_redeem_tier = ?, membership_redeem_until = ?
+          WHERE id = ?`,
+      ).run(expireAt, effectiveTier, expireAt, user.id);
       // 积分兑换也记为一条已支付订单，后台会员订单列表可见来源与消耗积分
       db.prepare(
         `INSERT INTO membership_orders
@@ -3658,7 +3860,7 @@ async function handle(req, res, url) {
       ).run(
         crypto.randomUUID(),
         user.id,
-        `积分兑换 ${days} 天会员`,
+        `积分兑换 ${days} 天会员（${REDEEM_TIERS[tier].label}）`,
         days,
         `points_${crypto.randomUUID()}`,
         nowIso(),
@@ -3675,6 +3877,8 @@ async function handle(req, res, url) {
       expireAt,
       balance: balance - cost,
       days,
+      tier: effectiveTier,
+      redeemUntil: expireAt,
     });
   }
 

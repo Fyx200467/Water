@@ -15,6 +15,7 @@ import '../../shared/models/beverage.dart';
 import '../../shared/models/drink_entry.dart';
 import '../../shared/models/preferred_unit.dart';
 import '../../shared/services/share_image.dart';
+import '../../shared/widgets/app_back_button.dart';
 import '../../shared/widgets/drink_illustration.dart';
 import '../characters/current_character_provider.dart';
 import '../drink/providers/beverage_catalog_provider.dart';
@@ -247,37 +248,18 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
             Positioned(
               top: topInset + 8,
               left: 16,
-              child: GestureDetector(
-                onTap: () => Navigator.pop(context),
-                child: Container(
-                  width: 36,
-                  height: 36,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFE5E5EA),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.arrow_back_ios_new,
-                    size: 15,
-                    color: Color(0xFF1C1C1E),
-                  ),
-                ),
-              ),
+              child: const AppBackButton(),
             ),
-            // 顶层：右上角分享按钮悬浮固定（与左上返回按钮同规格 36 圆底）
+            // 顶层：右上角分享按钮悬浮固定（与左上返回按钮同为无底色 36×36）
             Positioned(
               top: topInset + 8,
               right: 16,
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: _shareStats,
-                child: Container(
+                child: SizedBox(
                   width: 36,
                   height: 36,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFE5E5EA),
-                    shape: BoxShape.circle,
-                  ),
                   child: Center(
                     child: SvgPicture.asset(
                       'assets/icons/menu/share.svg',
@@ -3124,8 +3106,8 @@ class _MonthCalendar extends StatelessWidget {
   }
 }
 
-/// 日历日期小进度环：浅灰轨道 + 达标度色弧（自 12 点方向顺时针），
-/// 选中态加粗；弧不满一圈时缺口即当日剩余量
+/// 日期小进度环：浅灰轨道 + 达标度色弧（自 12 点方向顺时针），
+/// 用于逐日记录列表左侧的圆形进度标识
 class _DayRingPainter extends CustomPainter {
   const _DayRingPainter(this.progress, this.color);
   final double progress;

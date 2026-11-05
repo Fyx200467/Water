@@ -111,7 +111,7 @@ class HabitData {
   static const List<HabitData> all = [
     HabitData(
       id: 'caffeine_free',
-      title: '向咖啡因说不的\n卷尾猴',
+      title: '向咖啡因说不的\n红松鼠',
       subtitle: '暂时告别咖啡因带来的兴奋',
       bg: Color(0xFF6D4C38),
       asset: 'assets/images/characters/red_squirrel.svg',
@@ -131,7 +131,7 @@ class HabitData {
     ),
     HabitData(
       id: 'tea_lover',
-      title: '爱喝茶的\n霸王龙',
+      title: '爱喝茶的\n乌龟',
       subtitle: '用温和的茶水开启补水冒险',
       bg: Color(0xFF3FA65C),
       asset: 'assets/images/characters/turtle.svg',
@@ -177,11 +177,11 @@ class HabitData {
     ),
     HabitData(
       id: 'slim_sloth',
-      title: '积极瘦身的\n树懒',
+      title: '积极瘦身的\n绵羊',
       subtitle: '慢下来，也能轻盈起来',
       bg: Color(0xFF3F9E7B),
       asset: 'assets/images/characters/sheep.svg',
-      intro: '瘦身不必激进节食。像树懒一样缓慢而坚定：饭前一杯水、细嚼'
+      intro: '瘦身不必激进节食。像绵羊一样从容而坚定：饭前一杯水、细嚼'
           '慢咽、规律作息，10 天建立让身体自然轻盈的日常节奏。',
       benefits: [
         ('🥗', '饮食更自律。饭前喝水能带来适度饱腹感，避免无意识过量进食。'),
@@ -201,7 +201,7 @@ class HabitData {
     ),
     HabitData(
       id: 'lactose_free',
-      title: '拒绝乳糖的\n鸭嘴兽',
+      title: '拒绝乳糖的\n鸭子',
       subtitle: '暂时告别牛奶和奶茶',
       bg: Color(0xFFE88BB6),
       asset: 'assets/images/characters/duck.svg',
@@ -220,12 +220,12 @@ class HabitData {
     ),
     HabitData(
       id: 'vitamin',
-      title: '维生素满满的\n海雀',
+      title: '维生素满满的\n小鸟',
       subtitle: '多吃水果与蔬菜',
       bg: Color(0xFFF59B31),
       asset: 'assets/images/characters/bird.svg',
       intro: '维生素与矿物质是身体运转的润滑剂。10 天里让蔬果成为每餐的'
-          '主角，像海雀一样活力满满，皮肤、精力与免疫力都会回报你。',
+          '主角，像小鸟一样活力满满，皮肤、精力与免疫力都会回报你。',
       benefits: [
         ('🍊', '免疫力更强。维生素 C 帮助身体抵御换季的不适。'),
         ('🌟', '皮肤更有光泽。天然抗氧化剂由内而外滋养肌肤。'),
@@ -239,7 +239,7 @@ class HabitData {
     ),
     HabitData(
       id: 'no_alcohol',
-      title: '对酒说不的\n熊',
+      title: '对酒说不的\n北极熊',
       subtitle: '暂时戒掉定时喝酒的习惯',
       bg: Color(0xFF5A5FC8),
       asset: 'assets/images/characters/polar_bear.svg',
@@ -258,7 +258,7 @@ class HabitData {
     ),
     HabitData(
       id: 'wine_free',
-      title: '戒红酒的\n鼬鼠',
+      title: '戒红酒的\n水獭',
       subtitle: '暂时戒掉定时喝酒的习惯',
       bg: Color(0xFF9E1B2F),
       asset: 'assets/images/characters/otter.svg',
@@ -278,7 +278,7 @@ class HabitData {
     ),
     HabitData(
       id: 'beer_free',
-      title: '不喝啤酒的\n鹿',
+      title: '不喝啤酒的\n公羊',
       subtitle: '聚会也不碰啤酒的清爽挑战',
       bg: Color(0xFFD9B426),
       asset: 'assets/images/characters/ram.svg',

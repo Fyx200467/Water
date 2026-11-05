@@ -526,9 +526,9 @@ class _ProgressCard extends StatelessWidget {
           const SizedBox(height: 8),
           Row(
             children: [
-              // 「获得积分」小图标
+              // 「获得积分」小图标（全局统一积分图标）
               SvgPicture.asset(
-                'assets/images/icons/points_gained.svg',
+                'assets/icons/menu/points.svg',
                 width: 18,
                 height: 18,
               ),
@@ -802,16 +802,13 @@ class _Header extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 20),
-                // 告诉Ta（当前页面整屏长截图分享）
+                // 告诉Ta（当前页面整屏长截图分享，无底色仅图标+文字）
                 GestureDetector(
+                  behavior: HitTestBehavior.opaque,
                   onTap: onShare,
                   child: Container(
                     height: 46,
                     padding: const EdgeInsets.symmetric(horizontal: 20),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.28),
-                      borderRadius: BorderRadius.circular(23),
-                    ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [

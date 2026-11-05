@@ -328,6 +328,10 @@ addMissingColumns('users', {
   avatar_url: 'TEXT',
   membership_expire_at: 'TEXT',
   membership_permanent: 'INTEGER NOT NULL DEFAULT 0',
+  // 积分兑换的会员昵称等级：silver / gold / rainbow
+  membership_redeem_tier: 'TEXT',
+  // 积分兑换档位的有效截止时间：用于「取最高等级」判断，到期后不再生效
+  membership_redeem_until: 'TEXT',
 });
 
 // 单设备登录：新登录时旧会话标记为撤销，客户端据此提示「已在其他设备登录」
@@ -387,6 +391,9 @@ addMissingColumns('membership_orders', {
   duration_days: 'INTEGER NOT NULL DEFAULT 0',
   source: "TEXT NOT NULL DEFAULT 'payment'",
   points_cost: 'INTEGER NOT NULL DEFAULT 0',
+  // 永久卡开通前的会员状态：退款永久卡时用于恢复原到期/原权益
+  prev_expire_at: 'TEXT',
+  prev_permanent: 'INTEGER NOT NULL DEFAULT 0',
 });
 
 // 角色分类：与客户端「每日 / 可爱 / 人 / 家 / 蔬果 / 植物」一一对应
@@ -416,9 +423,23 @@ const seedPlan = db.prepare(
    ON CONFLICT(code) DO NOTHING`,
 );
 const seededAt = new Date().toISOString();
-seedPlan.run('monthly', '月卡', 1800, 30, null, 1, seededAt);
-seedPlan.run('yearly', '年卡', 9800, 365, '推荐', 2, seededAt);
-seedPlan.run('lifetime', '永久会员', 19800, 0, '一次买断', 3, seededAt);
+seedPlan.run('monthly', '月卡', 390, 30, null, 1, seededAt);
+seedPlan.run('yearly', '年卡', 1290, 365, '推荐', 2, seededAt);
+seedPlan.run('lifetime', '永久会员', 2990, 0, '一次买断', 3, seededAt);
+
+// 价格下调迁移：只调整仍是旧默认价的记录，避免覆盖运营在后台改过的价格
+db.prepare(
+  `UPDATE membership_plans SET price_cents = 390, updated_at = ?
+    WHERE code = 'monthly' AND price_cents IN (690, 1800)`,
+).run(seededAt);
+db.prepare(
+  `UPDATE membership_plans SET price_cents = 1290, updated_at = ?
+    WHERE code = 'yearly' AND price_cents IN (2990, 9800)`,
+).run(seededAt);
+db.prepare(
+  `UPDATE membership_plans SET price_cents = 2990, updated_at = ?
+    WHERE code = 'lifetime' AND price_cents IN (5990, 19800)`,
+).run(seededAt);
 
 // 会员权益目录：与客户端会员中心内置文案一致；套餐里存逗号分隔的 code
 const seedBenefit = db.prepare(
@@ -676,7 +697,7 @@ builtinCharacters.forEach(([code, name], i) => {
 const builtinChallenges = [
   {
     id: 'caffeine_free',
-    title: '向咖啡因说不的\n卷尾猴',
+    title: '向咖啡因说不的\n红松鼠',
     subtitle: '暂时告别咖啡因带来的兴奋',
     bgColor: '#6D4C38',
     asset: 'assets/images/characters/red_squirrel.svg',
@@ -697,7 +718,7 @@ const builtinChallenges = [
   },
   {
     id: 'tea_lover',
-    title: '爱喝茶的\n霸王龙',
+    title: '爱喝茶的\n乌龟',
     subtitle: '用温和的茶水开启补水冒险',
     bgColor: '#3FA65C',
     asset: 'assets/images/characters/turtle.svg',
@@ -739,12 +760,12 @@ const builtinChallenges = [
   },
   {
     id: 'slim_sloth',
-    title: '积极瘦身的\n树懒',
+    title: '积极瘦身的\n绵羊',
     subtitle: '慢下来，也能轻盈起来',
     bgColor: '#3F9E7B',
     asset: 'assets/images/characters/sheep.svg',
     intro:
-      '瘦身不必激进节食。像树懒一样缓慢而坚定：饭前一杯水、细嚼慢咽、规律作息，10 天建立让身体自然轻盈的日常节奏。',
+      '瘦身不必激进节食。像绵羊一样从容而坚定：饭前一杯水、细嚼慢咽、规律作息，10 天建立让身体自然轻盈的日常节奏。',
     benefits: [
       ['🥗', '饮食更自律。饭前喝水能带来适度饱腹感，避免无意识过量进食。'],
       ['💤', '睡眠与代谢更规律。固定的作息让身体修复效率更高。'],
@@ -760,7 +781,7 @@ const builtinChallenges = [
   },
   {
     id: 'lactose_free',
-    title: '拒绝乳糖的\n鸭嘴兽',
+    title: '拒绝乳糖的\n鸭子',
     subtitle: '暂时告别牛奶和奶茶',
     bgColor: '#E88BB6',
     asset: 'assets/images/characters/duck.svg',
@@ -781,12 +802,12 @@ const builtinChallenges = [
   },
   {
     id: 'vitamin',
-    title: '维生素满满的\n海雀',
+    title: '维生素满满的\n小鸟',
     subtitle: '多吃水果与蔬菜',
     bgColor: '#F59B31',
     asset: 'assets/images/characters/bird.svg',
     intro:
-      '维生素与矿物质是身体运转的润滑剂。10 天里让蔬果成为每餐的主角，像海雀一样活力满满，皮肤、精力与免疫力都会回报你。',
+      '维生素与矿物质是身体运转的润滑剂。10 天里让蔬果成为每餐的主角，像小鸟一样活力满满，皮肤、精力与免疫力都会回报你。',
     benefits: [
       ['🍊', '免疫力更强。维生素 C 帮助身体抵御换季的不适。'],
       ['🌟', '皮肤更有光泽。天然抗氧化剂由内而外滋养肌肤。'],
@@ -802,7 +823,7 @@ const builtinChallenges = [
   },
   {
     id: 'no_alcohol',
-    title: '对酒说不的\n熊',
+    title: '对酒说不的\n北极熊',
     subtitle: '暂时戒掉定时喝酒的习惯',
     bgColor: '#5A5FC8',
     asset: 'assets/images/characters/polar_bear.svg',
@@ -823,7 +844,7 @@ const builtinChallenges = [
   },
   {
     id: 'wine_free',
-    title: '戒红酒的\n鼬鼠',
+    title: '戒红酒的\n水獭',
     subtitle: '暂时戒掉定时喝酒的习惯',
     bgColor: '#9E1B2F',
     asset: 'assets/images/characters/otter.svg',
@@ -844,7 +865,7 @@ const builtinChallenges = [
   },
   {
     id: 'beer_free',
-    title: '不喝啤酒的\n鹿',
+    title: '不喝啤酒的\n公羊',
     subtitle: '聚会也不碰啤酒的清爽挑战',
     bgColor: '#D9B426',
     asset: 'assets/images/characters/ram.svg',

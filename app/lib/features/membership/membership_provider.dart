@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/storage/providers.dart';
 import '../../core/sync/sync_api.dart';
+import '../../shared/widgets/tier_nickname.dart';
 
 /// 会员相关操作需要登录账号
 class NotLoggedInError implements Exception {
@@ -13,8 +14,19 @@ class NotLoggedInError implements Exception {
   String toString() => '请先登录账号';
 }
 
-/// 积分兑换会员：每天所需积分 + 一次只能兑换 1 天
-const int kMemberDayPoints = 100;
+/// 积分兑换会员日：按昵称等级区分，每天所需积分
+const Map<MembershipTier, int> kRedeemTierPoints = {
+  MembershipTier.silver: 30,
+  MembershipTier.gold: 50,
+  MembershipTier.rainbow: 100,
+};
+
+/// 等级对应的兑换文案
+String redeemTierLabel(MembershipTier tier) => switch (tier) {
+  MembershipTier.silver => '银钻昵称',
+  MembershipTier.gold => '金钻昵称',
+  MembershipTier.rainbow => '炫钻昵称',
+};
 
 /// 套餐内绑定的单条会员权益（后台配置，随套餐下发）
 class PlanBenefit {
@@ -46,6 +58,7 @@ class MembershipPlan {
     required this.name,
     required this.priceCents,
     required this.durationDays,
+    this.originalPriceCents,
     this.badge,
     this.benefits = const [],
   });
@@ -54,6 +67,9 @@ class MembershipPlan {
   final String code;
   final String name;
   final int priceCents;
+
+  /// 划线原价（分）；后台未配置时为 null，界面不展示划线价
+  final int? originalPriceCents;
 
   /// 0 = 终身
   final int durationDays;
@@ -71,17 +87,30 @@ class MembershipPlan {
     return '¥$text';
   }
 
+  /// 划线原价：低于现价或不合法的不展示
+  String? get originalPriceLabel {
+    final cents = originalPriceCents;
+    if (cents == null || cents <= priceCents) return null;
+    final yuan = cents / 100;
+    final text = yuan
+        .toStringAsFixed(2)
+        .replaceFirst(RegExp(r'0+$'), '')
+        .replaceFirst(RegExp(r'\.$'), '');
+    return '¥$text';
+  }
+
   /// 日均价（终身不计算）
   String? get perDayLabel {
     if (durationDays <= 0) return null;
     final perDay = priceCents / 100 / durationDays;
-    return '日均 ¥${perDay.toStringAsFixed(2)}';
+    return '低至 ¥${perDay.toStringAsFixed(2)}/天';
   }
 
   Map<String, dynamic> toJson() => {
     'code': code,
     'name': name,
     'priceCents': priceCents,
+    'originalPriceCents': originalPriceCents,
     'durationDays': durationDays,
     'badge': badge,
     'benefits': [
@@ -90,37 +119,45 @@ class MembershipPlan {
     ],
   };
 
-  static MembershipPlan fromJson(Map<String, dynamic> m) => MembershipPlan(
-    code: (m['code'] ?? m['id'] ?? '').toString(),
-    name: (m['name'] ?? '会员').toString(),
-    priceCents: (m['priceCents'] as num?)?.toInt() ?? 0,
-    durationDays: (m['durationDays'] as num?)?.toInt() ?? 0,
-    badge: m['badge'] as String?,
-    benefits: [
-      for (final raw in (m['benefits'] as List<dynamic>? ?? const []))
-        if (raw is Map) PlanBenefit.fromJson(Map<String, dynamic>.from(raw)),
-    ],
-  );
+  static MembershipPlan fromJson(Map<String, dynamic> m) {
+    final code = (m['code'] ?? m['id'] ?? '').toString();
+    final price = (m['priceCents'] as num?)?.toInt() ?? 0;
+    return MembershipPlan(
+      code: code,
+      name: (m['name'] ?? '会员').toString(),
+      priceCents: price,
+      originalPriceCents: (m['originalPriceCents'] as num?)?.toInt(),
+      durationDays: (m['durationDays'] as num?)?.toInt() ?? 0,
+      badge: m['badge'] as String?,
+      benefits: [
+        for (final raw in (m['benefits'] as List<dynamic>? ?? const []))
+          if (raw is Map) PlanBenefit.fromJson(Map<String, dynamic>.from(raw)),
+      ],
+    );
+  }
 
   /// 服务端不可达时的兜底套餐（价格与后台默认配置一致）
   static const List<MembershipPlan> fallback = [
     MembershipPlan(
       code: 'monthly',
       name: '月卡',
-      priceCents: 690,
+      priceCents: 390,
+      originalPriceCents: 690,
       durationDays: 30,
     ),
     MembershipPlan(
       code: 'yearly',
       name: '年卡',
-      priceCents: 2990,
+      priceCents: 1290,
+      originalPriceCents: 2990,
       durationDays: 365,
       badge: '推荐',
     ),
     MembershipPlan(
       code: 'lifetime',
       name: '永久会员',
-      priceCents: 5990,
+      priceCents: 2990,
+      originalPriceCents: 5990,
       durationDays: 0,
       badge: '一次买断',
     ),
@@ -134,6 +171,7 @@ class MembershipState {
     this.expireAt,
     this.planCode,
     this.redeemUntil,
+    this.redeemTier,
   });
 
   final bool active;
@@ -142,6 +180,9 @@ class MembershipState {
 
   /// 积分兑换的 1 天会员到期时间（独立于付费订单，便于到期后再兑换）
   final DateTime? redeemUntil;
+
+  /// 积分兑换选择的昵称等级：silver / gold / rainbow
+  final String? redeemTier;
 
   bool get _serverValid =>
       active && (expireAt == null || expireAt!.isAfter(DateTime.now()));
@@ -154,6 +195,9 @@ class MembershipState {
 
   /// 是否有付费订单带来的有效期（用于区分「积分兑换的一天」）
   bool get hasPaidOrder => _serverValid;
+
+  /// 永久会员（付费且无到期时间）
+  bool get isPermanent => hasPaidOrder && expireAt == null;
 
   String get statusLabel {
     if (!isMember) return '未开通';
@@ -173,7 +217,51 @@ class MembershipState {
     'expireAt': expireAt?.millisecondsSinceEpoch,
     'planCode': planCode,
     'redeemUntil': redeemUntil?.millisecondsSinceEpoch,
+    'redeemTier': redeemTier,
   };
+}
+
+extension MembershipTierX on MembershipState {
+  MembershipTier? get redeemTierEnum => switch (redeemTier) {
+    'gold' => MembershipTier.gold,
+    'rainbow' => MembershipTier.rainbow,
+    'silver' => MembershipTier.silver,
+    _ => null,
+  };
+
+  /// 会员等级：付费套餐与积分兑换取最高档；积分档位只在自己的有效窗口内生效
+  MembershipTier get tier {
+    final paid = _paidTier;
+    final redeem = _activeRedeemTier;
+    if (paid == null) return redeem ?? MembershipTier.silver;
+    if (redeem == null) return paid;
+    return redeem.index > paid.index ? redeem : paid;
+  }
+
+  MembershipTier? get _paidTier {
+    if (!hasPaidOrder) return null;
+    if (expireAt == null) return MembershipTier.rainbow;
+    return switch (planCode) {
+      'yearly' => MembershipTier.gold,
+      'points' => null,
+      _ => MembershipTier.silver,
+    };
+  }
+
+  MembershipTier? get _activeRedeemTier {
+    final until = redeemUntil;
+    if (until == null || !until.isAfter(DateTime.now())) return null;
+    return redeemTierEnum;
+  }
+
+  /// 菜单里展示的套餐名：月卡 / 年卡 / 永久 / 积分兑换
+  String get planName {
+    if (!hasPaidOrder) return '积分兑换';
+    if (expireAt == null) return '永久';
+    if (planCode == 'points') return '积分兑换';
+    if (planCode == 'yearly') return '年卡';
+    return '月卡';
+  }
 }
 
 class MembershipNotifier extends StateNotifier<MembershipState> {
@@ -205,6 +293,7 @@ class MembershipNotifier extends StateNotifier<MembershipState> {
         redeemUntil: redeemMs == null
             ? null
             : DateTime.fromMillisecondsSinceEpoch(redeemMs),
+        redeemTier: m['redeemTier'] as String?,
       );
     } catch (_) {
       // 数据异常保持未开通
@@ -221,34 +310,35 @@ class MembershipNotifier extends StateNotifier<MembershipState> {
     required String planCode,
     required DateTime? expireAt,
     required bool permanent,
+    String? redeemTier,
+    DateTime? redeemUntil,
+    bool syncRedeemWindow = false,
   }) async {
     await loaded;
     state = MembershipState(
       active: true,
       expireAt: permanent ? null : expireAt,
       planCode: planCode,
-      redeemUntil: state.redeemUntil,
+      redeemUntil: syncRedeemWindow ? redeemUntil : state.redeemUntil,
+      redeemTier: syncRedeemWindow
+          ? redeemTier
+          : (redeemTier ?? state.redeemTier),
     );
     await _persist();
   }
 
-  /// 积分兑换 1 天会员：到期时间写入本地（不与付费订单叠加）
-  Future<void> applyRedeemDay(DateTime until) async {
+  /// 积分兑换 1 天会员：会员期内兑换按天顺延到期时间，等级取最高档
+  Future<void> applyRedeemDay(DateTime until, MembershipTier tier) async {
     await loaded;
+    final current = state.expireAt;
+    final extended = current != null && current.isAfter(until) ? current : until;
     state = MembershipState(
-      active: state.active,
-      expireAt: state.expireAt,
+      active: true,
+      expireAt: extended,
       planCode: state.planCode,
-      redeemUntil: until,
+      redeemUntil: extended,
+      redeemTier: tier.name,
     );
-    await _persist();
-  }
-
-  /// 订单退款 / 被后台收回：清掉付费订单权益，保留积分兑换的那一天
-  Future<void> revokePaid() async {
-    await loaded;
-    if (!state.active) return;
-    state = MembershipState(redeemUntil: state.redeemUntil);
     await _persist();
   }
 
@@ -259,14 +349,21 @@ class MembershipNotifier extends StateNotifier<MembershipState> {
     final planCode = (res['planCode'] as String?) ?? 'member';
     final expireAt = DateTime.tryParse(res['expireAt']?.toString() ?? '');
     final permanent = res['permanent'] == true;
+    final redeemTier = res['redeemTier'] as String?;
+    final redeemUntil = DateTime.tryParse(res['redeemUntil']?.toString() ?? '');
     final unchanged = state.hasPaidOrder &&
         state.planCode == planCode &&
+        state.redeemTier == redeemTier &&
+        state.redeemUntil == redeemUntil &&
         (permanent ? state.expireAt == null : state.expireAt == expireAt);
     if (unchanged) return;
     await applyServer(
       planCode: planCode,
       expireAt: expireAt,
       permanent: permanent,
+      redeemTier: redeemTier,
+      redeemUntil: redeemUntil,
+      syncRedeemWindow: true,
     );
   }
 
@@ -289,7 +386,10 @@ class MembershipNotifier extends StateNotifier<MembershipState> {
     if (res['isMember'] != true) {
       if (state.active) {
         // 只清付费订单状态，积分兑换的那一天仍然有效
-        state = MembershipState(redeemUntil: state.redeemUntil);
+        state = MembershipState(
+          redeemUntil: state.redeemUntil,
+          redeemTier: state.redeemTier,
+        );
         await _persist();
       }
       return false;
@@ -298,6 +398,9 @@ class MembershipNotifier extends StateNotifier<MembershipState> {
       planCode: (res['planCode'] as String?) ?? state.planCode ?? 'member',
       expireAt: DateTime.tryParse(res['expireAt']?.toString() ?? ''),
       permanent: res['permanent'] == true,
+      redeemTier: res['redeemTier'] as String?,
+      redeemUntil: DateTime.tryParse(res['redeemUntil']?.toString() ?? ''),
+      syncRedeemWindow: true,
     );
     return true;
   }

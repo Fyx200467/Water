@@ -6,12 +6,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/app_info.dart';
 import '../../core/notification/notification_service.dart';
 import '../../core/storage/providers.dart';
 import '../../core/sync/session_watch.dart';
 import '../../core/sync/sync_api.dart';
 import '../../shared/models/preferred_unit.dart';
 import '../../shared/widgets/account_avatar.dart';
+import '../../shared/widgets/app_back_button.dart';
+import '../../shared/widgets/tier_nickname.dart';
 import '../characters/character_art.dart';
 import '../characters/character_catalog.dart';
 import '../characters/character_screen.dart';
@@ -22,6 +25,7 @@ import '../challenges/challenge_service.dart' show challengeRevisionProvider;
 import '../home/providers/home_providers.dart';
 import '../membership/membership_provider.dart';
 import '../membership/membership_screen.dart';
+import '../points/points_provider.dart';
 import '../points/points_screen.dart';
 import '../reminder/reminder_providers.dart';
 import '../stats/providers/stats_providers.dart';
@@ -285,30 +289,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 _buildFooter(),
               ],
             ),
-            Positioned(top: topInset + 6, left: 12, child: _buildBackButton()),
+            Positioned(
+              top: topInset + 6,
+              left: 12,
+              child: const AppBackButton(),
+            ),
           ],
-        ),
-      ),
-    );
-  }
-
-  // ==================== 悬浮返回按钮 ====================
-
-  /// 圆形浅灰返回按钮（浮在页面内容之上，不随列表滚动）
-  Widget _buildBackButton() {
-    return GestureDetector(
-      onTap: () => Navigator.of(context).maybePop(),
-      child: Container(
-        width: 36,
-        height: 36,
-        decoration: const BoxDecoration(
-          color: Color(0xFFE5E5EA),
-          shape: BoxShape.circle,
-        ),
-        child: const Icon(
-          Icons.arrow_back_ios_new,
-          size: 15,
-          color: _textPrimary,
         ),
       ),
     );
@@ -355,16 +341,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // 昵称只做展示，修改入口放到账号信息页
-                      Text(
-                        nickname,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: _textPrimary,
-                          fontSize: 22,
-                          fontWeight: FontWeight.w800,
-                          height: 1.2,
-                        ),
+                      TierNickname(
+                        text: nickname,
+                        tier: loggedIn && m.isMember ? m.tier : null,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                        height: 1.2,
                       ),
                       const SizedBox(height: 6),
                       Text(
@@ -401,16 +383,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ).push(MaterialPageRoute(builder: (_) => const MembershipScreen())),
             child: Row(
               children: [
-                // 会员图标直接展示，不套方块底
+                // 已开通按等级展示银钻/金钻/炫钻，未开通用通用会员图标
                 SvgPicture.asset(
-                  'assets/icons/menu/member.svg',
+                  m.isMember
+                      ? tierCrownAsset(m.tier)
+                      : 'assets/icons/menu/member.svg',
                   width: 20,
                   height: 20,
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    m.isMember ? '吨吨会员 · ${m.statusLabel}' : '开通吨吨会员，积分限时兑换',
+                    m.isMember
+                        ? '吨吨会员 · ${m.planName}'
+                        : '开通吨吨会员，积分限时兑换',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -447,27 +433,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   // ==================== 卡片1/2：提醒 · 饮水目标（左右并排） ====================
 
-  /// 提醒卡：浅青底 + 图标 + 文案
+  /// 提醒卡：白底 + 图标 + 文案
   Widget _buildReminderCard(ReminderSettings reminder) {
     return _buildQuickCard(
       iconAsset: 'assets/icons/menu/reminder.svg',
-      // 闹钟图标在原画布中留白较多，放大 1.5 倍后与目标图标视觉大小一致
-      iconScale: 1.5,
+      // 闹钟图形仅占画布 1024 中的约 702 高（上下留白较多），
+      // 按实际外接高度放大 1.46 倍，与满画布的目标图标视觉同高
+      iconScale: 1.46,
       caption: '当你忘记喝水时提醒你',
-      background: const Color(0xFFD8F3F7),
+      background: Colors.white,
       textColor: const Color(0xFF4C5A60),
       onTap: () => context.push('/settings/reminder'),
     );
   }
 
-  /// 饮水目标卡：青底白字 + 白色图标
+  /// 饮水目标卡：白底 + 品牌青图标
   Widget _buildGoalCard() {
     return _buildQuickCard(
       iconAsset: 'assets/icons/menu/goal.svg',
       caption: '我的饮水目标',
-      background: const Color(0xFF1BC5DE),
-      textColor: Colors.white,
-      whiteIcon: true,
+      background: Colors.white,
+      textColor: const Color(0xFF4C5A60),
+      iconTint: const Color(0xFF00C9E2),
       onTap: () => context.push('/settings/goal'),
     );
   }
@@ -480,7 +467,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     required Color background,
     required Color textColor,
     required VoidCallback onTap,
-    bool whiteIcon = false,
+    Color? iconTint,
     double iconScale = 1,
   }) {
     return GestureDetector(
@@ -492,25 +479,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           borderRadius: BorderRadius.circular(20),
         ),
         child: SizedBox(
-          // 内容区高度：112；图标上留白 20%，文字距卡片底部约 10%
-          height: 112,
+          // 内容区高度：92；图标上留白，文字距卡片底部约 10%
+          height: 92,
           child: Column(
             children: [
-              const SizedBox(height: 22),
+              const SizedBox(height: 12),
               Transform.scale(
                 scale: iconScale,
                 child: SvgPicture.asset(
                   iconAsset,
-                  width: 40,
-                  height: 40,
-                  colorFilter: whiteIcon
-                      ? const ColorFilter.mode(Colors.white, BlendMode.srcIn)
-                      : null,
+                  width: 32,
+                  height: 32,
+                  colorFilter: iconTint == null
+                      ? null
+                      : ColorFilter.mode(iconTint, BlendMode.srcIn),
                 ),
               ),
               const Spacer(),
               SizedBox(
-                height: 32,
+                height: 30,
                 child: Align(
                   alignment: Alignment.topCenter,
                   child: Text(
@@ -551,11 +538,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
             ),
           ),
-        Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(_cardRadius),
-          ),
+        // Material + 圆角裁剪：InkWell 的按压波纹被裁进圆角内，
+        // 不会在四个角露出灰色矩形阴影
+        Material(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(_cardRadius),
+          clipBehavior: Clip.antiAlias,
           child: Column(children: _insertDividers(rows)),
         ),
       ],
@@ -666,9 +654,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         GestureDetector(
           onLongPress: _showApiBaseDialog,
           behavior: HitTestBehavior.opaque,
-          child: const Text(
-            '1.0.0 (1)',
-            style: TextStyle(color: _arrowColor, fontSize: 11),
+          child: Text(
+            '$kAppVersion ($kAppVersionCode)',
+            style: const TextStyle(color: _arrowColor, fontSize: 11),
           ),
         ),
       ],
@@ -857,7 +845,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     await ref.read(membershipProvider.notifier).reset();
     await ref.read(currentCharacterProvider.notifier).select('sheep');
 
-    // 重置内存态（保留主题偏好）
+    // 重置内存态（保留主题偏好）：积分快照同样要复位，
+    // 否则清除后积分页仍显示旧余额、乐园仍显示"已签到"，
+    // 下一次 earn 还会把旧快照重新写回本地
+    ref.invalidate(pointsProvider);
     ref.invalidate(profileProvider);
     ref.invalidate(todayEntriesProvider);
     ref.invalidate(dailyProgressProvider);

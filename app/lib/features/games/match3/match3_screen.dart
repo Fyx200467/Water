@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -6,11 +7,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/storage/providers.dart';
 import '../../../shared/models/beverage.dart';
+import '../../../shared/widgets/app_back_button.dart';
 import '../../drink/providers/beverage_catalog_provider.dart';
 import '../../drink/widgets/svg_container.dart';
 import '../../points/points_provider.dart';
 import '../../points/points_screen.dart';
 import 'match3_rules.dart';
+
+/// 消除生成的特效（棋盘格上的强化道具）
+enum _Fx { none, lineRow, lineCol, bomb, colorBomb }
 
 /// 棋盘格：带稳定 id 才能在交换/下落时保持 widget 身份并播放位移动画
 class _Tile {
@@ -32,14 +37,25 @@ class _Tile {
 
   /// 新补位（从缩小状态长出来）
   bool spawn;
+
+  /// 本格携带的特效（由 4 连 / T·L 型 / 5 连生成）
+  _Fx fx = _Fx.none;
 }
+
+/// 玩法模式：闯关按关卡目标推进，无尽没有步数与分数上限
+enum _Mode { level, endless }
+
+/// 闯关棋盘形状：每关随机换一种几何图形
+enum _BoardShape { full, diamond, circle, plus }
 
 /// 饮品消消乐：经典相邻交换三消
 ///
+/// - 闯关模式：每关限步数达成目标分，通关后进入下一关（棋盘随机换成
+///   矩形 / 菱形 / 圆形 / 十字形），目标分与步数逐关递增
+/// - 无尽模式：不限步数、不限分数，每累计 2000 分结算一次积分
 /// - 棋盘图格 = 从「内置 12 款 + 用户新增饮品」里随机抽取的饮品图标
 ///   （不看饮品管理页的开关；自定义饮品删除后自然不再出现）
-/// - 限步数达成目标分：每局 20 步，目标 2000 分，三连 30 分/格，连锁加倍
-/// - 通关按「分数 / 1000」折算积分，积分不设每日上限
+/// - 三连 30 分/格，连锁加倍
 class Match3Screen extends ConsumerStatefulWidget {
   const Match3Screen({super.key});
 
@@ -54,32 +70,80 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
 
   /// 每局随机抽多少种饮品上盘（种类太多几乎凑不出三连）
   static const _kindSlots = 6;
-  static const _movesPerLevel = 20;
-  static const _targetScore = 2000;
+  static const _baseMoves = 20;
+  static const _baseTarget = 2000;
+
+  /// 无尽模式每累计多少分结算一次积分
+  static const _endlessStep = 2000;
 
   final _rnd = math.Random();
   static const _rules = Match3Rules(rows: _rows, cols: _cols);
 
   late List<List<_Tile?>> _grid;
 
+  /// 当前棋盘的有效格（几何形状遮罩）
+  late List<List<bool>> _mask;
+
   /// 本局 kinds 下标 → 饮品
   late List<Beverage> _pool;
 
   int _nextId = 0;
   int _score = 0;
-  int _moves = _movesPerLevel;
+  int _moves = _baseMoves;
+  int _level = 1;
+  _Mode _mode = _Mode.level;
+  _BoardShape _shape = _BoardShape.full;
   bool _busy = false;
   bool _finished = false;
   _Tile? _selected;
 
+  /// 正在退出：先结算无尽模式零头再真正返回
+  bool _leaving = false;
+
+  /// 无尽模式已结算到的分数档位（每 2000 分一档）
+  int _endlessAwarded = 0;
+
+  /// 本地已保存的最高关卡：切换模式时从该关继续
+  int _savedLevel = 1;
+
   /// 滑动交换：记录从哪一格起滑、累计位移
   Offset _dragAcc = Offset.zero;
+
+  /// 当前关目标分：每关递增 800
+  int get _targetScore => _baseTarget + (_level - 1) * 800;
+
+  /// 当前关步数：前 6 关每关 +2，之后保持
+  int get _movesForLevel => _baseMoves + math.min(_level - 1, 6) * 2;
 
   @override
   void initState() {
     super.initState();
     _pool = _pickPool();
+    _shape = _pickShape();
+    _mask = _maskFor(_shape);
     _startGame();
+    unawaited(_restoreLevel());
+  }
+
+  /// 读取本地保存的闯关进度：下次进入直接从最高关卡开始
+  Future<void> _restoreLevel() async {
+    final storage = await ref.read(localStorageProvider.future);
+    if (!mounted) return;
+    _savedLevel = storage.match3Level;
+    if (_mode != _Mode.level || _savedLevel <= _level) return;
+    setState(() {
+      _level = _savedLevel;
+      _moves = _movesForLevel;
+    });
+  }
+
+  /// 通关后记录新的最高关卡
+  void _persistLevel(int level) {
+    _savedLevel = level;
+    unawaited(() async {
+      final storage = await ref.read(localStorageProvider.future);
+      await storage.setMatch3Level(level);
+    }());
   }
 
   /// 抽取本局使用的饮品：水固定上盘，其余从内置预设 + 用户新增里随机补足
@@ -97,12 +161,56 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
     return [water, ...uniq.take(_kindSlots - 1)];
   }
 
+  /// 随机挑一种几何棋盘：矩形 / 菱形 / 圆形 / 十字
+  _BoardShape _pickShape() {
+    final shapes = _BoardShape.values;
+    return shapes[_rnd.nextInt(shapes.length)];
+  }
+
+  /// 由形状生成 8×8 有效格遮罩
+  List<List<bool>> _maskFor(_BoardShape shape) {
+    bool keep(int r, int c) {
+      final dr = (r - 3.5).abs();
+      final dc = (c - 3.5).abs();
+      return switch (shape) {
+        _BoardShape.full => true,
+        _BoardShape.diamond => dr + dc <= 4.25,
+        _BoardShape.circle => dr * dr + dc * dc <= 12.6,
+        _BoardShape.plus => (r >= 2 && r <= 5) || (c >= 2 && c <= 5),
+      };
+    }
+
+    return [
+      for (var r = 0; r < _rows; r++)
+        [for (var c = 0; c < _cols; c++) keep(r, c)],
+    ];
+  }
+
+  List<int> get _validCells => [
+    for (var r = 0; r < _rows; r++)
+      for (var c = 0; c < _cols; c++)
+        if (_mask[r][c]) r * _cols + c,
+  ];
+
   // ==================== 棋盘 ====================
+
+  /// 切换模式 / 重开：闯关从已保存的最高关卡继续，无尽不限步数
+  void _switchMode(_Mode mode) {
+    if (_busy) return;
+    setState(() {
+      _mode = mode;
+      _level = mode == _Mode.level ? _savedLevel : 1;
+      _shape = mode == _Mode.endless ? _BoardShape.full : _pickShape();
+      _mask = _maskFor(_shape);
+      _startGame();
+    });
+  }
 
   void _startGame() {
     setState(() {
       _score = 0;
-      _moves = _movesPerLevel;
+      _moves = _mode == _Mode.level ? _movesForLevel : _baseMoves;
+      _endlessAwarded = 0;
       _finished = false;
       _busy = false;
       _selected = null;
@@ -110,10 +218,21 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
     });
   }
 
+  /// 失败重试：保留本关已获得的分数与当前棋盘，只补满步数继续
+  void _retryLevel() {
+    setState(() {
+      _moves = _movesForLevel;
+      _finished = false;
+      _busy = false;
+      _selected = null;
+    });
+  }
+
   void _generateBoard() {
     _grid = List.generate(_rows, (_) => List<_Tile?>.filled(_cols, null));
     for (var r = 0; r < _rows; r++) {
       for (var c = 0; c < _cols; c++) {
+        if (!_mask[r][c]) continue;
         _grid[r][c] = _Tile(
           id: _nextId++,
           kind: _rnd.nextInt(_pool.length),
@@ -134,10 +253,20 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
     }
   }
 
-  Set<int> _randomCell() => {_rnd.nextInt(_rows) * _cols + _rnd.nextInt(_cols)};
+  Set<int> _randomCell() {
+    final cells = _validCells;
+    return {cells[_rnd.nextInt(cells.length)]};
+  }
 
+  /// 逻辑棋盘：魔力鸟按 -2 上报，避免被普通三连匹配
   List<List<int>> _kinds() => [
-    for (final row in _grid) [for (final t in row) t?.kind ?? -1],
+    for (final row in _grid)
+      [
+        for (final t in row)
+          t == null
+              ? -1
+              : (t.fx == _Fx.colorBomb ? -2 : t.kind),
+      ],
   ];
 
   void _swapTiles(_Tile a, _Tile b) {
@@ -201,7 +330,11 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
     await Future<void>.delayed(const Duration(milliseconds: 250));
     if (!mounted) return;
 
-    if (_rules.findMatches(_kinds()).isEmpty) {
+    final aBomb = a.fx == _Fx.colorBomb;
+    final bBomb = b.fx == _Fx.colorBomb;
+    final bombSwap = aBomb || bBomb;
+
+    if (!bombSwap && _rules.findMatches(_kinds()).isEmpty) {
       // 交换不成三连：弹回原位，不计步数
       setState(() => _swapTiles(a, b));
       await Future<void>.delayed(const Duration(milliseconds: 250));
@@ -210,25 +343,134 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
     }
 
     HapticFeedback.selectionClick();
-    setState(() => _moves--);
-    await _resolveCascades();
+    if (_mode == _Mode.level) setState(() => _moves--);
+
+    if (bombSwap) {
+      // 魔力鸟：与任意相邻格交换都成立，消除该颜色全部格子
+      final seeds = <int>{
+        a.r * _cols + a.c,
+        b.r * _cols + b.c,
+      };
+      if (aBomb && bBomb) {
+        // 双魔力鸟：清空整盘
+        seeds.addAll(_validCells);
+      } else {
+        final kind = aBomb ? b.kind : a.kind;
+        for (var r = 0; r < _rows; r++) {
+          for (var c = 0; c < _cols; c++) {
+            final t = _grid[r][c];
+            if (t != null && t.kind == kind) seeds.add(r * _cols + c);
+          }
+        }
+      }
+      // 魔力鸟自身的爆炸范围已在上面算好，这里不再重复触发
+      final silent = <int>{
+        if (aBomb) a.r * _cols + a.c,
+        if (bBomb) b.r * _cols + b.c,
+      };
+      await _resolveCascades(seed: seeds, silent: silent);
+    } else {
+      await _resolveCascades();
+    }
     if (!mounted) return;
     setState(() => _busy = false);
-    _checkResult();
+    if (_mode == _Mode.endless) {
+      await _settleEndless();
+    } else {
+      _checkResult();
+    }
+  }
+
+  /// 无尽模式结算：每累计 2000 分入账 2 积分，不设上限
+  Future<void> _settleEndless() async {
+    final reached = (_score ~/ _endlessStep) * _endlessStep;
+    if (reached <= _endlessAwarded) return;
+    final batches = (reached - _endlessAwarded) ~/ _endlessStep;
+    _endlessAwarded = reached;
+
+    final storage = await ref.read(localStorageProvider.future);
+    if (!mounted) return;
+    if (!storage.hasAccountSession) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('登录后才能获得积分，游客不计分'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+    final earned = await ref
+        .read(pointsProvider.notifier)
+        .earn(source: 'match3', amount: batches * 2);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('累计 $_score 分，获得 $earned 积分'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  /// 退出无尽模式时补发不足 2000 分的零头（每 1000 分 1 积分，与整档规则一致）
+  Future<void> _settleEndlessRemainder() async {
+    if (_mode != _Mode.endless) return;
+    final total = _score ~/ PointsNotifier.scorePerPoint;
+    final awarded = _endlessAwarded ~/ PointsNotifier.scorePerPoint;
+    if (total <= awarded) return;
+    _endlessAwarded = total * PointsNotifier.scorePerPoint;
+    await ref
+        .read(pointsProvider.notifier)
+        .earn(source: 'match3', amount: total - awarded);
+  }
+
+  /// 返回前先结算零头，再等一帧让 PopScope 的 canPop 生效
+  Future<void> _leaveScreen() async {
+    if (_leaving) return;
+    setState(() => _leaving = true);
+    await _settleEndlessRemainder();
+    if (!mounted) return;
+    await WidgetsBinding.instance.endOfFrame;
+    if (mounted) Navigator.of(context).pop();
   }
 
   /// 连锁消除：消除 → 下落补位 → 再判定，直到没有三连
-  Future<void> _resolveCascades() async {
+  ///
+  /// [seed] 为额外要消除的格子（魔力鸟交换时传入），
+  /// [silent] 为不触发自身特效的格子（魔力鸟自身的范围已由调用方算好）
+  Future<void> _resolveCascades({Set<int>? seed, Set<int>? silent}) async {
     var combo = 1;
-    while (true) {
-      final matches = _rules.findMatches(_kinds());
-      if (matches.isEmpty) break;
+    var extra = seed;
+    var triggerSilent = silent;
 
-      final gain = matches.length * 30 * combo;
+    while (true) {
+      final groups = _rules.findGroups(_kinds());
+      final seeds = <int>{...?extra};
+      final creations = <int, _Fx>{};
+      for (final g in groups) {
+        seeds.addAll(g.cells);
+        final at = g.specialIndex;
+        if (at != null && g.special != MatchSpecial.none) {
+          final tile = _grid[at ~/ _cols][at % _cols];
+          // 该格已有特效时优先触发旧特效，不再叠新的
+          if (tile != null && tile.fx == _Fx.none) {
+            creations[at] = _fxOf(g.special);
+          }
+        }
+      }
+      if (seeds.isEmpty) break;
+
+      // 特效连锁：被清掉的格子若是特效，则扩大消除范围
+      final clear = _gatherClear(seeds, silent: triggerSilent);
+      triggerSilent = null;
+      // 生成特效的格子保留下来（不参与本次消除）
+      clear.removeAll(creations.keys);
+      if (clear.isEmpty) break;
+
+      final gain = clear.length * 30 * combo;
       HapticFeedback.lightImpact();
       setState(() {
         _score += gain;
-        for (final i in matches) {
+        for (final i in clear) {
           _grid[i ~/ _cols][i % _cols]?.clearing = true;
         }
       });
@@ -236,8 +478,11 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
       if (!mounted) return;
 
       setState(() {
-        for (final i in matches) {
+        for (final i in clear) {
           _grid[i ~/ _cols][i % _cols] = null;
+        }
+        for (final e in creations.entries) {
+          _grid[e.key ~/ _cols][e.key % _cols]?.fx = e.value;
         }
         _applyGravity();
       });
@@ -251,6 +496,7 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
           }
         }
       });
+      extra = null;
       combo++;
     }
 
@@ -260,21 +506,91 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
     }
   }
 
-  /// 列内下落 + 顶部补新格
+  /// 从 [seeds] 出发展开特效连锁，得到本次真正要清掉的全部格子
+  Set<int> _gatherClear(Set<int> seeds, {Set<int>? silent}) {
+    final clear = <int>{};
+    final queue = <int>[...seeds];
+    while (queue.isNotEmpty) {
+      final i = queue.removeLast();
+      if (!clear.add(i)) continue;
+      if (silent != null && silent.contains(i)) continue;
+      final t = _grid[i ~/ _cols][i % _cols];
+      if (t == null || t.fx == _Fx.none) continue;
+      queue.addAll(_blast(t, i));
+    }
+    return clear;
+  }
+
+  /// 某个特效格爆炸时影响的格子（按棋盘遮罩裁剪）
+  List<int> _blast(_Tile t, int i) {
+    final r = i ~/ _cols;
+    final c = i % _cols;
+    switch (t.fx) {
+      case _Fx.lineRow:
+        return [
+          for (var cc = 0; cc < _cols; cc++)
+            if (_mask[r][cc]) r * _cols + cc,
+        ];
+      case _Fx.lineCol:
+        return [
+          for (var rr = 0; rr < _rows; rr++)
+            if (_mask[rr][c]) rr * _cols + c,
+        ];
+      case _Fx.bomb:
+        return [
+          for (var rr = r - 1; rr <= r + 1; rr++)
+            for (var cc = c - 1; cc <= c + 1; cc++)
+              if (rr >= 0 &&
+                  rr < _rows &&
+                  cc >= 0 &&
+                  cc < _cols &&
+                  _mask[rr][cc])
+                rr * _cols + cc,
+        ];
+      case _Fx.colorBomb:
+        final kind = t.kind;
+        return [
+          for (var rr = 0; rr < _rows; rr++)
+            for (var cc = 0; cc < _cols; cc++)
+              if (_grid[rr][cc] != null &&
+                  _grid[rr][cc]!.kind == kind &&
+                  _grid[rr][cc]!.fx != _Fx.colorBomb)
+                rr * _cols + cc,
+        ];
+      case _Fx.none:
+        return const [];
+    }
+  }
+
+  _Fx _fxOf(MatchSpecial special) => switch (special) {
+    MatchSpecial.none => _Fx.none,
+    MatchSpecial.lineRow => _Fx.lineRow,
+    MatchSpecial.lineCol => _Fx.lineCol,
+    MatchSpecial.bomb => _Fx.bomb,
+    MatchSpecial.colorBomb => _Fx.colorBomb,
+  };
+
+  /// 列内下落 + 顶部补新格（按几何遮罩的有效格收拢）
   void _applyGravity() {
     for (var c = 0; c < _cols; c++) {
-      var write = _rows - 1;
+      final tiles = <_Tile>[];
       for (var r = _rows - 1; r >= 0; r--) {
         final t = _grid[r][c];
-        if (t == null) continue;
-        if (write != r) {
-          _grid[write][c] = t;
-          t.r = write;
-          _grid[r][c] = null;
-        }
-        write--;
+        if (t != null) tiles.add(t);
+        _grid[r][c] = null;
       }
-      for (var r = write; r >= 0; r--) {
+      // 从底部有效格开始依次放回
+      var i = 0;
+      for (var r = _rows - 1; r >= 0 && i < tiles.length; r--) {
+        if (!_mask[r][c]) continue;
+        final t = tiles[i++];
+        t.r = r;
+        t.c = c;
+        _grid[r][c] = t;
+      }
+      // 剩余空间补新格
+      for (var r = _rows - 1; r >= 0; r--) {
+        if (!_mask[r][c] || _grid[r][c] != null) continue;
         _grid[r][c] = _Tile(
           id: _nextId++,
           kind: _rnd.nextInt(_pool.length),
@@ -307,27 +623,39 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
   }
 
   void _checkResult() {
+    if (_mode != _Mode.level) return;
     if (_score >= _targetScore) {
-      _finished = true;
-      _showResult(won: true);
+      setState(() => _finished = true);
+      unawaited(_showResult(won: true));
     } else if (_moves <= 0) {
-      _finished = true;
-      _showResult(won: false);
+      setState(() => _finished = true);
+      unawaited(_showResult(won: false));
     }
   }
 
   Future<void> _showResult({required bool won}) async {
-    final storage = await ref.read(localStorageProvider.future);
-    // 积分是账号权益：游客不计分，结算只提示登录后可获得
-    final isGuest = !storage.hasAccountSession;
-    final earned = (won && !isGuest)
-        ? await ref
-              .read(pointsProvider.notifier)
-              .earn(
-                source: 'match3',
-                amount: _score ~/ PointsNotifier.scorePerPoint,
-              )
-        : 0;
+    var isGuest = true;
+    try {
+      final storage = await ref.read(localStorageProvider.future);
+      isGuest = !storage.hasAccountSession;
+    } catch (_) {
+      // 本地存储异常不应阻塞通关弹窗
+    }
+    // 积分是账号权益：游客不计分；发分失败也不影响结算与进入下一关
+    var earned = 0;
+    if (won && !isGuest) {
+      try {
+        earned = await ref
+            .read(pointsProvider.notifier)
+            .earn(
+              source: 'match3',
+              amount: _score ~/ PointsNotifier.scorePerPoint,
+            )
+            .timeout(const Duration(seconds: 3), onTimeout: () => 0);
+      } catch (_) {
+        earned = 0;
+      }
+    }
     if (!mounted) return;
     await showDialog<void>(
       context: context,
@@ -341,7 +669,7 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                won ? '通关啦！' : '差一点就通关',
+                won ? '第 $_level 关通关啦！' : '差一点就通关',
                 style: TextStyle(
                   color: won ? _brandCyan : const Color(0xFF7C7C82),
                   fontSize: 22,
@@ -365,7 +693,7 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
                           : (earned > 0
                               ? '获得 $earned 积分'
                               : '本局得分不足 1000，暂无积分'))
-                    : '目标 $_targetScore 分，再试一次吧',
+                    : '目标 $_targetScore 分，已得 $_score 分会保留',
                 style: const TextStyle(color: Color(0xFF8E8E93), fontSize: 13),
               ),
               const SizedBox(height: 20),
@@ -395,12 +723,22 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
                       ),
                       onPressed: () {
                         Navigator.of(ctx).pop();
-                        _pool = _pickPool();
-                        _startGame();
+                        if (won) {
+                          // 通关后进入下一关：目标更高，棋盘随机换新形状；
+                          // 同时把最高关卡写入本地，下次进入直接继续
+                          _level += 1;
+                          _persistLevel(_level);
+                          _shape = _pickShape();
+                          _mask = _maskFor(_shape);
+                          _startGame();
+                        } else {
+                          // 失败不再清零分数，补齐步数后接着打
+                          _retryLevel();
+                        }
                       },
-                      child: const Text(
-                        '再来一局',
-                        style: TextStyle(fontWeight: FontWeight.w700),
+                      child: Text(
+                        won ? '下一关' : '再试一次',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
                     ),
                   ),
@@ -425,6 +763,47 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
       );
     }
     return Icon(b.icon, color: b.color, size: size * 0.82);
+  }
+
+  /// 直线 / 爆炸 / 魔力鸟的角标（角标叠在饮品图标右下角，不替换饮品本身）
+  Widget _fxBadge(_Fx fx, double cell) {
+    final (icon, color) = switch (fx) {
+      _Fx.lineRow => (Icons.swap_horiz_rounded, _brandCyan),
+      _Fx.lineCol => (Icons.swap_vert_rounded, _brandCyan),
+      _Fx.bomb => (Icons.flare_rounded, const Color(0xFFF2A93B)),
+      _Fx.colorBomb => (Icons.auto_awesome_rounded, Colors.white),
+      _Fx.none => (Icons.circle, _brandCyan),
+    };
+    final rainbow = fx == _Fx.colorBomb;
+    return Container(
+      width: cell * 0.34,
+      height: cell * 0.34,
+      decoration: BoxDecoration(
+        color: rainbow ? null : Colors.white,
+        gradient: rainbow
+            ? const SweepGradient(
+                colors: [
+                  Color(0xFFEF7A8B),
+                  Color(0xFFF2C14E),
+                  Color(0xFF6BCB77),
+                  Color(0xFF4DB8D8),
+                  Color(0xFF9B7BE8),
+                  Color(0xFFEF7A8B),
+                ],
+              )
+            : null,
+        shape: BoxShape.circle,
+        border: Border.all(color: rainbow ? Colors.white : color, width: 1.2),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x22000000),
+            blurRadius: 4,
+            offset: Offset(0, 1),
+          ),
+        ],
+      ),
+      child: Icon(icon, size: cell * 0.2, color: color),
+    );
   }
 
   Widget _buildTile(_Tile t, double cell) {
@@ -472,7 +851,25 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
                       ],
                     )
                   : null,
-              child: Center(child: _drinkIcon(beverage, cell * 0.68)),
+              child: Center(
+                child: SizedBox(
+                  width: cell,
+                  height: cell,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      // 所有格子（含特效格、魔力鸟）都保持饮品图标
+                      _drinkIcon(beverage, cell * 0.68),
+                      if (t.fx != _Fx.none)
+                        Positioned(
+                          right: cell * 0.05,
+                          bottom: cell * 0.05,
+                          child: _fxBadge(t.fx, cell),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
             ),
           ),
         ),
@@ -514,13 +911,47 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
           );
   }
 
+  Widget _modePill(String label, _Mode mode) {
+    final active = _mode == mode;
+    return Expanded(
+      child: GestureDetector(
+        onTap: _busy ? null : () => _switchMode(mode),
+        behavior: HitTestBehavior.opaque,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: active ? _brandCyan : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: active ? Colors.white : const Color(0xFF8E8E93),
+              fontSize: 13,
+              fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final points = ref.watch(pointsProvider);
-    final progress = (_score / _targetScore).clamp(0.0, 1.0);
+    final progress = _mode == _Mode.level
+        ? (_score / _targetScore).clamp(0.0, 1.0)
+        : ((_score % _endlessStep) / _endlessStep);
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF7F7FA),
+    return PopScope(
+      canPop: _leaving,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) unawaited(_leaveScreen());
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF7F7FA),
       // 顶部到中部的淡青渐层：让白色棋盘和透明图标有柔和的衬托
       body: DecoratedBox(
         decoration: const BoxDecoration(
@@ -538,14 +969,7 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
                 padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
                 child: Row(
                   children: [
-                    _CircleButton(
-                      onTap: () => Navigator.of(context).pop(),
-                      child: const Icon(
-                        Icons.arrow_back_ios_new,
-                        size: 18,
-                        color: Color(0xFF3C3C43),
-                      ),
-                    ),
+                    const AppBackButton(),
                     const Spacer(),
                     const Text(
                       '饮品消消乐',
@@ -574,6 +998,31 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      // 玩法切换：闯关（限步数） / 无尽（不限步数与分数）
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.92),
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0x0F000000),
+                                blurRadius: 10,
+                                offset: Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                          child: Row(
+                            children: [
+                              _modePill('闯关', _Mode.level),
+                              _modePill('无尽', _Mode.endless),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 24),
                         child: Container(
@@ -598,7 +1047,7 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
                               Expanded(
                                 child: _hudChip(
                                   '剩余步数',
-                                  '$_moves',
+                                  _mode == _Mode.endless ? '∞' : '$_moves',
                                   color: _brandCyan,
                                 ),
                               ),
@@ -635,7 +1084,9 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        '目标 $_targetScore 分',
+                        _mode == _Mode.level
+                            ? '第 $_level 关 · 目标 $_targetScore 分'
+                            : '无尽模式 · 每 2000 分 +2 积分',
                         style: const TextStyle(
                           color: Color(0xFF9B9BA1),
                           fontSize: 12,
@@ -688,9 +1139,19 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
                               const SizedBox(height: 26),
                               const Text(
                                 '点选或滑动相邻饮品交换位置，凑成三个以上即可消除',
+                                textAlign: TextAlign.center,
                                 style: TextStyle(
                                   color: Color(0xFF9B9BA1),
                                   fontSize: 12,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              const Text(
+                                '4 连出直线特效，5 连 T/L 型出爆炸，5 连成线出魔力鸟',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: Color(0xFFB4BAC4),
+                                  fontSize: 11,
                                 ),
                               ),
                             ],
@@ -704,6 +1165,7 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
             ],
           ),
         ),
+      ),
       ),
     );
   }

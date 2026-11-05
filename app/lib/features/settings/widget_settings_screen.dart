@@ -22,6 +22,8 @@ import '../drink/providers/custom_beverage_provider.dart';
 import '../drink/widgets/svg_container.dart';
 import '../../shared/models/beverage.dart';
 import '../../shared/models/preferred_unit.dart';
+import '../../shared/widgets/app_back_button.dart';
+import '../../shared/widgets/app_switch.dart';
 import '../../shared/widgets/drink_illustration.dart';
 import '../home/providers/home_providers.dart';
 import '../onboarding/widgets/animal_silhouette.dart';
@@ -204,7 +206,6 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
   static const _textDark = Color(0xFF1C1C1E);
   static const _textGray = Color(0xFF9E9EA4);
   static const _cardBg = Color(0xFFF6F6F8);
-  static const _switchCyan = Color(0xFF35B5D6);
 
   Future<void> _mutate(WidgetSettingsState Function(WidgetSettingsState) fn) =>
       ref.read(widgetSettingsProvider.notifier).update(
@@ -289,22 +290,9 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
 
   // ---------------- 顶部 ----------------
 
-  Widget _backButton() => Align(
+  Widget _backButton() => const Align(
         alignment: Alignment.centerLeft,
-        child: InkWell(
-          onTap: () => Navigator.of(context).pop(),
-          customBorder: const CircleBorder(),
-          child: Container(
-            width: 44,
-            height: 44,
-            decoration: const BoxDecoration(
-              color: Color(0xFFE9E9EC),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.chevron_left,
-                color: Color(0xFF5A5A60), size: 28),
-          ),
-        ),
+        child: AppBackButton(),
       );
 
   // ---------------- 预览卡 ----------------
@@ -804,17 +792,7 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
               ),
             ),
             const SizedBox(width: 10),
-            Transform.scale(
-              scale: 0.82,
-              child: Switch(
-                value: value,
-                onChanged: onChanged,
-                activeTrackColor: _switchCyan,
-                activeThumbColor: Colors.white,
-                inactiveThumbColor: Colors.white,
-                inactiveTrackColor: const Color(0xFFE5E5EA),
-              ),
-            ),
+            AppSwitch(value: value, onChanged: onChanged),
           ],
         ),
       );

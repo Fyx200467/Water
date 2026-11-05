@@ -34,6 +34,7 @@ class Beverage {
     this.volumePreset,
     this.containerId,
     this.memberOnly = false,
+    this.isPublished = true,
     this.categoryKey,
     this.categoryName,
     this.categoryAccent,
@@ -70,6 +71,9 @@ class Beverage {
 
   /// 会员专属：后台可配置，非会员不可记录
   final bool memberOnly;
+
+  /// 后台「发布到客户端」开关：false 表示已下架，不展示
+  final bool isPublished;
 
   /// 后台分类 code / 显示名 / 分类色（后台「饮品分类」维护）。
   /// 为空时回退到本地枚举（内置预设与用户自定义饮品）。

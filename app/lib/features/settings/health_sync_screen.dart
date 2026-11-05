@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/health/health_sync_service.dart';
 import '../../core/storage/providers.dart';
+import '../../shared/widgets/app_back_button.dart';
+import '../../shared/widgets/app_switch.dart';
 import '../home/providers/home_providers.dart';
 
 /// 设置页「"健康"同步」一行显示「已连接」还是「连接」
@@ -139,7 +141,7 @@ class _HealthSyncScreenState extends ConsumerState<HealthSyncScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF7F8FA),
       appBar: AppBar(
-        leading: const BackButton(),
+        leading: const Center(child: AppBackButton()),
         title: const Text(
           '"健康"同步',
           style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
@@ -178,13 +180,9 @@ class _HealthSyncScreenState extends ConsumerState<HealthSyncScreen> {
                     ],
                   ),
                 ),
-                Switch(
+                AppSwitch(
                   value: enabled,
                   onChanged: _working ? null : _toggle,
-                  activeTrackColor: _cyan,
-                  activeThumbColor: Colors.white,
-                  inactiveThumbColor: Colors.white,
-                  inactiveTrackColor: const Color(0xFFE5E5EA),
                 ),
               ],
             ),

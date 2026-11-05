@@ -159,8 +159,10 @@ class SyncService {
     return count;
   }
 
-  /// 一轮同步结束（无论成功/失败）后回调：界面据此刷新「待同步 N 条」
-  static void Function()? onSyncFinished;
+  /// 一轮同步结束（无论成功/失败）后回调：界面据此刷新「待同步 N 条」；
+  /// 本轮若拉到了记录，App 根节点据此主动刷新首页/历史页，
+  /// 不依赖登录页等调用方是否仍然存活。
+  static void Function(SyncResult result)? onSyncFinished;
 
   static Future<SyncResult> syncNow(LocalStorage storage) {
     if (!storage.hasAccountSession) {
@@ -172,7 +174,12 @@ class SyncService {
     _inFlight = future;
     return future.whenComplete(() {
       if (identical(_inFlight, future)) _inFlight = null;
-      onSyncFinished?.call();
+      future.then(
+        (result) => onSyncFinished?.call(result),
+        onError: (_) => onSyncFinished?.call(
+          const SyncResult(failed: true, message: '同步失败'),
+        ),
+      );
     });
   }
 

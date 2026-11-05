@@ -38,6 +38,7 @@ class PointsState {
     this.todayEarned = 0,
     this.dayKey = '',
     this.history = const [],
+    this.claimedToday = const {},
   });
 
   final int balance;
@@ -50,8 +51,14 @@ class PointsState {
 
   final List<PointsRecord> history;
 
+  /// 今天已领取过的每日任务来源。
+  /// 独立于流水保存：服务端同步会整体替换 history，
+  /// 若只依赖流水判断，领取后退出再进入会再次领取。
+  final Set<String> claimedToday;
+
   /// 今天是否已领取过某个来源的奖励（按本机时区判断）
   bool hasEarnedToday(String source) {
+    if (claimedToday.contains(source)) return true;
     final now = DateTime.now();
     return history.any(
       (r) =>
@@ -68,11 +75,13 @@ class PointsState {
     int? todayEarned,
     String? dayKey,
     List<PointsRecord>? history,
+    Set<String>? claimedToday,
   }) => PointsState(
     balance: balance ?? this.balance,
     todayEarned: todayEarned ?? this.todayEarned,
     dayKey: dayKey ?? this.dayKey,
     history: history ?? this.history,
+    claimedToday: claimedToday ?? this.claimedToday,
   );
 }
 
@@ -84,6 +93,11 @@ class PointsState {
 class PointsNotifier extends StateNotifier<PointsState> {
   PointsNotifier(this.ref) : super(const PointsState()) {
     loaded = _load();
+    // 云端合并有新流水时原地重载，不重建 notifier，
+    // 避免积分页瞬间回落到空态（余额 0 / 空明细）造成的闪烁
+    ref.listen<int>(pointsRevisionProvider, (_, __) {
+      unawaited(_load());
+    });
   }
 
   final Ref ref;
@@ -91,7 +105,7 @@ class PointsNotifier extends StateNotifier<PointsState> {
   /// 磁盘加载完成信号，避免首个发分请求覆盖已加载的余额
   late final Future<void> loaded;
 
-  static const int _maxHistory = 60;
+  static const int _maxHistory = 300;
 
   /// 每多少分折算 1 积分
   static const int scorePerPoint = 1000;
@@ -112,6 +126,7 @@ class PointsNotifier extends StateNotifier<PointsState> {
   Future<void> _load() async {
     try {
       final storage = await ref.read(localStorageProvider.future);
+      if (!mounted) return;
       final snapshot = storage.loadPointsSnapshot();
       final key = _todayKey();
       if (snapshot == null) {
@@ -119,22 +134,40 @@ class PointsNotifier extends StateNotifier<PointsState> {
         return;
       }
       final savedKey = snapshot['dayKey']?.toString() ?? '';
+      final history = ((snapshot['history'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((e) => PointsRecord.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+      // 今日收入以流水为准：服务端同步后本地可能残留旧数字，重算以保证一致
+      final now = DateTime.now();
+      final todaySum = history
+          .where(
+            (r) =>
+                r.amount > 0 &&
+                r.at.year == now.year &&
+                r.at.month == now.month &&
+                r.at.day == now.day,
+          )
+          .fold<int>(0, (sum, r) => sum + r.amount);
+      final claimed = savedKey == key
+          ? ((snapshot['claimed'] as List?) ?? const [])
+                .map((e) => e.toString())
+                .toSet()
+          : <String>{};
       state = PointsState(
         balance: (snapshot['balance'] as num?)?.toInt() ?? 0,
-        // 跨天：今日累计归零，余额不受影响
-        todayEarned: savedKey == key
-            ? ((snapshot['todayEarned'] as num?)?.toInt() ?? 0)
-            : 0,
+        todayEarned: todaySum,
         dayKey: key,
-        history: ((snapshot['history'] as List?) ?? const [])
-            .whereType<Map>()
-            .map((e) => PointsRecord.fromJson(Map<String, dynamic>.from(e)))
-            .toList(),
+        history: history,
+        claimedToday: claimed,
       );
     } catch (_) {
       // 数据异常时保持默认空态
     }
   }
+
+  /// 外部触发刷新（跨零点 / 跨设备）：保留旧状态直到新快照读完，避免闪空
+  Future<void> reload() => _load();
 
   Future<void> _persist() async {
     try {
@@ -144,6 +177,7 @@ class PointsNotifier extends StateNotifier<PointsState> {
         'todayEarned': state.todayEarned,
         'dayKey': state.dayKey,
         'history': state.history.map((e) => e.toJson()).toList(),
+        'claimed': state.claimedToday.toList(),
       });
     } catch (_) {
       // 持久化失败不阻塞游戏流程
@@ -166,10 +200,12 @@ class PointsNotifier extends StateNotifier<PointsState> {
     if (amount <= 0) return 0;
     final key = _todayKey();
     final earnedToday = state.dayKey == key ? state.todayEarned : 0;
+    final claimedToday = state.dayKey == key ? state.claimedToday : const <String>{};
     state = state.copyWith(
       balance: state.balance + amount,
       todayEarned: earnedToday + amount,
       dayKey: key,
+      claimedToday: claimedToday,
       history: [
         PointsRecord(source: source, amount: amount, at: DateTime.now()),
         ...state.history,
@@ -195,11 +231,19 @@ class PointsNotifier extends StateNotifier<PointsState> {
   }) async {
     await loaded;
     if (state.hasEarnedToday(source)) return 0;
-    return earn(
+    final granted = await earn(
       source: source,
       amount: amount,
       eventId: '$source-${_todayKey()}',
     );
+    if (granted > 0) {
+      // 领取标记单独持久化：退出页面/同步替换流水后仍然保持「已领取」
+      state = state.copyWith(
+        claimedToday: {...state.claimedToday, source},
+      );
+      await _persist();
+    }
+    return granted;
   }
 }
 
@@ -209,8 +253,7 @@ final pointsRevisionProvider = StateProvider<int>((ref) => 0);
 final pointsProvider = StateNotifierProvider<PointsNotifier, PointsState>((
   ref,
 ) {
-  // 会话切换 / 云端积分合并后，按新归属账号重新加载
+  // 会话切换后按新归属账号重建；云端流水合并由 notifier 内部原地重载
   ref.watch(sessionEpochProvider);
-  ref.watch(pointsRevisionProvider);
   return PointsNotifier(ref);
 });

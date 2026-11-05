@@ -157,7 +157,7 @@ class MainActivity : FlutterActivity() {
                     // 保存的选择对应的别名已被从清单移除：清掉记录并回到
                     // 默认图标，避免永远指向不存在的入口
                     prefs.edit().remove("flutter.app_icon_selection").apply()
-                    switchIcon("cn.kunqiong.dundun.AppIcon_char_alpaca_0")
+                    switchIcon("cn.kunqiong.dundun.AppIcon_default")
                 }
             }
         } catch (_: Exception) {

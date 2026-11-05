@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../core/storage/providers.dart';
+import '../../shared/widgets/app_back_button.dart';
 
 // ============================================================
 // App 图标选择页（对标原版 WaterLlama「App 图标」页）
@@ -40,8 +41,8 @@ const List<String> _iconCharacters = [
 /// 选中图标持久化键（设置页「App 图标」行同步读取）
 const kAppIconSelectionKey = 'app_icon_selection';
 
-/// 未主动选择过的默认图标（与桌面默认图标一致：水滴系列最后一枚）
-const kDefaultAppIconId = 'glyph2_drop6';
+/// 未主动选择过的默认图标（品牌 Logo，对应 AppIcon_default 别名）
+const kDefaultAppIconId = 'default';
 
 /// 当前选中的 App 图标 id（全局通知：设置页行内小图标跟随变化）
 final ValueNotifier<String?> selectedAppIcon = ValueNotifier<String?>(null);
@@ -49,6 +50,12 @@ final ValueNotifier<String?> selectedAppIcon = ValueNotifier<String?>(null);
 /// 图标清单：角色插画变体（各角色 × 各底色）。
 /// 提为顶层函数：设置页「App 图标」行需要按 id 反查预览数据
 List<AppIconEntry> buildAppIconCatalog() => [
+      // 品牌 Logo（默认图标，与桌面默认别名 AppIcon_default 一致）
+      const AppIconEntry(
+        id: 'default',
+        png: 'assets/images/logo.png',
+        bg: Color(0xFFF7F7F9),
+      ),
       for (var i = 0; i < _iconCharacters.length; i++)
         for (var j = 0; j < _iconBgs.length; j++)
           AppIconEntry(
@@ -137,12 +144,17 @@ class _AppIconPreviewState extends ConsumerState<AppIconPreview> {
             padding: e.svg != null
                 ? EdgeInsets.all(widget.size * 0.08)
                 : EdgeInsets.zero,
-            child: e.svg != null
-                ? Transform.scale(
-                    scale: e.svgScale,
-                    child: SvgPicture.asset(e.svg!, fit: BoxFit.contain))
-                : Icon(e.glyph, color: e.glyphColor,
-                    size: widget.size * 0.58),
+            child: e.png != null
+                ? Image.asset(e.png!,
+                    fit: BoxFit.cover,
+                    width: widget.size,
+                    height: widget.size)
+                : e.svg != null
+                    ? Transform.scale(
+                        scale: e.svgScale,
+                        child: SvgPicture.asset(e.svg!, fit: BoxFit.contain))
+                    : Icon(e.glyph, color: e.glyphColor,
+                        size: widget.size * 0.58),
           ),
         );
       },
@@ -229,27 +241,9 @@ class _AppIconScreenState extends ConsumerState<AppIconScreen> {
             children: [
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                child: Align(
+                child: const Align(
                   alignment: Alignment.centerLeft,
-                  child: InkWell(
-                    onTap: () => Navigator.of(context).pop(),
-                    customBorder: const CircleBorder(),
-                    child: Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: dark
-                            ? const Color(0xFF26262C)
-                            : const Color(0xFFE9E9EC),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(Icons.chevron_left,
-                          color: dark
-                              ? const Color(0xFFC7C7CC)
-                              : const Color(0xFF5A5A60),
-                          size: 28),
-                    ),
-                  ),
+                  child: AppBackButton(),
                 ),
               ),
               const SizedBox(height: 6),
@@ -295,6 +289,7 @@ class AppIconEntry {
     required this.id,
     required this.bg,
     this.svg,
+    this.png,
     this.glyph,
     this.glyphColor,
     this.svgScale = 1.0,
@@ -303,8 +298,12 @@ class AppIconEntry {
   final String id;
   final Color bg;
 
-  /// 角色插画 SVG（与 glyph 二选一）
+  /// 角色插画 SVG（与 glyph / png 三选一）
   final String? svg;
+
+  /// 位图图标（品牌 Logo 等满铺图片）
+  final String? png;
+
   final IconData? glyph;
   final Color? glyphColor;
 
@@ -345,13 +344,16 @@ class _IconTile extends StatelessWidget {
                 padding: e.svg != null
                     ? const EdgeInsets.all(6)
                     : EdgeInsets.zero,
-                child: e.svg != null
-                    ? Transform.scale(
-                        scale: e.svgScale,
-                        child: SvgPicture.asset(e.svg!, fit: BoxFit.contain))
-                    // 字形 ~57%：与桌面观感一致（前景占画布 44%，OriginOS
-                    // 蒙版显示画布 ~75% → 桌面视觉占比 ~58%），预览即所得
-                    : Icon(e.glyph, color: e.glyphColor, size: 64),
+                child: e.png != null
+                    ? SizedBox.expand(
+                        child: Image.asset(e.png!, fit: BoxFit.cover))
+                    : e.svg != null
+                        ? Transform.scale(
+                            scale: e.svgScale,
+                            child: SvgPicture.asset(e.svg!, fit: BoxFit.contain))
+                        // 字形 ~57%：与桌面观感一致（前景占画布 44%，OriginOS
+                        // 蒙版显示画布 ~75% → 桌面视觉占比 ~58%），预览即所得
+                        : Icon(e.glyph, color: e.glyphColor, size: 64),
               ),
             ),
           ),

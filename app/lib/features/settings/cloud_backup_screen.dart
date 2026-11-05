@@ -13,10 +13,13 @@ import '../../core/storage/local_storage.dart';
 import '../../core/storage/providers.dart';
 import '../../core/sync/profile_sync.dart';
 import '../../core/sync/sync_api.dart';
+import '../../shared/widgets/tier_nickname.dart';
+import '../membership/membership_provider.dart';
 import '../../core/sync/sync_service.dart';
 import '../../shared/widgets/account_avatar.dart';
+import '../../shared/widgets/app_back_button.dart';
+import '../../shared/widgets/app_switch.dart';
 import '../home/providers/home_providers.dart';
-import '../membership/membership_provider.dart';
 import '../stats/providers/stats_providers.dart';
 import 'legal_screen.dart';
 
@@ -363,25 +366,13 @@ class _CloudBackupScreenState extends ConsumerState<CloudBackupScreen> {
 
   // ==================== 悬浮返回按钮 ====================
 
-  Widget _buildBackButton() {
-    return GestureDetector(
-      onTap: () => Navigator.of(context).maybePop(),
-      child: Container(
-        width: 36,
-        height: 36,
-        decoration: const BoxDecoration(
-          color: Color(0xFFE5E5EA),
-          shape: BoxShape.circle,
-        ),
-        child: const Icon(Icons.arrow_back_ios_new, size: 15, color: _textDark),
-      ),
-    );
-  }
+  Widget _buildBackButton() => const AppBackButton();
 
   // ==================== 账号信息卡（昵称 / 登录账号 / 吨吨ID） ====================
 
   Widget _buildAccountCard(CloudBackupState? state) {
     final loggedIn = state?.isLoggedIn ?? false;
+    final m = ref.watch(membershipProvider);
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 6, 20, 18),
       decoration: BoxDecoration(
@@ -400,11 +391,12 @@ class _CloudBackupScreenState extends ConsumerState<CloudBackupScreen> {
               children: [
                 ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 150),
-                  child: Text(
-                    state?.nickname ?? '未登录',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 14, color: _textSecondary),
+                  child: TierNickname(
+                    text: state?.nickname ?? '未登录',
+                    tier: loggedIn && m.isMember ? m.tier : null,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    baseColor: _textSecondary,
                   ),
                 ),
                 if (loggedIn) ...[
@@ -484,14 +476,10 @@ class _CloudBackupScreenState extends ConsumerState<CloudBackupScreen> {
                 color: _divider,
               ),
             ),
-            OutlinedButton(
+            TextButton(
               onPressed: _onSignOut,
-              style: OutlinedButton.styleFrom(
+              style: TextButton.styleFrom(
                 foregroundColor: _pink,
-                side: const BorderSide(color: _pink, width: 1),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
                 padding: const EdgeInsets.symmetric(
                   horizontal: 34,
                   vertical: 11,
@@ -1043,11 +1031,9 @@ class _CloudBackupScreenState extends ConsumerState<CloudBackupScreen> {
               ],
             ),
           ),
-          Switch(
+          AppSwitch(
             value: _autoSync && connected,
             onChanged: connected ? _toggleAutoSync : null,
-            activeThumbColor: Colors.white,
-            activeTrackColor: const Color(0xFF4DB8D8),
           ),
         ],
       ),

@@ -70,7 +70,7 @@ class ProfileSync {
       final me = await SyncApi.me(token);
       await _syncNickname(storage, token, me);
       await _applyServerProfile(storage, me, storage.loadProfile());
-      await _syncAvatar(storage, token, me);
+      await _syncAvatar(storage, token, me, verify: force);
     } catch (_) {
       // 离线或服务端不可达时静默跳过，不阻塞业务
     }
@@ -201,8 +201,9 @@ class ProfileSync {
   static Future<void> _syncAvatar(
     LocalStorage storage,
     String token,
-    Map<String, dynamic> me,
-  ) async {
+    Map<String, dynamic> me, {
+    bool verify = false,
+  }) async {
     final remote = (me['avatarUrl'] as String?) ?? '';
     final known = storage.accountAvatarRemoteUrl;
     final localPath = storage.accountAvatarPath;
@@ -220,16 +221,32 @@ class ProfileSync {
           await uploadLocal(storage, token, localPath);
         }
       }
-    } else if (remote != known) {
-      final bytes = await _download(remote);
-      if (bytes != null) {
-        final saved = await _saveLocal(storage, bytes, remote);
-        if (saved != null) {
-          await storage.setAccountAvatarPath(saved);
-          onAvatarSynced?.call();
+    } else {
+      bool hasLocal = false;
+      if (localPath != null) {
+        hasLocal = await File(localPath).exists();
+      }
+      // 本机头像文件丢失（换机 / 清数据 / 文件被清理）时，
+      // 即使远端地址没变也要重新下载；登录强同步时额外校验一次服务端文件
+      if (remote != known || !hasLocal || verify) {
+        final bytes = await _download(remote);
+        if (bytes != null) {
+          // 本机已有同一份头像时只做校验，不重复落盘
+          if (!hasLocal || remote != known) {
+            final saved = await _saveLocal(storage, bytes, remote);
+            if (saved != null) {
+              await storage.setAccountAvatarPath(saved);
+              onAvatarSynced?.call();
+            }
+          }
+          // 下载成功才记录已同步的远端地址；失败时保留原值，下轮继续重试
+          await storage.setAccountAvatarRemoteUrl(remote);
+        } else if (localPath != null && hasLocal) {
+          // 服务端头像文件缺失（例如发版重建容器后素材目录被清空）：
+          // 用本机这份补传修复，避免其他设备一直看到默认头像
+          await uploadLocal(storage, token, localPath);
         }
       }
-      await storage.setAccountAvatarRemoteUrl(remote);
     }
   }
 
