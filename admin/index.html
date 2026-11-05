@@ -4253,7 +4253,13 @@
   ddObserver.observe(document.body, { childList: true, subtree: true });
   document.addEventListener("click", function () { closeDropdown(); });
   window.addEventListener("resize", closeDropdown);
-  window.addEventListener("scroll", closeDropdown, true);
+  // 浮层是 position:fixed 定位，页面/弹窗滚动会让它和触发器错位才需要关闭；
+  // 浮层内部自身的滚动（滚轮或拖动右侧滚动条）必须保留。
+  window.addEventListener("scroll", function (e) {
+    if (ddOpen && ddOpen.menu &&
+        (e.target === ddOpen.menu || ddOpen.menu.contains(e.target))) return;
+    closeDropdown();
+  }, true);
 
   /* ---------------- 启动 ---------------- */
   $("loginForm").onsubmit = doLogin;
