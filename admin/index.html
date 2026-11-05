@@ -3472,7 +3472,7 @@
   async function renderChallenges() {
     var res = await Promise.all([
       api("/admin/challenges"),
-      api("/characters?pageSize=100"),
+      api("/characters?category=daily&pageSize=100"),
       api("/character-categories"),
     ]);
     var rows = res[0];
@@ -3606,13 +3606,14 @@
             '<input id="c_bg" type="color" value="' + esc(bg) + '" style="width:56px;height:38px;padding:3px;flex:none;" />' +
             '<input id="c_bg_text" placeholder="#6D4C38" value="' + esc(bg) + '" />' +
           "</div></div>" +
-        '<div class="full"><label>角色（取自角色库）</label>' +
+        '<div class="full"><label>角色（仅限「每日」分类）</label>' +
           '<div style="display:flex;gap:12px;align-items:center;">' +
             '<select id="c_character" style="flex:1;">' + charOpts + "</select>" +
             '<div id="c_char_preview" style="width:54px;height:54px;border-radius:12px;background:#f5f7fa;display:flex;align-items:center;justify-content:center;flex:none;overflow:hidden;">' +
               challengeAssetPreview(item.asset) + "</div>" +
           "</div>" +
-          '<div class="api-hint" style="margin-top:6px;">挑战卡只使用角色库里的角色；如需更换角色，请先到「角色库」上传或编辑。</div>' +
+          '<div class="api-hint" style="margin-top:6px;">发布挑战卡时，角色只能从「每日」分类中选取；共 ' +
+            esc((state.challengeChars || []).length) + ' 个每日角色可选。</div>' +
         "</div>" +
         '<div class="full"><label>介绍</label><textarea id="c_intro" rows="3" placeholder="挑战背景与目标">' +
           esc(item.intro || "") + "</textarea></div>" +
@@ -3638,7 +3639,17 @@
       async function () {
         var title = $("c_title").value.trim();
         if (!title) throw new Error("标题不能为空");
-        if (!$("c_character").value.trim()) throw new Error("请选择角色库中的角色");
+        var asset = $("c_character").value.trim();
+        if (!asset) throw new Error("请选择角色库中的角色");
+        // 发布时角色必须属于「每日」分类（内置插画按 code 对应每日角色）
+        var dailyAssets = {};
+        (state.challengeChars || []).forEach(function (c) {
+          if (c.assetUrl) dailyAssets[c.assetUrl] = true;
+          if (c.code) dailyAssets["assets/images/characters/" + c.code + ".svg"] = true;
+        });
+        if ($("c_pub").value === "1" && !dailyAssets[asset]) {
+          throw new Error("该角色不在「每日」分类，发布前请重新选择每日角色");
+        }
         var bgText = $("c_bg_text").value.trim() || $("c_bg").value;
         if (!/^#[0-9a-fA-F]{6}$/.test(bgText)) throw new Error("背景色需为 #RRGGBB");
         // 分类名大小写容错，并拦截客户端不认识的值（否则 App 会静默忽略）
@@ -3664,7 +3675,7 @@
           days: Math.min(60, Math.max(1, Number($("c_days").value) || 10)),
           rewardPoints: Math.min(1000, Math.max(0, Number($("c_reward").value) || 0)),
           bgColor: bgText,
-          asset: $("c_character").value.trim(),
+          asset: asset,
           intro: $("c_intro").value.trim(),
           benefits: parseBenefitsText($("c_benefits").value),
           todo: $("c_todo").value.trim(),

@@ -727,6 +727,26 @@ const categoriesJson = (v) => {
   return JSON.stringify(out);
 };
 
+/// 挑战卡角色必须来自角色库的「每日」分类：
+/// 同时兼容角色库地址和 App 安装包里的内置插画路径（按 code 对应）
+const challengeAssetIsDaily = (asset) => {
+  const a = String(asset ?? '').trim();
+  if (!a) return false;
+  if (
+    db
+      .prepare('SELECT 1 AS ok FROM characters WHERE asset_url = ? AND category_code = ?')
+      .get(a, 'daily')
+  ) {
+    return true;
+  }
+  const m = /^assets\/images\/characters\/(.+)\.svg$/i.exec(a) ||
+    /^\/static\/preset\/characters\/(.+)\.svg$/i.exec(a);
+  if (!m) return false;
+  return !!db
+    .prepare('SELECT 1 AS ok FROM characters WHERE code = ? AND category_code = ?')
+    .get(m[1], 'daily');
+};
+
 /// 挑战卡字段统一为 camelCase；admin 额外返回上下架状态与创建时间
 function mapChallenge(r, admin = false) {
   const item = {
@@ -2623,6 +2643,12 @@ async function handle(req, res, url) {
         rewardRaw === null ? 1000 : Math.min(1000, Math.max(0, rewardRaw));
       const sort = optInt(body.sort);
       const nextSort = sort === null ? maxSort + 1 : sort;
+      // 发布挑战卡时，角色只能来自「每日」分类
+      const asset = String(body.asset ?? '').trim() || null;
+      const publish = body.isPublished === undefined ? 1 : boolInt(body.isPublished);
+      if (publish === 1 && !challengeAssetIsDaily(asset)) {
+        return fail(res, 400, 'invalid_asset', '挑战卡角色只能从「每日」分类中选取');
+      }
       db.prepare(
         `INSERT INTO challenges
            (id, title, subtitle, bg_color, asset, intro, benefits, todo, days,
@@ -2634,7 +2660,7 @@ async function handle(req, res, url) {
         title,
         String(body.subtitle ?? '').trim() || null,
         String(body.bgColor ?? '').trim() || null,
-        String(body.asset ?? '').trim() || null,
+        asset,
         String(body.intro ?? '').trim() || null,
         benefitsJson(body.benefits),
         String(body.todo ?? '').trim() || null,
@@ -2644,7 +2670,7 @@ async function handle(req, res, url) {
         listJson(body.forbiddenKeywords),
         categoriesJson(body.forbiddenCategories),
         nextSort,
-        body.isPublished === undefined ? 1 : boolInt(body.isPublished),
+        publish,
         nowIso(),
       );
       return send(res, 201, { id, sort: nextSort });
@@ -2676,6 +2702,18 @@ async function handle(req, res, url) {
         const rewardPoints = Math.min(1000, Math.max(0, rewardRaw));
         const sort =
           body.sort === undefined ? row.sort : optInt(body.sort) ?? row.sort;
+        // 发布/改角色时，角色必须来自「每日」分类
+        const nextAsset =
+          body.asset === undefined ? row.asset : String(body.asset).trim() || null;
+        const nextPublished =
+          body.isPublished === undefined ? row.is_published : boolInt(body.isPublished);
+        if (
+          nextPublished === 1 &&
+          (body.asset !== undefined || row.is_published !== 1) &&
+          !challengeAssetIsDaily(nextAsset)
+        ) {
+          return fail(res, 400, 'invalid_asset', '挑战卡角色只能从「每日」分类中选取');
+        }
         db.prepare(
           `UPDATE challenges
               SET title = ?, subtitle = ?, bg_color = ?, asset = ?, intro = ?,
@@ -2691,9 +2729,7 @@ async function handle(req, res, url) {
           body.bgColor === undefined
             ? row.bg_color
             : String(body.bgColor).trim() || null,
-          body.asset === undefined
-            ? row.asset
-            : String(body.asset).trim() || null,
+          nextAsset,
           body.intro === undefined
             ? row.intro
             : String(body.intro).trim() || null,
