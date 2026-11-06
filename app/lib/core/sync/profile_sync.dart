@@ -101,7 +101,9 @@ class ProfileSync {
     final data = raw is Map ? raw : const {};
     final complete = const ['gender', 'weightKg', 'heightCm', 'age', 'activityLevel']
         .every((key) => data[key] != null);
-    if (!complete) await _pushProfile(storage, remote);
+    // 本机没有档案时不能拿兜底值（60kg/170cm/25 岁）去补服务端，
+    // 否则会把猜测值写成用户的真实身体数据
+    if (!complete && local != null) await _pushProfile(storage, remote);
   }
 
   /// 昵称同步：本机改过（dirty）就上行；否则以服务端为准覆盖本机。
@@ -112,14 +114,19 @@ class ProfileSync {
   ) async {
     if (storage.nicknameDirty) {
       final local = storage.accountNickname;
-      if (local.isEmpty) return;
-      try {
-        await SyncApi.updateNickname(token, local);
+      if (local.isEmpty) {
+        // 本机昵称被清空（异常数据）：清掉脏标记，改以服务端为准，
+        // 否则会永远拦住服务端昵称下发
         await storage.clearNicknameDirty();
-      } catch (_) {
-        // 离线：保留 dirty 标记，下轮再推
+      } else {
+        try {
+          await SyncApi.updateNickname(token, local);
+          await storage.clearNicknameDirty();
+        } catch (_) {
+          // 离线：保留 dirty 标记，下轮再推
+        }
+        return;
       }
-      return;
     }
     final remote = (me['nickname'] as String?)?.trim() ?? '';
     if (remote.isNotEmpty && remote != storage.accountNickname) {
@@ -192,6 +199,7 @@ class ProfileSync {
       final res = await SyncApi.uploadAvatar(token, bytes, contentType);
       final url = (res['avatarUrl'] as String?) ?? '';
       await storage.setAccountAvatarRemoteUrl(url.isEmpty ? null : url);
+      if (url.isNotEmpty) await storage.clearAvatarDirty();
       return url.isNotEmpty;
     } catch (_) {
       return false;
@@ -207,6 +215,31 @@ class ProfileSync {
     final remote = (me['avatarUrl'] as String?) ?? '';
     final known = storage.accountAvatarRemoteUrl;
     final localPath = storage.accountAvatarPath;
+
+    // 本机头像改动未同步：换新图上传失败、离线恢复默认都要在这里重试，
+    // 否则仅比较远端地址会永远认为「已对齐」
+    if (storage.avatarDirty) {
+      if (localPath == null) {
+        try {
+          await SyncApi.deleteAvatar(token);
+          await storage.setAccountAvatarRemoteUrl(null);
+          await storage.clearAvatarDirty();
+          onAvatarSynced?.call();
+        } catch (_) {
+          // 仍然离线：保留脏标记，并跳过本轮下载，尊重用户的默认头像选择
+        }
+        return;
+      }
+      final file = File(localPath);
+      if (await file.exists()) {
+        final ok = await uploadLocal(storage, token, localPath);
+        if (ok) onAvatarSynced?.call();
+        // 上传失败保留脏标记下轮重试，本轮不回退下载旧头像
+        return;
+      }
+      // 本机文件已丢失：放弃脏标记，走下面正常的「从云端重新下载」
+      await storage.clearAvatarDirty();
+    }
 
     if (remote.isEmpty) {
       if (known != null && known.isNotEmpty) {

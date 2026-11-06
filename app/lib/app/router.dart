@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../features/games/defense/defense_screen.dart';
 import '../features/games/match3/match3_screen.dart';
 import '../features/home/home_screen.dart';
 import '../features/home/providers/home_providers.dart';
@@ -74,6 +75,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/game/match3',
         builder: (context, state) => const Match3Screen(),
+      ),
+      GoRoute(
+        path: '/game/defense',
+        builder: (context, state) => const DefenseScreen(),
       ),
       GoRoute(
         path: '/playground',

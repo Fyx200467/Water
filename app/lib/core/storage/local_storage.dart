@@ -397,24 +397,25 @@ class LocalStorage {
     snapshot['history'] = history;
     // 今日收入按服务端流水重算：服务端未入账的本地记录不再显示，
     // 避免出现「今日 +6 但余额没涨」的假数据
-    final now = DateTime.now();
+    final today = LogicalDay.today();
     var todayEarned = 0;
     for (final e in history) {
       final amount = (e['amount'] as num?)?.toInt() ?? 0;
       final at = DateTime.fromMillisecondsSinceEpoch(
         (e['at'] as num?)?.toInt() ?? 0,
       );
-      if (amount > 0 &&
-          at.year == now.year &&
-          at.month == now.month &&
-          at.day == now.day) {
+      if (amount > 0 && LogicalDay.sameDay(at, today)) {
         todayEarned += amount;
       }
     }
     snapshot['todayEarned'] = todayEarned;
-    snapshot['dayKey'] =
-        '${now.year}-${now.month.toString().padLeft(2, '0')}-'
-        '${now.day.toString().padLeft(2, '0')}';
+    final todayKey = LogicalDay.keyString(today);
+    // 换日时必须同时清空领取标记，否则同步会把旧 dayKey 改写成今天，
+    // 而 claimed 仍是昨天的来源，导致第二天签到/达标任务一直显示「已领取」
+    if ((snapshot['dayKey']?.toString() ?? '') != todayKey) {
+      snapshot['claimed'] = <String>[];
+    }
+    snapshot['dayKey'] = todayKey;
     await savePointsSnapshot(snapshot);
   }
 
@@ -683,6 +684,20 @@ class LocalStorage {
     await prefs.setInt(_kMatch3Level, level);
   }
 
+  static const String _kDefenseLevel = 'defense_level';
+
+  /// 吨吨守卫战已通关的最高关卡数（0~5；只存本机）
+  int get defenseClearedLevels {
+    final v = prefs.getInt(_kDefenseLevel) ?? 0;
+    if (v < 0) return 0;
+    return v > 5 ? 5 : v;
+  }
+
+  Future<void> setDefenseClearedLevels(int cleared) async {
+    if (cleared < 0) return;
+    await prefs.setInt(_kDefenseLevel, cleared > 5 ? 5 : cleared);
+  }
+
   // ---------- 账号与云备份 ----------
 
   static const String _kAccountAnonId = 'account_anon_id';
@@ -742,6 +757,19 @@ class LocalStorage {
       await prefs.setString(key, url);
     }
   }
+
+  static const String _kAvatarDirty = 'account_avatar_dirty';
+
+  /// 本机头像改动（换了新图或恢复默认）尚未成功同步到服务端。
+  /// 仅靠「远端地址是否变化」判断会漏掉替换头像上传失败、离线恢复默认
+  /// 这两类情况，导致改动永远补传不上去。
+  bool get avatarDirty => prefs.getBool('${_kAvatarDirty}_$_accountUid') ?? false;
+
+  Future<void> markAvatarDirty() =>
+      prefs.setBool('${_kAvatarDirty}_$_accountUid', true);
+
+  Future<void> clearAvatarDirty() =>
+      prefs.remove('${_kAvatarDirty}_$_accountUid');
 
   /// 上次与服务端对齐的档案签名（性别/体重/身高/年龄/活动量/目标），
   /// 避免每轮同步重复 PATCH；为空表示该账号尚未与服务端对齐
@@ -1168,9 +1196,35 @@ class LocalStorage {
     );
   }
 
-  /// 服务端下发的记录直接落库（视为已同步）
+  /// 服务端下发的记录直接落库（视为已同步）。
+  /// 本机存在更新且尚未上行的同一条记录时保留本机版本，
+  /// 避免「拉取覆盖本机新改动」造成数据丢失（它会由下一轮上行补传）。
   Future<void> applyRemoteEntry(DrinkEntry entry) async {
+    final local = await _loadEntryByClientId(entry.clientId);
+    if (local != null &&
+        !local.synced &&
+        local.effectiveUpdatedAt.isAfter(entry.effectiveUpdatedAt)) {
+      return;
+    }
     await insertDrinkEntry(entry.copyWith(synced: true));
+  }
+
+  Future<DrinkEntry?> _loadEntryByClientId(String clientId) async {
+    if (clientId.isEmpty) return null;
+    if (_hasDb) {
+      final rows = await _db!.query(
+        'drink_entries',
+        where: 'client_id = ? AND owner_user_id = ?',
+        whereArgs: [clientId, _owner],
+        limit: 1,
+      );
+      return rows.isEmpty ? null : DrinkEntry.fromMap(rows.first);
+    }
+    final all = await _prefsLoadAllEntries();
+    for (final e in all) {
+      if (e.clientId == clientId) return e;
+    }
+    return null;
   }
 
   // ---------- prefs 降级存储 ----------
@@ -1276,6 +1330,7 @@ class LocalStorage {
       'points_pending_',
       '${_kAccountAvatar}_',
       '${_kAccountAvatarRemote}_',
+      '${_kAvatarDirty}_',
       '${_kPushedProfile}_',
       '${_kRejectedOrderNotice}_',
     ]..sort((a, b) => b.length.compareTo(a.length));
@@ -1327,6 +1382,7 @@ class LocalStorage {
       'points_pending_$userId',
       '${_kAccountAvatar}_$userId',
       '${_kAccountAvatarRemote}_$userId',
+      '${_kAvatarDirty}_$userId',
       '${_kPushedProfile}_$userId',
       '${_kRejectedOrderNotice}_$userId',
       '$_kSyncCursorPrefix$userId',

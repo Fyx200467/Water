@@ -818,6 +818,79 @@
   .icon-pick { background: #fff; border-radius: 12px; }
   .icon-pick.selected { border-color: var(--accent); box-shadow: var(--ring); }
   .form-grid textarea { border-radius: 12px; background: #fbfdff; }
+  /* 挑战卡编辑：左侧录入、右侧实时预览 App 卡片样式 */
+  .modal.challenge-wide { width: 1120px; }
+  .challenge-edit {
+    display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 24px;
+    align-items: start;
+  }
+  .challenge-form { min-width: 0; }
+  .challenge-preview {
+    position: sticky; top: -4px;
+    padding: 16px; border-radius: 18px;
+    background: #f4f9fd; border: 1px solid #e4f0f9;
+  }
+  .cv-label {
+    font-size: 12px; font-weight: 700; color: #63798f;
+    letter-spacing: .2px; margin-bottom: 8px;
+  }
+  .cv-label + .cv-label, .cv-card + .cv-label, .cv-header + .cv-label {
+    margin-top: 18px;
+  }
+  .cv-card {
+    position: relative; width: 100%; aspect-ratio: 338 / 176;
+    border-radius: 22px; overflow: hidden; color: #fff;
+    box-shadow: 0 10px 24px rgba(23, 41, 61, .12);
+  }
+  .cv-card-text {
+    position: absolute; left: 10%; right: 30%; top: 0; bottom: 0;
+    display: flex; flex-direction: column; justify-content: center; gap: 4px;
+  }
+  .cv-days { font-size: 12px; font-weight: 700; color: rgba(255, 255, 255, .55); }
+  .cv-title {
+    font-size: 21px; font-weight: 800; line-height: 1.22;
+    white-space: pre-line;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden; word-break: break-word;
+  }
+  .cv-card-art {
+    position: absolute; right: -15.7%; bottom: -17.6%;
+    width: 53%; height: auto; object-fit: contain; pointer-events: none;
+  }
+  .cv-art-ph {
+    position: absolute; right: 8px; bottom: 8px; width: 54px; height: 54px;
+    border-radius: 14px; background: rgba(255, 255, 255, .18);
+    color: rgba(255, 255, 255, .8); font-size: 11px; line-height: 1.25;
+    display: flex; align-items: center; justify-content: center; text-align: center;
+  }
+  .cv-header {
+    position: relative; width: 100%; height: 206px;
+    border-radius: 18px; overflow: hidden; color: #fff;
+  }
+  .cv-header-text { position: absolute; left: 18px; right: 36%; top: 30px; }
+  .cv-header-title {
+    margin-top: 3px; font-size: 25px; font-weight: 800; line-height: 1.2;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden; word-break: break-word;
+  }
+  .cv-header-sub {
+    margin-top: 6px; font-size: 13px; font-weight: 600;
+    color: rgba(255, 255, 255, .85);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .cv-header-art {
+    position: absolute; right: -17%; bottom: -15%;
+    width: 58%; height: auto; object-fit: contain; pointer-events: none;
+  }
+  .cv-meta {
+    margin-top: 14px; padding-top: 12px; border-top: 1px dashed #dbe8f3;
+    font-size: 12px; color: #63798f; line-height: 1.7;
+  }
+  @media (max-width: 1180px) {
+    .modal.challenge-wide { width: 100%; }
+    .challenge-edit { grid-template-columns: 1fr; }
+    .challenge-preview { position: static; }
+  }
   .check input { accent-color: var(--accent); }
   .bcheck {
     border-radius: 12px; background: #fbfdff; border-color: #e9f1f8;
@@ -3306,14 +3379,21 @@
     "water", "tea", "coffee", "milk", "milkTea", "juice", "soda", "soup", "alcohol",
   ];
 
+  // 把挑战卡里记录的素材地址换算成后后台可访问的预览地址；
+  // 无法识别的地址返回空串（App 会回退到内置插画）
+  function challengeAssetSrc(asset) {
+    if (!asset) return "";
+    if (asset.indexOf(CHALLENGE_ASSET_PREFIX) === 0) {
+      return "/static/preset/characters/" + asset.slice(CHALLENGE_ASSET_PREFIX.length);
+    }
+    if (asset.charAt(0) === "/" || /^https?:\/\//i.test(asset)) return asset;
+    return "";
+  }
+
   function challengeAssetPreview(asset) {
     if (!asset) return '<span class="tag off">无插画</span>';
-    var src = asset;
-    if (asset.indexOf(CHALLENGE_ASSET_PREFIX) === 0) {
-      src = "/static/preset/characters/" + asset.slice(CHALLENGE_ASSET_PREFIX.length);
-    } else if (asset.charAt(0) !== "/" && !/^https?:\/\//i.test(asset)) {
-      return '<span class="tag">' + esc(asset) + "</span>";
-    }
+    var src = challengeAssetSrc(asset);
+    if (!src) return '<span class="tag">' + esc(asset) + "</span>";
     return '<img src="' + esc(assetUrl(src)) + '" alt="" title="' + esc(asset) +
       '" style="width:40px;height:40px;object-fit:contain;border-radius:9px;background:#f5f7fa;vertical-align:middle;" />';
   }
@@ -3325,7 +3405,7 @@
       .filter(function (s) { return s; });
   }
 
-  // 好处：每行 `emoji|文案`，未写分隔符时整行按文案处理
+  // 好处：兼容 [[emoji, 文案], ...] 与 [{emoji, text}, ...] 两种历史数据
   function parseBenefitsText(text) {
     var out = [];
     String(text || "").split(/\r?\n/).forEach(function (line) {
@@ -3339,10 +3419,59 @@
     return out;
   }
 
+  /// 表单录入 → 右侧 App 卡片/详情头部实时预览
+  function updateChallengePreview() {
+    if (!$("cvCard")) return;
+    var bgText = $("c_bg_text").value.trim();
+    var bg = /^#[0-9a-fA-F]{6}$/.test(bgText)
+      ? bgText
+      : ($("c_bg").value || "#6D4C38");
+    var title = $("c_title").value.replace(/\r/g, "").trim() || "挑战卡标题";
+    var subtitle = $("c_subtitle").value.trim();
+    var days = Math.min(60, Math.max(1, Number($("c_days").value) || 10));
+    var reward = Math.min(1000, Math.max(0, Number($("c_reward").value) || 0));
+    var asset = $("c_character").value.trim();
+    var src = challengeAssetSrc(asset);
+    var imgUrl = src ? esc(assetUrl(src)) : "";
+
+    $("cvCard").style.background = bg;
+    $("cvHeader").style.background = bg;
+    $("cvDays").textContent = days + " 天挑战";
+    $("cvDays2").textContent = days + " 天挑战";
+    $("cvTitle").textContent = title;
+    // 详情页头部标题不保留换行（与 App 一致）
+    $("cvHeaderTitle").textContent = title.replace(/\n/g, "");
+    $("cvSubtitle").textContent = subtitle || "副标题（详情页显示）";
+
+    [["cvArt", "cvArtPh"], ["cvHeaderArt", "cvHeaderArtPh"]].forEach(function (pair) {
+      var img = $(pair[0]);
+      var ph = $(pair[1]);
+      if (!img || !ph) return;
+      if (imgUrl) {
+        img.src = imgUrl;
+        img.style.display = "";
+        ph.style.display = "none";
+      } else {
+        img.removeAttribute("src");
+        img.style.display = "none";
+        ph.style.display = "";
+      }
+    });
+
+    var labels = splitCsv($("c_labels").value);
+    var keywords = splitCsv($("c_keywords").value);
+    var cats = splitCsv($("c_categories").value);
+    $("cvMeta").innerHTML =
+      "完成 " + "<b>" + esc(days) + "</b>" + " 天可获得 " +
+      "<b>" + esc(reward) + "</b>" + " 积分<br />" +
+      "禁止项：分类 " + esc(cats.length) + " 个 · 标签 " + esc(labels.length) +
+      " 个 · 关键词 " + esc(keywords.length) + " 个";
+  }
+
   async function renderChallenges() {
     var res = await Promise.all([
       api("/admin/challenges"),
-      api("/characters?pageSize=100"),
+      api("/characters?category=daily&pageSize=100"),
       api("/character-categories"),
     ]);
     var rows = res[0];
@@ -3411,7 +3540,10 @@
     var bg = item.bgColor || "#6D4C38";
     var benefits = isEdit
       ? (item.benefits || []).map(function (b) {
-          return (b[0] || "") + "|" + (b[1] || "");
+          // 兼容 [[emoji, 文案], ...] 与 [{emoji, text}, ...] 两种历史数据
+          if (Array.isArray(b)) return (b[0] || "") + "|" + (b[1] || "");
+          if (b && typeof b === "object") return (b.emoji || "") + "|" + (b.text || "");
+          return String(b || "");
         }).join("\n")
       : "";
     // 挑战卡角色直接取自角色库，避免再单独上传一套插画
@@ -3432,10 +3564,35 @@
     })) {
       charOpts = '<option value="' + esc(item.asset) + '" selected>当前插画（非角色库素材）</option>' + charOpts;
     }
+    var previewHtml =
+      '<div class="challenge-preview" id="challengePreview">' +
+        '<div class="cv-label">App 首页卡片</div>' +
+        '<div class="cv-card" id="cvCard">' +
+          '<img class="cv-card-art" id="cvArt" alt="" />' +
+          '<div class="cv-art-ph" id="cvArtPh">未选角色</div>' +
+          '<div class="cv-card-text">' +
+            '<div class="cv-days" id="cvDays">10 天挑战</div>' +
+            '<div class="cv-title" id="cvTitle">挑战卡标题</div>' +
+          "</div>" +
+        "</div>" +
+        '<div class="cv-label">详情页头部</div>' +
+        '<div class="cv-header" id="cvHeader">' +
+          '<img class="cv-header-art" id="cvHeaderArt" alt="" />' +
+          '<div class="cv-art-ph" id="cvHeaderArtPh">未选角色</div>' +
+          '<div class="cv-header-text">' +
+            '<div class="cv-days" id="cvDays2">10 天挑战</div>' +
+            '<div class="cv-header-title" id="cvHeaderTitle">挑战卡标题</div>' +
+            '<div class="cv-header-sub" id="cvSubtitle">副标题</div>' +
+          "</div>" +
+        "</div>" +
+        '<div class="cv-meta" id="cvMeta"></div>' +
+        '<div class="api-hint" style="margin-top:10px;">预览按 App 卡片比例示意，实际排版以客户端为准。</div>' +
+      "</div>";
     openModal(
       isEdit ? "编辑挑战卡" : "新增挑战卡",
-      '<div class="form-grid">' +
-        '<div class="full"><label>标题（支持换行，App 按两行排版）</label><textarea id="c_title" rows="2" placeholder="例如：向咖啡因说不的 / 卷尾猴">' +
+      '<div class="challenge-edit">' +
+        '<div class="form-grid challenge-form" id="challengeForm">' +
+        '<div class="full"><label>标题（支持换行，App 按两行排版）</label><textarea id="c_title" rows="2" maxlength="200" placeholder="例如：向咖啡因说不的 / 卷尾猴">' +
           esc(item.title || "") + "</textarea></div>" +
         '<div class="full"><label>副标题</label><input id="c_subtitle" maxlength="120" value="' +
           esc(item.subtitle || "") + '" /></div>' +
@@ -3448,13 +3605,14 @@
             '<input id="c_bg" type="color" value="' + esc(bg) + '" style="width:56px;height:38px;padding:3px;flex:none;" />' +
             '<input id="c_bg_text" placeholder="#6D4C38" value="' + esc(bg) + '" />' +
           "</div></div>" +
-        '<div class="full"><label>角色（取自角色库）</label>' +
+        '<div class="full"><label>角色（仅限「每日」分类）</label>' +
           '<div style="display:flex;gap:12px;align-items:center;">' +
             '<select id="c_character" style="flex:1;">' + charOpts + "</select>" +
             '<div id="c_char_preview" style="width:54px;height:54px;border-radius:12px;background:#f5f7fa;display:flex;align-items:center;justify-content:center;flex:none;overflow:hidden;">' +
               challengeAssetPreview(item.asset) + "</div>" +
           "</div>" +
-          '<div class="api-hint" style="margin-top:6px;">挑战卡只使用角色库里的角色；如需更换角色，请先到「角色库」上传或编辑。</div>' +
+          '<div class="api-hint" style="margin-top:6px;">发布挑战卡时，角色只能从「每日」分类中选取；共 ' +
+            esc((state.challengeChars || []).length) + ' 个每日角色可选。</div>' +
         "</div>" +
         '<div class="full"><label>介绍</label><textarea id="c_intro" rows="3" placeholder="挑战背景与目标">' +
           esc(item.intro || "") + "</textarea></div>" +
@@ -3476,26 +3634,53 @@
           '<option value="1"' + (!isEdit || item.isPublished ? " selected" : "") + ">上架</option>" +
           '<option value="0"' + (isEdit && !item.isPublished ? " selected" : "") + ">下架</option>" +
         "</select></div>" +
-      "</div>",
+        "</div>" + previewHtml + "</div>",
       async function () {
         var title = $("c_title").value.trim();
         if (!title) throw new Error("标题不能为空");
-        if (!$("c_character").value.trim()) throw new Error("请选择角色库中的角色");
+        var asset = $("c_character").value.trim();
+        if (!asset) throw new Error("请选择角色库中的角色");
+        // 发布时角色必须属于「每日」分类（内置插画按 code 对应每日角色）
+        var dailyAssets = {};
+        (state.challengeChars || []).forEach(function (c) {
+          if (c.assetUrl) dailyAssets[c.assetUrl] = true;
+          if (c.code) dailyAssets["assets/images/characters/" + c.code + ".svg"] = true;
+        });
+        if ($("c_pub").value === "1" && !dailyAssets[asset]) {
+          throw new Error("该角色不在「每日」分类，发布前请重新选择每日角色");
+        }
         var bgText = $("c_bg_text").value.trim() || $("c_bg").value;
         if (!/^#[0-9a-fA-F]{6}$/.test(bgText)) throw new Error("背景色需为 #RRGGBB");
+        // 分类名大小写容错，并拦截客户端不认识的值（否则 App 会静默忽略）
+        var catMap = {};
+        BEVERAGE_CATEGORY_NAMES.forEach(function (n) { catMap[n.toLowerCase()] = n; });
+        var cats = [];
+        var badCats = [];
+        splitCsv($("c_categories").value).forEach(function (c) {
+          var hit = catMap[String(c).replace(/\s+/g, "").toLowerCase()];
+          if (hit) {
+            if (cats.indexOf(hit) < 0) cats.push(hit);
+          } else {
+            badCats.push(c);
+          }
+        });
+        if (badCats.length) {
+          throw new Error("禁止分类无效：" + badCats.join("、") +
+            "；可选 " + BEVERAGE_CATEGORY_NAMES.join(" / "));
+        }
         var dto = {
           title: title,
           subtitle: $("c_subtitle").value.trim(),
           days: Math.min(60, Math.max(1, Number($("c_days").value) || 10)),
           rewardPoints: Math.min(1000, Math.max(0, Number($("c_reward").value) || 0)),
           bgColor: bgText,
-          asset: $("c_character").value.trim(),
+          asset: asset,
           intro: $("c_intro").value.trim(),
           benefits: parseBenefitsText($("c_benefits").value),
           todo: $("c_todo").value.trim(),
           forbiddenLabels: splitCsv($("c_labels").value),
           forbiddenKeywords: splitCsv($("c_keywords").value),
-          forbiddenCategories: splitCsv($("c_categories").value),
+          forbiddenCategories: cats,
           isPublished: $("c_pub").value === "1",
         };
         // 排序留空时不传，新增由服务端排到末尾
@@ -3511,15 +3696,21 @@
         render();
       }
     );
-    $("modalBox").classList.add("wide");
+    $("modalBox").classList.add("challenge-wide");
     // 色板与文本框双向同步，方便直接粘贴设计稿里的色值
-    $("c_bg").oninput = function () { $("c_bg_text").value = this.value.toUpperCase(); };
+    $("c_bg").oninput = function () {
+      $("c_bg_text").value = this.value.toUpperCase();
+      updateChallengePreview();
+    };
     $("c_bg_text").oninput = function () {
       if (/^#[0-9a-fA-F]{6}$/.test(this.value.trim())) $("c_bg").value = this.value.trim();
     };
     $("c_character").onchange = function () {
       $("c_char_preview").innerHTML = challengeAssetPreview(this.value);
     };
+    // 任意输入/选择变化都刷新右侧预览
+    $("challengeForm").addEventListener("input", updateChallengePreview);
+    updateChallengePreview();
   }
 
   /* ---------------- 异常上报 ---------------- */
@@ -3892,6 +4083,7 @@
     $("modalMask").classList.add("hidden");
     $("modalBox").classList.remove("wide");
     $("modalBox").classList.remove("mid");
+    $("modalBox").classList.remove("challenge-wide");
     $("modalBox").innerHTML = "";
   }
 
@@ -4060,7 +4252,14 @@
   ddObserver.observe(document.body, { childList: true, subtree: true });
   document.addEventListener("click", function () { closeDropdown(); });
   window.addEventListener("resize", closeDropdown);
-  window.addEventListener("scroll", closeDropdown, true);
+  // 只有「浮层自身所在的滚动容器」以外发生滚动时才需要关闭：浮层是
+  // position:fixed 定位的，页面/弹窗滚动会让它和触发器错位。但浮层内部
+  // 自己的滚动（滚轮或拖右侧滚动条）必须保留，否则选项一多就无法浏览。
+  window.addEventListener("scroll", function (e) {
+    if (ddOpen && ddOpen.menu &&
+        (e.target === ddOpen.menu || ddOpen.menu.contains(e.target))) return;
+    closeDropdown();
+  }, true);
 
   /* ---------------- 启动 ---------------- */
   $("loginForm").onsubmit = doLogin;

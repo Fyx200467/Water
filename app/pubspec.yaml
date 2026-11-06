@@ -1,7 +1,7 @@
 name: water_llama
 description: "喝水养成 App - 对标 WaterLlama"
 publish_to: 'none'
-version: 1.0.12+13
+version: 1.0.21+22
 
 environment:
   sdk: ^3.12.1

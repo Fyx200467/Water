@@ -9,8 +9,10 @@ import 'package:go_router/go_router.dart';
 import '../../core/app_info.dart';
 import '../../core/notification/notification_service.dart';
 import '../../core/storage/providers.dart';
+import '../../core/sync/profile_sync.dart';
 import '../../core/sync/session_watch.dart';
 import '../../core/sync/sync_api.dart';
+import '../../core/sync/sync_service.dart';
 import '../../shared/models/preferred_unit.dart';
 import '../../shared/widgets/account_avatar.dart';
 import '../../shared/widgets/app_back_button.dart';
@@ -839,8 +841,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       await NotificationService.cancelAll();
     } catch (_) {}
     final storage = await ref.read(localStorageProvider.future);
+    final uid = storage.syncUserId;
+    final hadSession = storage.hasAccountSession;
+    if (hadSession) {
+      // 先退出登录并吊销令牌：清完本地数据后若还保留会话，
+      // 下一轮自动同步会把云端记录与偏好全量重新拉回，等于没清
+      await ProfileSync.deleteLocalAvatar(storage);
+      await SyncService.signOut(storage);
+    }
     await storage.clearAllData();
-    // 已登录时清除数据会同时清掉会话：断开实时通道并复位账号权益
+    if (hadSession && uid != null && uid.isNotEmpty) {
+      // 当前账号留在本机的分桶一并清掉（其他账号的桶不受影响）
+      await storage.purgeAccountData(uid);
+    }
+    // 清数据后账号态已回到游客：断开实时通道并复位账号权益
     SessionWatch.stop();
     await ref.read(membershipProvider.notifier).reset();
     await ref.read(currentCharacterProvider.notifier).select('sheep');

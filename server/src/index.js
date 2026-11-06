@@ -639,6 +639,53 @@ const benefitsJson = (v) =>
       : [],
   );
 
+/// 挑战卡禁止分类只接受 App BeverageCategory 的英文名（大小写容错），
+/// 其余值直接丢弃：客户端不认识会静默忽略，避免后台「看起来已设置」却无效
+const BEVERAGE_CATEGORY_CODES = [
+  'water',
+  'tea',
+  'coffee',
+  'milk',
+  'milkTea',
+  'juice',
+  'soda',
+  'soup',
+  'alcohol',
+];
+const BEVERAGE_CATEGORY_BY_KEY = new Map(
+  BEVERAGE_CATEGORY_CODES.map((code) => [code.toLowerCase(), code]),
+);
+const categoriesJson = (v) => {
+  if (!Array.isArray(v)) return '[]';
+  const out = [];
+  for (const raw of v) {
+    const key = String(raw ?? '').trim().replace(/\s+/g, '').toLowerCase();
+    const code = BEVERAGE_CATEGORY_BY_KEY.get(key);
+    if (code && !out.includes(code)) out.push(code);
+  }
+  return JSON.stringify(out);
+};
+
+/// 挑战卡角色必须来自角色库的「每日」分类：
+/// 同时兼容角色库地址和 App 安装包里的内置插画路径（按 code 对应）
+const challengeAssetIsDaily = (asset) => {
+  const a = String(asset ?? '').trim();
+  if (!a) return false;
+  if (
+    db
+      .prepare('SELECT 1 AS ok FROM characters WHERE asset_url = ? AND category_code = ?')
+      .get(a, 'daily')
+  ) {
+    return true;
+  }
+  const m = /^assets\/images\/characters\/(.+)\.svg$/i.exec(a) ||
+    /^\/static\/preset\/characters\/(.+)\.svg$/i.exec(a);
+  if (!m) return false;
+  return !!db
+    .prepare('SELECT 1 AS ok FROM characters WHERE code = ? AND category_code = ?')
+    .get(m[1], 'daily');
+};
+
 /// 挑战卡字段统一为 camelCase；admin 额外返回上下架状态与创建时间
 function mapChallenge(r, admin = false) {
   const item = {
@@ -2515,6 +2562,12 @@ async function handle(req, res, url) {
         rewardRaw === null ? 1000 : Math.min(1000, Math.max(0, rewardRaw));
       const sort = optInt(body.sort);
       const nextSort = sort === null ? maxSort + 1 : sort;
+      // 发布挑战卡时，角色只能来自「每日」分类
+      const asset = String(body.asset ?? '').trim() || null;
+      const publish = body.isPublished === undefined ? 1 : boolInt(body.isPublished);
+      if (publish === 1 && !challengeAssetIsDaily(asset)) {
+        return fail(res, 400, 'invalid_asset', '挑战卡角色只能从「每日」分类中选取');
+      }
       db.prepare(
         `INSERT INTO challenges
            (id, title, subtitle, bg_color, asset, intro, benefits, todo, days,
@@ -2526,7 +2579,7 @@ async function handle(req, res, url) {
         title,
         String(body.subtitle ?? '').trim() || null,
         String(body.bgColor ?? '').trim() || null,
-        String(body.asset ?? '').trim() || null,
+        asset,
         String(body.intro ?? '').trim() || null,
         benefitsJson(body.benefits),
         String(body.todo ?? '').trim() || null,
@@ -2534,9 +2587,9 @@ async function handle(req, res, url) {
         rewardPoints,
         listJson(body.forbiddenLabels),
         listJson(body.forbiddenKeywords),
-        listJson(body.forbiddenCategories),
+        categoriesJson(body.forbiddenCategories),
         nextSort,
-        body.isPublished === undefined ? 1 : boolInt(body.isPublished),
+        publish,
         nowIso(),
       );
       return send(res, 201, { id, sort: nextSort });
@@ -2568,6 +2621,18 @@ async function handle(req, res, url) {
         const rewardPoints = Math.min(1000, Math.max(0, rewardRaw));
         const sort =
           body.sort === undefined ? row.sort : optInt(body.sort) ?? row.sort;
+        // 发布/改角色时，角色必须来自「每日」分类
+        const nextAsset =
+          body.asset === undefined ? row.asset : String(body.asset).trim() || null;
+        const nextPublished =
+          body.isPublished === undefined ? row.is_published : boolInt(body.isPublished);
+        if (
+          nextPublished === 1 &&
+          (body.asset !== undefined || row.is_published !== 1) &&
+          !challengeAssetIsDaily(nextAsset)
+        ) {
+          return fail(res, 400, 'invalid_asset', '挑战卡角色只能从「每日」分类中选取');
+        }
         db.prepare(
           `UPDATE challenges
               SET title = ?, subtitle = ?, bg_color = ?, asset = ?, intro = ?,
@@ -2583,9 +2648,7 @@ async function handle(req, res, url) {
           body.bgColor === undefined
             ? row.bg_color
             : String(body.bgColor).trim() || null,
-          body.asset === undefined
-            ? row.asset
-            : String(body.asset).trim() || null,
+          nextAsset,
           body.intro === undefined
             ? row.intro
             : String(body.intro).trim() || null,
@@ -2601,11 +2664,9 @@ async function handle(req, res, url) {
             : listJson(body.forbiddenKeywords),
           body.forbiddenCategories === undefined
             ? row.forbidden_categories
-            : listJson(body.forbiddenCategories),
+            : categoriesJson(body.forbiddenCategories),
           sort,
-          body.isPublished === undefined
-            ? row.is_published
-            : boolInt(body.isPublished),
+          nextPublished,
           id,
         );
         return send(res, 200, { ok: true });
@@ -3634,6 +3695,7 @@ async function handle(req, res, url) {
   // 积分来源白名单：客户端只能上报这些日常来源，兑换扣分只由服务端写入
   const POINT_SOURCES = new Set([
     'match3',
+    'defense',
     'checkin',
     'milestone',
     'challenge',
@@ -3716,15 +3778,16 @@ async function handle(req, res, url) {
                 continue;
               }
             }
-            // 小游戏：每天累计不超过 DAILY_GAME_CAP 分
-            if (source === 'match3') {
+            // 小游戏：每个来源每天累计不超过 DAILY_GAME_CAP 分
+            // （消消乐与守卫战各自独立计算，互不占用额度）
+            if (source === 'match3' || source === 'defense') {
               const usedRow = db
                 .prepare(
                   `SELECT COALESCE(SUM(amount), 0) AS total FROM points_events
-                    WHERE user_id = ? AND source = 'match3' AND amount > 0
+                    WHERE user_id = ? AND source = ? AND amount > 0
                       AND date(created_at, '+8 hours') = date('now', '+8 hours')`,
                 )
-                .get(user.id);
+                .get(user.id, source);
               const used = Number(usedRow?.total || 0);
               if (used + amount > DAILY_GAME_CAP) {
                 skipped += 1;
@@ -3906,7 +3969,7 @@ async function handle(req, res, url) {
 
         const existing = db
           .prepare(
-            'SELECT updated_at, data, server_rev FROM drink_entries WHERE user_id = ? AND client_id = ?',
+            'SELECT updated_at, deleted_at, data, server_rev FROM drink_entries WHERE user_id = ? AND client_id = ?',
           )
           .get(user.id, clientId);
 
@@ -3915,7 +3978,9 @@ async function handle(req, res, url) {
             type: 'entry',
             clientId,
             updatedAt: existing.updated_at,
-            deletedAt: null,
+            // 必须回传服务端的墓碑标记，否则客户端会按「未删除」应用冲突结果，
+            // 把其他设备已删除的记录重新复活
+            deletedAt: existing.deleted_at ?? null,
             serverRev: existing.server_rev,
             data: JSON.parse(existing.data),
           });

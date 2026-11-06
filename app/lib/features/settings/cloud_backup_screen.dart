@@ -314,6 +314,8 @@ class _CloudBackupScreenState extends ConsumerState<CloudBackupScreen> {
       await dest.writeAsBytes(await picked.readAsBytes(), flush: true);
       final old = storage.accountAvatarPath;
       await storage.setAccountAvatarPath(dest.path);
+      // 标记本机头像待同步：即使立即上传失败，下一轮同步也会补传
+      await storage.markAvatarDirty();
       if (old != null && old != dest.path) {
         try {
           final f = File(old);
@@ -323,13 +325,16 @@ class _CloudBackupScreenState extends ConsumerState<CloudBackupScreen> {
       ref.invalidate(cloudBackupStateProvider);
       // 登录状态下立即上传，换设备登录即可看到同一头像
       final token = storage.syncToken;
+      var uploaded = false;
       if (token != null && token.isNotEmpty) {
-        await ProfileSync.uploadLocal(storage, token, dest.path);
+        uploaded = await ProfileSync.uploadLocal(storage, token, dest.path);
       }
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('头像已更新')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(uploaded ? '头像已更新' : '头像已更新，联网后自动同步'),
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -343,6 +348,9 @@ class _CloudBackupScreenState extends ConsumerState<CloudBackupScreen> {
     final storage = await ref.read(localStorageProvider.future);
     final old = storage.accountAvatarPath;
     await storage.setAccountAvatarPath(null);
+    // 恢复默认同样要记为待同步：离线删除失败时，下一轮同步继续删，
+    // 否则会被云端旧头像重新拉回来
+    await storage.markAvatarDirty();
     if (old != null) {
       try {
         final f = File(old);
@@ -351,17 +359,23 @@ class _CloudBackupScreenState extends ConsumerState<CloudBackupScreen> {
     }
     // 同步清除服务端头像，避免其他设备登录后又把旧头像拉回来
     final token = storage.syncToken;
+    var synced = true;
     if (token != null && token.isNotEmpty) {
       try {
         await SyncApi.deleteAvatar(token);
         await storage.setAccountAvatarRemoteUrl(null);
-      } catch (_) {}
+        await storage.clearAvatarDirty();
+      } catch (_) {
+        synced = false;
+      }
     }
     ref.invalidate(cloudBackupStateProvider);
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('已恢复默认头像')));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(synced ? '已恢复默认头像' : '已恢复默认头像，联网后自动同步'),
+      ),
+    );
   }
 
   // ==================== 悬浮返回按钮 ====================

@@ -44,10 +44,19 @@ class HabitData {
   final List<String> forbiddenLabels;
 
   /// 该饮品是否属于本挑战禁止范围
+  ///
+  /// 后台可只填「禁止饮品标签」而不填关键词/分类，这里同样按饮品名匹配，
+  /// 避免运营配置的标签在进度判定里完全失效。
   bool forbids(BeverageCategory category, String name) {
     if (forbiddenCategories.contains(category)) return true;
+    final n = name.toLowerCase();
     for (final k in forbiddenKeywords) {
-      if (name.contains(k)) return true;
+      final key = k.trim().toLowerCase();
+      if (key.isNotEmpty && n.contains(key)) return true;
+    }
+    for (final l in forbiddenLabels) {
+      final label = l.trim().toLowerCase();
+      if (label.isNotEmpty && n.contains(label)) return true;
     }
     return false;
   }

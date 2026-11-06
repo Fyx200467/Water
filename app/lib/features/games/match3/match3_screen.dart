@@ -103,6 +103,9 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
   /// 无尽模式已结算到的分数档位（每 2000 分一档）
   int _endlessAwarded = 0;
 
+  /// 游客提示只弹一次，避免每个档位都弹
+  bool _guestHintShown = false;
+
   /// 本地已保存的最高关卡：切换模式时从该关继续
   int _savedLevel = 1;
 
@@ -381,7 +384,9 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
     }
   }
 
-  /// 无尽模式结算：每累计 2000 分入账 2 积分，不设上限
+  /// 无尽模式结算：每累计 2000 分入账 2 积分。
+  /// 受服务端规则约束：单条 ≤200、每日小游戏 ≤500 分，
+  /// 客户端提前按同一口径截断并提示，避免「提示得分后又被回退」。
   Future<void> _settleEndless() async {
     final reached = (_score ~/ _endlessStep) * _endlessStep;
     if (reached <= _endlessAwarded) return;
@@ -391,21 +396,31 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
     final storage = await ref.read(localStorageProvider.future);
     if (!mounted) return;
     if (!storage.hasAccountSession) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('登录后才能获得积分，游客不计分'),
-          duration: Duration(seconds: 2),
-        ),
-      );
+      if (!_guestHintShown) {
+        _guestHintShown = true;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('登录后才能获得积分，游客不计分'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
       return;
     }
     final earned = await ref
         .read(pointsProvider.notifier)
         .earn(source: 'match3', amount: batches * 2);
     if (!mounted) return;
+    final capped = ref.read(pointsProvider).gameCapReached;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('累计 $_score 分，获得 $earned 积分'),
+        content: Text(
+          earned > 0
+              ? '累计 $_score 分，获得 $earned 积分'
+              : capped
+              ? '今日消消乐积分已达上限（$pointsDailyGameCap）'
+              : '今日暂无可用积分',
+        ),
         duration: const Duration(seconds: 2),
       ),
     );
@@ -692,6 +707,8 @@ class _Match3ScreenState extends ConsumerState<Match3Screen> {
                           ? '登录后才能获得积分，游客不计分'
                           : (earned > 0
                               ? '获得 $earned 积分'
+                              : ref.read(pointsProvider).gameCapReached
+                              ? '今日消消乐积分已达上限（$pointsDailyGameCap）'
                               : '本局得分不足 1000，暂无积分'))
                     : '目标 $_targetScore 分，已得 $_score 分会保留',
                 style: const TextStyle(color: Color(0xFF8E8E93), fontSize: 13),

@@ -74,7 +74,7 @@ void main() {
     });
 
     test('咖啡 250ml -> 175ml (70%)', () {
-      final b = Beverage.presets.firstWhere((e) => e.id == 'coffee_americano');
+      final b = Beverage.presets.firstWhere((e) => e.id == 'coffee');
       expect(b.effectiveMl(250), 175);
     });
 
@@ -83,9 +83,9 @@ void main() {
       expect(b.effectiveMl(500), 400);
     });
 
-    test('啤酒 500ml -> 0ml (酒类不计进度)', () {
+    test('啤酒 500ml -> -200ml（酒类按脱水扣减进度）', () {
       final b = Beverage.presets.firstWhere((e) => e.id == 'alcohol_beer');
-      expect(b.effectiveMl(500), 0);
+      expect(b.effectiveMl(500), -200);
     });
 
     test('当日进度聚合', () {
@@ -95,7 +95,7 @@ void main() {
           volumeMl: 250,
         ),
         DrinkEntry.create(
-          beverage: Beverage.presets.firstWhere((e) => e.id == 'coffee_latte'),
+          beverage: Beverage.presets.firstWhere((e) => e.id == 'coffee'),
           volumeMl: 350,
         ),
       ];

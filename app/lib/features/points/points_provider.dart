@@ -5,7 +5,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/storage/providers.dart';
 import '../../../core/sync/sync_service.dart';
+import '../../../core/time/logical_day.dart';
 import '../home/providers/home_providers.dart';
+
+/// 服务端小游戏每日最多入账 500 分、单条最多 200 分（与 index.js 保持一致）
+const int pointsDailyGameCap = 500;
+const int pointsGameEventCap = 200;
+
+/// 小游戏来源：每个来源各自享受独立的每日 500 分上限
+const Set<String> pointsGameSources = {'match3', 'defense'};
 
 /// 一条积分流水（收入为正、支出为负）
 class PointsRecord {
@@ -56,17 +64,33 @@ class PointsState {
   /// 若只依赖流水判断，领取后退出再进入会再次领取。
   final Set<String> claimedToday;
 
-  /// 今天是否已领取过某个来源的奖励（按本机时区判断）
+  /// 今日某个小游戏来源已入账的积分（各来源独立计算上限）
+  int earnedTodayForSource(String source) {
+    final today = LogicalDay.today();
+    return history
+        .where(
+          (r) =>
+              r.source == source &&
+              r.amount > 0 &&
+              LogicalDay.sameDay(r.at, today),
+        )
+        .fold<int>(0, (sum, r) => sum + r.amount);
+  }
+
+  bool capReachedForSource(String source) =>
+      earnedTodayForSource(source) >= pointsDailyGameCap;
+
+  /// 今日消消乐已入账积分（兼容旧调用）
+  int get gameEarnedToday => earnedTodayForSource('match3');
+
+  bool get gameCapReached => capReachedForSource('match3');
+
+  /// 今天是否已领取过某个来源的奖励（按逻辑日判断，尊重重置时间）
   bool hasEarnedToday(String source) {
     if (claimedToday.contains(source)) return true;
-    final now = DateTime.now();
+    final today = LogicalDay.today();
     return history.any(
-      (r) =>
-          r.source == source &&
-          r.amount > 0 &&
-          r.at.year == now.year &&
-          r.at.month == now.month &&
-          r.at.day == now.day,
+      (r) => r.source == source && r.amount > 0 && LogicalDay.sameDay(r.at, today),
     );
   }
 
@@ -112,11 +136,7 @@ class PointsNotifier extends StateNotifier<PointsState> {
 
   static final math.Random _random = math.Random();
 
-  String _todayKey() {
-    final d = DateTime.now();
-    return '${d.year}-${d.month.toString().padLeft(2, '0')}-'
-        '${d.day.toString().padLeft(2, '0')}';
-  }
+  String _todayKey() => LogicalDay.keyString(LogicalDay.today());
 
   String _newEventId() {
     final rand = _random.nextInt(1 << 24).toRadixString(16);
@@ -139,15 +159,9 @@ class PointsNotifier extends StateNotifier<PointsState> {
           .map((e) => PointsRecord.fromJson(Map<String, dynamic>.from(e)))
           .toList();
       // 今日收入以流水为准：服务端同步后本地可能残留旧数字，重算以保证一致
-      final now = DateTime.now();
+      final today = LogicalDay.today();
       final todaySum = history
-          .where(
-            (r) =>
-                r.amount > 0 &&
-                r.at.year == now.year &&
-                r.at.month == now.month &&
-                r.at.day == now.day,
-          )
+          .where((r) => r.amount > 0 && LogicalDay.sameDay(r.at, today))
           .fold<int>(0, (sum, r) => sum + r.amount);
       final claimed = savedKey == key
           ? ((snapshot['claimed'] as List?) ?? const [])
@@ -199,15 +213,28 @@ class PointsNotifier extends StateNotifier<PointsState> {
     if (!storage.hasAccountSession) return 0;
     if (amount <= 0) return 0;
     final key = _todayKey();
+    // 小游戏与服务端同一口径限幅：单条 ≤200、每个来源每日 ≤500。
+    // 不在这里截断的话，多出来的部分会被服务端静默丢弃，
+    // 出现「提示获得了积分、同步后余额又回退」的假象。
+    var granted = amount;
+    if (pointsGameSources.contains(source)) {
+      final used = state.earnedTodayForSource(source);
+      final remaining = pointsDailyGameCap - used;
+      granted = math.min(
+        amount,
+        math.min(pointsGameEventCap, math.max(0, remaining)),
+      );
+      if (granted <= 0) return 0;
+    }
     final earnedToday = state.dayKey == key ? state.todayEarned : 0;
     final claimedToday = state.dayKey == key ? state.claimedToday : const <String>{};
     state = state.copyWith(
-      balance: state.balance + amount,
-      todayEarned: earnedToday + amount,
+      balance: state.balance + granted,
+      todayEarned: earnedToday + granted,
       dayKey: key,
       claimedToday: claimedToday,
       history: [
-        PointsRecord(source: source, amount: amount, at: DateTime.now()),
+        PointsRecord(source: source, amount: granted, at: DateTime.now()),
         ...state.history,
       ].take(_maxHistory).toList(),
     );
@@ -217,12 +244,15 @@ class PointsNotifier extends StateNotifier<PointsState> {
     await storage.addPendingPointEvent({
       'eventId': eventId ?? _newEventId(),
       'source': source,
-      'amount': amount,
+      'amount': granted,
       'occurredAt': DateTime.now().toUtc().toIso8601String(),
     });
     unawaited(SyncService.autoSync(storage));
-    return amount;
+    return granted;
   }
+
+  /// 正在领取中的来源：按钮首帧还没刷新时连点两次也不会重复入账
+  static final Set<String> _claiming = <String>{};
 
   /// 每日任务领取：今天已领过则返回 0；否则按「来源-日期」确定性 eventId 入账
   Future<int> claimDaily({
@@ -231,19 +261,24 @@ class PointsNotifier extends StateNotifier<PointsState> {
   }) async {
     await loaded;
     if (state.hasEarnedToday(source)) return 0;
-    final granted = await earn(
-      source: source,
-      amount: amount,
-      eventId: '$source-${_todayKey()}',
-    );
-    if (granted > 0) {
-      // 领取标记单独持久化：退出页面/同步替换流水后仍然保持「已领取」
-      state = state.copyWith(
-        claimedToday: {...state.claimedToday, source},
+    if (!_claiming.add(source)) return 0;
+    try {
+      final granted = await earn(
+        source: source,
+        amount: amount,
+        eventId: '$source-${_todayKey()}',
       );
-      await _persist();
+      if (granted > 0) {
+        // 领取标记单独持久化：退出页面/同步替换流水后仍然保持「已领取」
+        state = state.copyWith(
+          claimedToday: {...state.claimedToday, source},
+        );
+        await _persist();
+      }
+      return granted;
+    } finally {
+      _claiming.remove(source);
     }
-    return granted;
   }
 }
 

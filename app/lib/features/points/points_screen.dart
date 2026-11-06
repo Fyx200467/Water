@@ -264,6 +264,10 @@ class _PointsScreenState extends ConsumerState<PointsScreen> {
       return SvgPicture.asset('assets/icons/menu/match3.svg',
           width: 20, height: 20);
     }
+    if (source == 'defense') {
+      return SvgPicture.asset('assets/icons/menu/defense.svg',
+          width: 20, height: 20);
+    }
     if (source == 'checkin') {
       return SvgPicture.asset('assets/icons/menu/calendar_header.svg',
           width: 18, height: 18);
@@ -291,6 +295,7 @@ class _PointsScreenState extends ConsumerState<PointsScreen> {
       return '兑换商品';
     }
     if (source == 'match3') return '消消乐奖励';
+    if (source == 'defense') return '守卫战奖励';
     if (source == 'checkin') return '每日签到';
     if (source == 'milestone') return '饮水达标奖励';
     if (source == 'challenge') return '挑战奖励';

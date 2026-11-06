@@ -97,7 +97,21 @@ class PlaygroundScreen extends ConsumerWidget {
             style: TextStyle(color: _sectionTitle, fontSize: 16),
           ),
           const SizedBox(height: 10),
-          _gameCard(context),
+          _gameCard(
+            context,
+            title: '饮品消消乐',
+            subtitle: '三消 · 每 2000 分 +2 积分',
+            icon: 'assets/icons/menu/match3.svg',
+            route: '/game/match3',
+          ),
+          const SizedBox(height: 10),
+          _gameCard(
+            context,
+            title: '吨吨守卫战',
+            subtitle: '塔防 · 守住饮品，通关得积分',
+            icon: 'assets/icons/menu/defense.svg',
+            route: '/game/defense',
+          ),
           const SizedBox(height: 22),
           const Text(
             '每日任务',
@@ -209,31 +223,43 @@ class PlaygroundScreen extends ConsumerWidget {
     );
   }
 
-  Widget _gameCard(BuildContext context) {
+  Widget _gameCard(
+    BuildContext context, {
+    required String title,
+    required String icon,
+    required String route,
+    String? subtitle,
+  }) {
     return Material(
       color: Colors.white,
       borderRadius: BorderRadius.circular(18),
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
-        onTap: () => context.push('/game/match3'),
+        onTap: () => context.push(route),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 14, 14, 14),
           child: Row(
             children: [
-              SvgPicture.asset(
-                'assets/icons/menu/match3.svg',
-                width: 24,
-                height: 24,
-              ),
+              SvgPicture.asset(icon, width: 24, height: 24),
               const SizedBox(width: 12),
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '消消乐',
-                      style: TextStyle(color: _ink, fontSize: 15),
+                      title,
+                      style: const TextStyle(color: _ink, fontSize: 15),
                     ),
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        subtitle,
+                        style: const TextStyle(
+                          color: _rewardHint,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
