@@ -1,0 +1,57 @@
+name: build-and-deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # 不用 actions/checkout：runner 拉 github.com 经常 EOF，直接从自家 Gitea 克隆
+      - name: Fetch source from Gitea
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          git clone --depth 1 "http://giteaadmin:${TOKEN}@43.154.197.96/giteaadmin/heshuiyangcheng.git" repo
+
+      - name: Build image
+        run: docker build -t heshuiyangcheng-backend:latest repo
+
+      - name: Restart container
+        run: |
+          # 上传的头像与后台素材存放在 /app/server/assets，必须挂到宿主机持久目录，
+          # 否则每次发版重建容器都会被清空（数据库里的 avatar_url 变成 404）
+          mkdir -p /opt/heshuiyangcheng/assets
+          if docker ps -a --format '{{.Names}}' | grep -q heshuiyangcheng-backend; then
+            docker cp heshuiyangcheng-backend:/app/server/assets/. /opt/heshuiyangcheng/assets/ 2>/dev/null || true
+          fi
+          docker rm -f heshuiyangcheng-backend || true
+          docker run -d --name heshuiyangcheng-backend \
+            -p 8102:3000 \
+            -v /opt/heshuiyangcheng/data:/data \
+            -v /opt/heshuiyangcheng/assets:/app/server/assets \
+            -v /opt/heshuiyangcheng/downloads:/app/web/downloads:ro \
+            -e PORT=3000 \
+            -e WEB_DIR=/app/web \
+            -e DB_PATH=/data/water.db \
+            -e ADMIN_DIR=/app/admin \
+            -e ASSETS_DIR=/app/server/assets \
+            -e ADMIN_EMAIL="${{ secrets.ADMIN_EMAIL }}" \
+            -e ADMIN_PASSWORD="${{ secrets.ADMIN_PASSWORD }}" \
+            --restart unless-stopped \
+            heshuiyangcheng-backend:latest
+
+      - name: Health check
+        run: |
+          for i in $(seq 1 10); do
+            if docker exec heshuiyangcheng-backend node -e "fetch('http://127.0.0.1:3000/health').then(r=>{if(!r.ok)process.exit(1);return r.text()}).then(t=>console.log(t)).catch(()=>process.exit(1))"; then
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "container health check failed"
+          docker logs --tail 50 heshuiyangcheng-backend
+          exit 1
