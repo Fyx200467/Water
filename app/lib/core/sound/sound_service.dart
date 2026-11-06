@@ -1,6 +1,6 @@
 import 'package:flutter/services.dart';
 
-import '../../features/settings/settings_flags.dart';
+import '../settings/settings_flags.dart';
 
 /// App 内音效
 ///

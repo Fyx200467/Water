@@ -1,4 +1,4 @@
-import '../../features/settings/settings_flags.dart';
+import '../settings/settings_flags.dart';
 
 /// 「一天中的重置时间」逻辑日口径（设置页可配，默认 00:00 = 自然日）
 ///

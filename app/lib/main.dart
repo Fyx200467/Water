@@ -7,7 +7,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
 import 'app/app.dart';
+import 'app/widget_sync_service.dart' show pushHomeWidget;
 import 'core/crash/crash_reporter.dart';
+import 'core/widget/widget_settings_provider.dart' show widgetSyncTriggerProvider;
 import 'core/sync/container_icon_sync.dart';
 import 'core/sync/character_sync.dart';
 import 'core/sync/sync_api.dart';
@@ -50,5 +52,11 @@ Future<void> main() async {
   await ContainerIconStore.init();
   // 云端角色目录缓存：分类/角色列表与 SVG 素材同样离线优先
   await CharacterStore.init();
-  runApp(const ProviderScope(child: WaterLlamaApp()));
+  // core 层只定义触发接口，真实的小组件同步实现由应用集成层注入
+  runApp(ProviderScope(
+    overrides: [
+      widgetSyncTriggerProvider.overrideWith((ref) => () => pushHomeWidget(ref)),
+    ],
+    child: const WaterLlamaApp(),
+  ));
 }

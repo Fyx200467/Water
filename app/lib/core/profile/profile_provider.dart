@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../shared/models/user_profile.dart';
 import '../storage/providers.dart';
 import '../sync/profile_sync.dart';
+import '../widget/widget_settings_provider.dart';
 
 /// PRD §2.1 用户档案
 final profileProvider = StateNotifierProvider<ProfileNotifier, UserProfile?>((
@@ -42,6 +43,6 @@ class ProfileNotifier extends StateNotifier<UserProfile?> {
     if (cur == null) return;
     final next = cur.copyWith(dailyGoalMl: newGoal.clamp(1000, 5000));
     await save(next);
+    unawaited(ref.read(widgetSyncTriggerProvider)());
   }
-
 }

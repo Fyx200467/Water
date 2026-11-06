@@ -21,6 +21,7 @@ import '../stats/providers/stats_providers.dart';
 import '../../../core/widget/widget_settings_provider.dart';
 
 export '../../../core/widget/widget_settings_provider.dart';
+export '../../../app/widget_sync_service.dart';
 
 // ============================================================
 // 小组件设置页（对标原版 WaterLlama「小组件」页）

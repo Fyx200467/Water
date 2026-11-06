@@ -5,7 +5,7 @@ import '../../../core/profile/profile_provider.dart';
 import '../../../core/storage/providers.dart';
 import '../../../core/time/logical_day.dart';
 import '../../../shared/models/drink_entry.dart';
-import '../../home/providers/home_providers.dart';
+import '../../../core/entries/entries_providers.dart';
 import '../services/streak_calculator.dart';
 
 /// 历史窗口：近 3 年（含今天），天数 = 1095
