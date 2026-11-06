@@ -5,8 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/analytics/analytics.dart';
 import '../../../core/health/health_sync_service.dart';
+import '../../../core/profile/profile_provider.dart';
 import '../../../core/settings/account_settings.dart';
-import '../../../core/sync/profile_sync.dart';
 import '../../../core/sound/sound_service.dart';
 import '../../../core/storage/providers.dart';
 import '../../../core/sync/sync_service.dart';
@@ -14,10 +14,12 @@ import '../../../core/time/logical_day.dart';
 import '../../../shared/models/animal_character.dart';
 import '../../../shared/models/drink_entry.dart';
 import '../../../shared/models/preferred_unit.dart';
-import '../../../shared/models/user_profile.dart';
 import '../../drink/services/hydration_calculator.dart';
-import '../../settings/widget_settings_screen.dart';
+import '../../../core/widget/widget_settings_provider.dart';
 import '../../stats/providers/stats_providers.dart';
+
+// 用户档案已下沉至 core；兼容 export 见文件顶部（directive 需先于声明）
+export '../../../core/profile/profile_provider.dart';
 
 /// 数据变更源头推送：当日记录/目标变化后即时刷新桌面小组件
 /// （不依赖各页面手动调用，避免遗漏导致小组件数据滞后）
@@ -32,46 +34,6 @@ Future<void> pushHomeWidget(Ref ref) async {
     );
   } catch (_) {
     // 小组件推送失败不影响录入主流程
-  }
-}
-
-/// PRD §2.1 用户档案
-final profileProvider = StateNotifierProvider<ProfileNotifier, UserProfile?>((
-  ref,
-) {
-  return ProfileNotifier(ref);
-});
-
-class ProfileNotifier extends StateNotifier<UserProfile?> {
-  ProfileNotifier(this.ref, {UserProfile? initial}) : super(initial) {
-    // 仅当未预加载时才异步读取（避免覆盖 main.dart 预加载的初始值）
-    loaded = initial == null ? _load() : Future<void>.value();
-  }
-  final Ref ref;
-
-  /// 磁盘加载完成信号：完成前 state 为 null。小组件后台录入回调若不
-  /// 等待它，目标值会走 2000 兜底 → 桌面百分比虚高（如 56% vs App 53%）
-  late final Future<void> loaded;
-
-  Future<void> _load() async {
-    final storage = await ref.read(localStorageProvider.future);
-    state = storage.loadProfile();
-  }
-
-  Future<void> save(UserProfile p) async {
-    final storage = await ref.read(localStorageProvider.future);
-    await storage.saveProfile(p);
-    state = p;
-    // 档案改了：立刻上行到服务端，后台用户列表 / 打卡明细与 App 保持一致
-    unawaited(ProfileSync.pushProfile(storage));
-  }
-
-  Future<void> updateGoal(int newGoal) async {
-    final cur = state;
-    if (cur == null) return;
-    final next = cur.copyWith(dailyGoalMl: newGoal.clamp(1000, 5000));
-    await save(next);
-    unawaited(pushHomeWidget(ref));
   }
 }
 

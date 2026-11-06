@@ -6,8 +6,10 @@ import '../features/games/defense/defense_screen.dart';
 import '../features/games/match3/match3_screen.dart';
 import '../features/home/home_screen.dart';
 import '../features/home/providers/home_providers.dart';
+import '../features/membership/membership_screen.dart';
 import '../features/onboarding/onboarding_screen.dart';
 import '../features/onboarding/welcome_screen.dart';
+import '../features/points/points_screen.dart';
 import '../features/playground/playground_screen.dart';
 import '../features/reminder/reminder_settings_screen.dart';
 import '../features/drink/screens/drink_manage_screen.dart';
@@ -55,6 +57,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/stats',
         builder: (context, state) => const StatsScreen(),
+      ),
+      GoRoute(
+        path: '/points',
+        builder: (context, state) => const PointsScreen(),
+      ),
+      GoRoute(
+        path: '/membership',
+        builder: (context, state) => const MembershipScreen(),
       ),
       GoRoute(
         path: '/settings',

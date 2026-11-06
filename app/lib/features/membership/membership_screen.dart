@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/analytics/analytics.dart';
 import '../../core/storage/providers.dart';
@@ -13,7 +14,6 @@ import '../../shared/widgets/account_avatar.dart';
 import '../../shared/widgets/app_back_button.dart';
 import '../../shared/widgets/tier_nickname.dart';
 import '../points/points_provider.dart';
-import '../points/points_screen.dart';
 import '../settings/cloud_backup_screen.dart';
 import '../settings/legal_screen.dart';
 import 'membership_provider.dart';
@@ -841,9 +841,7 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
     }
 
     return GestureDetector(
-      onTap: () => Navigator.of(
-        context,
-      ).push(MaterialPageRoute(builder: (_) => const PointsScreen())),
+      onTap: () => context.push('/points'),
       behavior: HitTestBehavior.opaque,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(4, 6, 4, 6),

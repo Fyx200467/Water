@@ -4,11 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/storage/providers.dart';
 import '../../core/sync/points_sync.dart';
 import '../../shared/widgets/app_back_button.dart';
-import '../membership/membership_screen.dart';
 import 'points_provider.dart';
 
 /// 我的积分：余额 + 今日进度 + 收支明细（下拉刷新，最多保留 300 条）
@@ -136,9 +136,7 @@ class _PointsScreenState extends ConsumerState<PointsScreen> {
               ),
               const Spacer(),
               GestureDetector(
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const MembershipScreen()),
-                ),
+                onTap: () => context.push('/membership'),
                 child: const Row(
                   children: [
                     Text(

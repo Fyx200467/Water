@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/profile/profile_provider.dart';
 import '../../../core/storage/providers.dart';
 import '../../../core/time/logical_day.dart';
 import '../../../shared/models/drink_entry.dart';
