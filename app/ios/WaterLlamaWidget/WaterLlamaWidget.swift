@@ -300,8 +300,19 @@ struct WaterWidgetView: View {
 
     @ViewBuilder
     private func drinkRow(_ drink: WaterDrink) -> some View {
-        if drink.addable, let url = URL(string: "waterllama://quick-add?slot=\(drink.id)") {
-            Link(destination: url) { drinkTile(drink) }
+        if drink.addable {
+            // iOS 17+：App Intent 在扩展内直接写队列 + 刷新，无需打开 App；
+            // iOS 16 退回 Link（打开 App 内快速录入）
+            if #available(iOS 17.0, *) {
+                Button(intent: QuickAddDrinkIntent(slot: drink.id)) {
+                    drinkTile(drink)
+                }
+                .buttonStyle(.plain)
+            } else if let url = URL(string: "waterllama://quick-add?slot=\(drink.id)") {
+                Link(destination: url) { drinkTile(drink) }
+            } else {
+                drinkTile(drink)
+            }
         } else {
             drinkTile(drink)
         }
