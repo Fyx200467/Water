@@ -7,7 +7,7 @@
 //  中部角色插画，右侧三个胶囊饮料按钮（+ 与饮品图标）。
 //
 //  数据来源：Flutter 侧 home_widget 插件通过 App Group
-//  `group.com.waterlama.waterLlama` 写入的 UserDefaults（键名与 Android
+//  `group.com.waterllama.waterLlama` 写入的 UserDefaults（键名与 Android
 //  Provider 完全一致）：
 //    goal_num / goal_unit / percent / streak_days / streak_done / streak_badge
 //    bg_color / dark_text / tile_color
@@ -22,7 +22,7 @@
 import SwiftUI
 import WidgetKit
 
-private let appGroupId = "group.com.waterlama.waterLlama"
+private let appGroupId = "group.com.waterllama.waterLlama"
 private let widgetKind = "WaterLlamaWidget"
 
 /// 主文字色（与 Android widget_colors.xml 同值）
