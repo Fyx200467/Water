@@ -210,48 +210,52 @@ struct WaterWidgetView: View {
     // MARK: - 中尺寸（对标 Android 3×2）
 
     private var medium: some View {
-        ZStack(alignment: .leading) {
-            // 角色插画：居中于卡宽约 1/3 处，垫在文字/按钮之下（z 序）
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 3) {
+                amountRow(size: 26)
+                Text(entry.percentText)
+                    .font(.system(size: 12))
+                    .foregroundColor(subInk)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                if entry.showStreak {
+                    badge
+                }
+            }
+            .frame(width: 62, alignment: .leading)
+
+            // 角色插画：放在左右两列之间的空白里居中，而不是贴左
+            Spacer(minLength: 0)
             if let mascot = entry.mascot {
                 Image(uiImage: mascot)
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 88, height: 88)
-                    .padding(.leading, 54)
+                    .frame(width: 92, height: 92)
             }
-            HStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 3) {
-                    amountRow(size: 26)
-                    Text(entry.percentText)
-                        .font(.system(size: 12))
-                        .foregroundColor(subInk)
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                    if entry.showStreak {
-                        badge
-                    }
-                }
-                .frame(width: 62, alignment: .leading)
+            Spacer(minLength: 0)
 
-                Spacer(minLength: 0)
-
-                VStack(spacing: 4) {
-                    ForEach(entry.drinks) { drinkRow($0) }
-                }
-                .frame(width: 112)
+            VStack(spacing: 4) {
+                ForEach(entry.drinks) { drinkRow($0) }
             }
+            .frame(width: 112)
         }
     }
 
     // MARK: - 小尺寸（Android 无对应规格，取同一视觉语言的精简版）
 
     private var small: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            amountRow(size: 24)
-            Text(entry.percentText)
-                .font(.system(size: 11))
-                .foregroundColor(subInk)
-                .lineLimit(1)
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .top, spacing: 0) {
+                VStack(alignment: .leading, spacing: 3) {
+                    amountRow(size: 24)
+                    Text(entry.percentText)
+                        .font(.system(size: 11))
+                        .foregroundColor(subInk)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                quickAddButton
+            }
             Spacer(minLength: 0)
             HStack(alignment: .bottom) {
                 if entry.showStreak {
@@ -262,10 +266,38 @@ struct WaterWidgetView: View {
                     Image(uiImage: mascot)
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 64, height: 64)
+                        .frame(width: 84, height: 84)
                 }
             }
         }
+    }
+
+    /// 小尺寸右上角的单键快捷记录（槽位 1）
+    @ViewBuilder
+    private var quickAddButton: some View {
+        if #available(iOS 17.0, *) {
+            Button(intent: QuickAddDrinkIntent(slot: 1)) {
+                addIcon
+            }
+            .buttonStyle(.plain)
+        } else if let url = URL(string: "waterllama://quick-add?slot=1") {
+            Link(destination: url) {
+                addIcon
+            }
+        } else {
+            addIcon
+        }
+    }
+
+    private var addIcon: some View {
+        ZStack {
+            Circle().fill(Color.white)
+            Circle().stroke(badgeStroke, lineWidth: 1.5)
+            Image(systemName: "plus")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundColor(inkLight)
+        }
+        .frame(width: 30, height: 30)
     }
 
     // MARK: - 组件
