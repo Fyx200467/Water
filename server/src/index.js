@@ -118,6 +118,55 @@ const staticTypes = {
   '.webp': 'image/webp',
 };
 
+// 官网与管理端共用的静态文件类型
+const webTypes = {
+  ...staticTypes,
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.txt': 'text/plain; charset=utf-8',
+  '.ico': 'image/x-icon',
+  '.apk': 'application/vnd.android.package-archive',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+};
+
+// 官网静态站目录（部署时通过 WEB_DIR 指定；未设置时不接管根路径）
+const webDir = process.env.WEB_DIR ? path.resolve(process.env.WEB_DIR) : '';
+
+/// 托管官网静态文件：命中真实文件时返回 true，未命中交还给 API 路由
+function serveWeb(req, res, pathname) {
+  if (!webDir) return false;
+  if (req.method !== 'GET' && req.method !== 'HEAD') return false;
+  let rel = '';
+  try {
+    rel = decodeURIComponent(pathname);
+  } catch {
+    return false;
+  }
+  if (rel === '/' || rel === '') rel = '/index.html';
+  const root = webDir + path.sep;
+  const filePath = path.resolve(webDir, `.${rel}`);
+  if (!filePath.startsWith(root) || !existsSync(filePath)) return false;
+  const stat = statSync(filePath);
+  if (!stat.isFile()) return false;
+  const ext = path.extname(filePath).toLowerCase();
+  const headers = {
+    'Content-Type': webTypes[ext] || 'application/octet-stream',
+    'Content-Length': stat.size,
+    // 页面不缓存，资源和安装包短缓存，保证发版后立刻生效
+    'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=300',
+  };
+  res.writeHead(200, headers);
+  if (req.method === 'HEAD') {
+    res.end();
+    return true;
+  }
+  createReadStream(filePath).pipe(res);
+  return true;
+}
+
 /// 素材托管：/static/<文件名> 映射到 assets 目录
 function serveStatic(res, pathname) {
   let rel = '';
@@ -941,6 +990,9 @@ async function handle(req, res, url) {
   if (method === 'GET' && pathname === '/health') {
     return send(res, 200, { ok: true, time: nowIso(), db: dbPath });
   }
+
+  // 官网静态页优先：命中 web/ 下的真实文件就直接返回，否则继续走 API 路由
+  if ((method === 'GET' || method === 'HEAD') && serveWeb(req, res, pathname)) return;
 
   if (method === 'GET' && pathname === '/') {
     return send(res, 200, {
