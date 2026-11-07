@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' show Color;
 
@@ -137,6 +138,23 @@ Future<void> syncHomeWidget({
       await HomeWidget.saveWidgetData<String>('drink${i}_name', d?.name ?? '');
       await HomeWidget.saveWidgetData<String>(
           'drink${i}_icon', d?.iconFile?.path ?? '');
+    }
+    // iOS：WidgetKit 扩展读不到 App 主沙盒里的图标文件，改以 base64 走
+    // 共享 UserDefaults（Swift 侧 Data(base64Encoded:) 解码；96px PNG
+    // 每张仅十几 KB）。Android 仍用绝对路径 + setImageViewBitmap。
+    if (Platform.isIOS) {
+      for (var i = 1; i <= 3; i++) {
+        final f = i <= drinks.length ? drinks[i - 1].iconFile : null;
+        var b64 = '';
+        if (f != null && f.existsSync()) {
+          try {
+            b64 = base64Encode(await f.readAsBytes());
+          } catch (_) {
+            // 读取失败按无图标处理
+          }
+        }
+        await HomeWidget.saveWidgetData<String>('drink${i}_icon_png', b64);
+      }
     }
     // 原生快速路径键：vivo 冻结窗口内点按录入由 QuickAddReceiver 直接
     // 读写这些数值（不拉起 Dart 引擎），跨天用 widget_date 判定归零
