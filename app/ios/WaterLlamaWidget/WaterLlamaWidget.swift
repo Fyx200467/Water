@@ -245,60 +245,87 @@ struct WaterWidgetView: View {
     // MARK: - 小尺寸（Android 无对应规格，取同一视觉语言的精简版）
 
     private var small: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 2) {
             HStack(alignment: .top, spacing: 0) {
-                VStack(alignment: .leading, spacing: 3) {
-                    amountRow(size: 24)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    amountRow(size: 22)
                     Text(entry.percentText)
-                        .font(.system(size: 11))
+                        .font(.system(size: 10))
                         .foregroundColor(subInk)
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
-                quickAddButton
-            }
-            Spacer(minLength: 0)
-            HStack(alignment: .bottom) {
                 if entry.showStreak {
                     badge
                 }
-                Spacer(minLength: 0)
-                if let mascot = entry.mascot {
+            }
+            Spacer(minLength: 0)
+            if let mascot = entry.mascot {
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
                     Image(uiImage: mascot)
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 84, height: 84)
+                        .frame(width: 74, height: 74)
+                    Spacer(minLength: 0)
                 }
             }
+            Spacer(minLength: 0)
+            if let first = entry.drinks.first {
+                quickTile(first)
+            }
         }
     }
 
-    /// 小尺寸右上角的单键快捷记录（槽位 1）
+    /// 小尺寸底部的单条饮品格（版式与中尺寸饮料格一致：容量/名称 + 粗体 + + 图标）
     @ViewBuilder
-    private var quickAddButton: some View {
-        if #available(iOS 17.0, *) {
-            Button(intent: QuickAddDrinkIntent(slot: 1)) {
-                addIcon
+    private func quickTile(_ drink: WaterDrink) -> some View {
+        let content = HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 0) {
+                if !drink.mlLabel.isEmpty {
+                    Text(drink.mlLabel)
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(ink)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+                if !drink.name.isEmpty {
+                    Text(drink.name)
+                        .font(.system(size: 8.5))
+                        .foregroundColor(subInk)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
             }
-            .buttonStyle(.plain)
-        } else if let url = URL(string: "waterllama://quick-add?slot=1") {
-            Link(destination: url) {
-                addIcon
+            Spacer(minLength: 0)
+            Text("+")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(ink)
+            if let icon = drink.icon {
+                Image(uiImage: icon)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 18, height: 18)
+            }
+        }
+        .padding(.horizontal, 9)
+        .frame(height: 28)
+        .background(RoundedRectangle(cornerRadius: 9).fill(entry.tileColor))
+        // 胶囊为纯白时（tile_color=-1）靠描边保持可见
+        .overlay(RoundedRectangle(cornerRadius: 9).stroke(badgeStroke.opacity(0.7), lineWidth: 0.8))
+
+        if drink.addable {
+            if #available(iOS 17.0, *) {
+                Button(intent: QuickAddDrinkIntent(slot: drink.id)) { content }
+                    .buttonStyle(.plain)
+            } else if let url = URL(string: "waterllama://quick-add?slot=\(drink.id)") {
+                Link(destination: url) { content }
+            } else {
+                content
             }
         } else {
-            addIcon
+            content
         }
-    }
-
-    private var addIcon: some View {
-        ZStack {
-            Circle().fill(Color.white)
-            Circle().stroke(badgeStroke, lineWidth: 1.5)
-            Image(systemName: "plus")
-                .font(.system(size: 14, weight: .bold))
-                .foregroundColor(inkLight)
-        }
-        .frame(width: 30, height: 30)
     }
 
     // MARK: - 组件
