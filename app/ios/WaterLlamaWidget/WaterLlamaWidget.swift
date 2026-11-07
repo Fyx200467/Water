@@ -275,19 +275,25 @@ struct WaterWidgetView: View {
         }
     }
 
-    /// 小尺寸右上角的添加键：只展示该槽位饮品的容量（如 250ml），点按即记录
+    /// 小尺寸右上角的添加键：粗体 + 加号 + 槽位 1 的饮品图标，点按即记录
     @ViewBuilder
     private func capacityButton(_ drink: WaterDrink) -> some View {
-        let pill = Text(drink.mlLabel.isEmpty ? "＋" : drink.mlLabel)
-            .font(.system(size: 11.5, weight: .bold))
-            .foregroundColor(ink)
-            .lineLimit(1)
-            .minimumScaleFactor(0.8)
-            .padding(.horizontal, 9)
-            .frame(height: 26)
-            .background(Capsule().fill(entry.tileColor))
-            // 胶囊为纯白时（tile_color=-1）靠描边保持可见
-            .overlay(Capsule().stroke(badgeStroke.opacity(0.7), lineWidth: 0.8))
+        let pill = HStack(spacing: 5) {
+            Text("+")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundColor(ink)
+            if let icon = drink.icon {
+                Image(uiImage: icon)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 18, height: 18)
+            }
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 26)
+        .background(Capsule().fill(entry.tileColor))
+        // 胶囊为纯白时（tile_color=-1）靠描边保持可见
+        .overlay(Capsule().stroke(badgeStroke.opacity(0.7), lineWidth: 0.8))
 
         if drink.addable {
             if #available(iOS 17.0, *) {
