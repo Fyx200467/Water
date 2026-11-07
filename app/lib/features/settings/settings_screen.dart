@@ -678,7 +678,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Future<void> _exportCsv() async {
     final ok = await ensureMember(context, ref, feature: '数据导出');
     if (!ok || !mounted) return;
-    final result = await exportAllEntriesCsv(ref);
+    // iPad 的分享面板是 popover，用当前页面区域作为锚点
+    final box = context.findRenderObject();
+    final origin = (box is RenderBox && box.hasSize)
+        ? box.localToGlobal(Offset.zero) & box.size
+        : null;
+    final result =
+        await exportAllEntriesCsv(ref, sharePositionOrigin: origin);
     if (!mounted) return;
     _showSnack(switch (result) {
       CsvExportResult.ok => '已生成 CSV，可在分享面板中保存或发送',

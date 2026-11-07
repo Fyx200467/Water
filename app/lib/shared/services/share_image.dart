@@ -28,6 +28,12 @@ class ShareImage {
     double pixelRatio = 3,
   }) async {
     final key = GlobalKey();
+    // iPad 上分享面板是 popover，必须给锚点，否则会抛异常/定位到左上角。
+    // 先取再 await，避免跨异步边界使用 BuildContext
+    final anchorBox = context.findRenderObject();
+    final origin = (anchorBox is RenderBox && anchorBox.hasSize)
+        ? anchorBox.localToGlobal(Offset.zero) & anchorBox.size
+        : null;
     final overlay = Overlay.of(context, rootOverlay: true);
     final entry = OverlayEntry(
       builder: (_) => Positioned(
@@ -52,7 +58,7 @@ class ShareImage {
       image.dispose();
       final bytes = data?.buffer.asUint8List();
       if (bytes == null) throw StateError('encode_failed');
-      await _share(bytes, fileName: fileName, text: text);
+      await _share(bytes, fileName: fileName, text: text, origin: origin);
     } finally {
       entry.remove();
     }
@@ -70,6 +76,11 @@ class ShareImage {
     required String fileName,
     String? text,
   }) async {
+    // iPad 上分享面板是 popover，必须给锚点；先取再 await
+    final anchorBox = context.findRenderObject();
+    final origin = (anchorBox is RenderBox && anchorBox.hasSize)
+        ? anchorBox.localToGlobal(Offset.zero) & anchorBox.size
+        : null;
     if (!controller.hasClients) throw StateError('no_scroll');
     final boundary =
         viewportKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
@@ -118,7 +129,7 @@ class ShareImage {
     stitched.dispose();
     final bytes = data?.buffer.asUint8List();
     if (bytes == null) throw StateError('encode_failed');
-    await _share(bytes, fileName: fileName, text: text);
+    await _share(bytes, fileName: fileName, text: text, origin: origin);
   }
 
   /// 分享已经写好的 PNG 字节（临时文件方式，微信/QQ 可直接读取）
@@ -126,6 +137,7 @@ class ShareImage {
     Uint8List bytes, {
     required String fileName,
     String? text,
+    Rect? origin,
   }) async {
     final dir = await getTemporaryDirectory();
     final file = File('${dir.path}${Platform.pathSeparator}$fileName');
@@ -134,6 +146,7 @@ class ShareImage {
       ShareParams(
         files: [XFile(file.path, mimeType: 'image/png')],
         text: text,
+        sharePositionOrigin: origin,
       ),
     );
   }

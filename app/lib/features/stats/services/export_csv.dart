@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui' show Rect;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -14,7 +15,11 @@ enum CsvExportResult { ok, empty, failed }
 /// 导出全部饮水记录为 CSV 并调起系统分享面板（会员权益）
 ///
 /// 会员校验由调用方负责；这里只负责取数、拼 CSV、落盘与分享。
-Future<CsvExportResult> exportAllEntriesCsv(WidgetRef ref) async {
+Future<CsvExportResult> exportAllEntriesCsv(
+  WidgetRef ref, {
+  /// iPad 上分享面板为 popover，必须提供锚点
+  Rect? sharePositionOrigin,
+}) async {
   final storage = await ref.read(localStorageProvider.future);
   final now = DateTime.now();
   final entries = (await storage.loadEntriesForRange(
@@ -49,6 +54,7 @@ Future<CsvExportResult> exportAllEntriesCsv(WidgetRef ref) async {
         files: [XFile(file.path, mimeType: 'text/csv')],
         subject: '吨吨饮水记录导出',
         text: '吨吨饮水记录（${entries.length} 条）',
+        sharePositionOrigin: sharePositionOrigin,
       ),
     );
     return CsvExportResult.ok;

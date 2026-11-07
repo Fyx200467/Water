@@ -76,9 +76,11 @@ class _DefenseScreenState extends ConsumerState<DefenseScreen>
 
   @override
   void dispose() {
-    // 恢复系统旋转，避免影响其它页面
+    // 恢复全 App 的竖屏锁定（其它页面同样只支持竖屏）
     unawaited(
-      SystemChrome.setPreferredOrientations(DeviceOrientation.values),
+      SystemChrome.setPreferredOrientations(const [
+        DeviceOrientation.portraitUp,
+      ]),
     );
     _ticker.dispose();
     _repaint.dispose();

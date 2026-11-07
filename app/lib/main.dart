@@ -31,6 +31,10 @@ Future<void> main() async {
     statusBarIconBrightness: Brightness.dark,
     systemStatusBarContrastEnforced: false,
   ));
+  // 全 App 锁定竖屏：除防御小游戏外没有横屏布局（该页自身也锁竖屏）
+  await SystemChrome.setPreferredOrientations(const [
+    DeviceOrientation.portraitUp,
+  ]);
   // 设置开关（动画/卡路里/重置时间等）启动即加载，
   // 保证渲染层首帧就能读到持久化的开关状态。
   // 必须 await：LogicalDay 的「一天重置时刻」口径来自这里，未加载完就
