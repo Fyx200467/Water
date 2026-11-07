@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
 import 'package:flutter/material.dart';
 
 /// PRD §4.3 适配深浅色模式；§4.5 全局无开屏广告、无弹窗干扰
@@ -14,6 +15,14 @@ class AppTheme {
   static const Color _surfaceLight = Colors.white;
   static const Color _surfaceDark = Color(0xFF1B1F24);
 
+  /// iOS 走 Cupertino 转场（含侧滑返回）；安卓维持 Material 默认
+  static const PageTransitionsTheme _pageTransitions = PageTransitionsTheme(
+    builders: <TargetPlatform, PageTransitionsBuilder>{
+      TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+      TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+    },
+  );
+
   static ThemeData light() {
     final base = ThemeData.light(useMaterial3: true);
     return base.copyWith(
@@ -25,6 +34,7 @@ class AppTheme {
         surface: _surfaceLight,
       ),
       scaffoldBackgroundColor: _bgLight,
+      pageTransitionsTheme: _pageTransitions,
       appBarTheme: const AppBarTheme(
         backgroundColor: _bgLight,
         foregroundColor: Color(0xFF1B1F24),
@@ -61,6 +71,7 @@ class AppTheme {
         surface: _surfaceDark,
       ),
       scaffoldBackgroundColor: _bgDark,
+      pageTransitionsTheme: _pageTransitions,
       appBarTheme: const AppBarTheme(
         backgroundColor: _bgDark,
         foregroundColor: Colors.white,
