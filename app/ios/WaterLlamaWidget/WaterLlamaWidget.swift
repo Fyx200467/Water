@@ -19,6 +19,7 @@
 //  WidgetKit 限制：不支持帧动画，液体波浪与 ✓/天数轮播改为静态帧/静态徽章。
 //
 
+import AppIntents
 import SwiftUI
 import WidgetKit
 
